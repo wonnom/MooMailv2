@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "dev": ".venv/bin/python scripts/serve_chat.py --host 127.0.0.1 --port 8787",
+    "test": ".venv/bin/python -m pytest"
+  },
+  "dependencies": {
+    "pydantic": "^0.0.1-security"
+  }
+}

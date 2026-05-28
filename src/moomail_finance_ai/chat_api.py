@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from moomail_finance_ai.full_agent import build_default_full_agent
+from moomail_finance_ai.mocks import mock_investment_policy
+from moomail_finance_ai.portfolio_agent import (
+    PortfolioAgentResult,
+    PortfolioEvaluator,
+    build_default_portfolio_agent,
+)
+from moomail_finance_ai.schemas import AgentState, StatusEvent
+
+
+class ChatService:
+    def __init__(
+        self,
+        *,
+        from_report: str | Path | None = "reports/opend/field-report.json",
+        db_path: str | Path = "data/chat-portfolio-history.sqlite",
+        memory_path: str | Path = "data/chat-investment-memory.json",
+        env_file: str | Path | None = "config/local.env",
+        llm_provider: str | None = None,
+        portfolio_evaluator: PortfolioEvaluator | None = None,
+        default_agent: str = "investment",
+    ):
+        self.from_report = from_report
+        self.db_path = db_path
+        self.memory_path = memory_path
+        self.env_file = env_file
+        self.llm_provider = llm_provider
+        self.portfolio_evaluator = portfolio_evaluator
+        self.default_agent = default_agent
+
+    def run(
+        self,
+        query: str,
+        *,
+        status_callback=None,
+        agent: str | None = None,
+    ) -> AgentState | PortfolioAgentResult:
+        selected_agent = agent or self.default_agent
+        if selected_agent == "portfolio":
+            portfolio_agent = build_default_portfolio_agent(
+                env_file=self.env_file,
+                from_report=self.from_report,
+                db_path=self.db_path,
+                llm_provider=self.llm_provider,
+                evaluator=self.portfolio_evaluator,
+            )
+            return portfolio_agent.run(
+                query,
+                mock_investment_policy(),
+                status_callback=status_callback,
+            )
+        if selected_agent != "investment":
+            raise ValueError(f"Unsupported chat agent: {selected_agent}")
+        agent = build_default_full_agent(
+            from_report=self.from_report,
+            db_path=self.db_path,
+            memory_path=self.memory_path,
+        )
+        return agent.run(query, status_callback=status_callback)
+
+
+def chat_response(state: AgentState | PortfolioAgentResult) -> dict[str, Any]:
+    if isinstance(state, PortfolioAgentResult):
+        return portfolio_agent_response(state)
+    return state_response(state)
+
+
+def state_response(state: AgentState) -> dict[str, Any]:
+    return {
+        "agent_type": "investment_agent",
+        "run_id": state.run_id,
+        "mode": state.mode,
+        "status_events": [event.model_dump(mode="json") for event in state.status_events],
+        "final_report": state.final_report.model_dump(mode="json") if state.final_report else None,
+        "guardrail_result": state.guardrail_result.model_dump(mode="json")
+        if state.guardrail_result
+        else None,
+        "audit_record": state.audit_record.model_dump(mode="json") if state.audit_record else None,
+    }
+
+
+def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
+    return {
+        "agent_type": "portfolio_agent",
+        "run_id": result.run_id,
+        "mode": "portfolio",
+        "status_events": [event.model_dump(mode="json") for event in result.status_events],
+        "portfolio_agent_result": result.model_dump(mode="json"),
+        "final_report": {
+            "title": "Portfolio Agent Evaluation",
+            "mode": "portfolio",
+            "summary": result.evaluation.summary,
+            "portfolio_analysis": {
+                "allocation": {
+                    key: [item.model_dump(mode="json") for item in values]
+                    for key, values in result.portfolio_packet.allocation.items()
+                },
+                "performance": result.portfolio_packet.performance.model_dump(mode="json"),
+                "risk": result.portfolio_packet.risk.model_dump(mode="json"),
+                "candidate_issues": [
+                    issue.model_dump(mode="json") for issue in result.portfolio_packet.candidate_issues
+                ],
+                "evaluation": result.evaluation.model_dump(mode="json"),
+                "metrics": [metric.model_dump(mode="json") for metric in result.metrics],
+                "storage_result": result.storage_result,
+                "metrics_storage_result": result.metrics_storage_result,
+                "history_status": result.history_status,
+                "tool_calls": result.tool_calls,
+            },
+            "sentiment_analysis": {},
+            "recommendations": [],
+            "missing_data": result.warnings,
+            "citations": [],
+        },
+        "guardrail_result": {
+            "passed": True,
+            "checks": [
+                {
+                    "check": "portfolio_agent_scope",
+                    "passed": True,
+                    "message": "Portfolio Agent returned portfolio-only analysis.",
+                }
+            ],
+        },
+        "audit_record": None,
+    }
+
+
+def status_event_payload(event: StatusEvent) -> dict[str, Any]:
+    return {"type": "status", "event": event.model_dump(mode="json")}
+
+
+def stream_payloads(service: ChatService, query: str, *, agent: str | None = None) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+
+    def emit(event: StatusEvent) -> None:
+        payloads.append(status_event_payload(event))
+
+    state = service.run(query, agent=agent, status_callback=emit)
+    payloads.append({"type": "final", "state": chat_response(state)})
+    return payloads

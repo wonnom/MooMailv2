@@ -1,0 +1,291 @@
+# Architecture
+
+## Overview
+
+The system is a local-first multi-agent investment analysis platform. It uses Python for agents, tools, orchestration, analytics, memory, and retrieval. A basic local TypeScript/static chatbot frontend exists, while backend contracts remain the source of truth.
+
+The first complete workflow is:
+
+```text
+User query
+  -> Investment Agent
+  -> Load IPS
+  -> Retrieve long-term memory
+  -> Portfolio Agent
+      -> MooMoo/OpenD read-only data
+      -> SQL history when available
+      -> Finance metrics tools
+  -> Sentiment Agent
+      -> Neo4j GraphRAG
+      -> Vector research chunks
+  -> Investment Agent synthesis
+  -> Guardrail review
+  -> Terminal or local frontend output
+  -> Audit summary and optional memory write
+```
+
+## Local-First Deployment
+
+V1 should run locally:
+
+- Python commands run through the project-local `.venv`.
+- OpenD gateway runs locally and is assumed to already be started by the user.
+- Python agent service runs locally.
+- MCP servers run locally.
+- SQL database runs locally or on a trusted private host.
+- Neo4j runs locally or in a controlled private instance.
+- Pinecone is used for long-term memory unless replaced by a local vector store later.
+- A basic TypeScript/static frontend runs locally; larger frontend work should follow stable backend contracts.
+
+No brokerage credentials, database credentials, or MCP secrets should be exposed to the frontend.
+
+## MCP Server Boundaries
+
+MCP servers are the tool boundary. Agents call tools through MCP rather than directly integrating with every external service.
+
+### `moomail-opend-mcp`
+
+Purpose: read-only MooMoo/OpenD access.
+
+Capabilities:
+
+- Check OpenD connection
+- List accounts
+- Get account balances
+- Get cash balances
+- Get current positions
+- Get quotes for held assets
+- Get order or transaction history only if OpenD exposes it read-only
+- Return provider metadata and freshness warnings
+
+Constraints:
+
+- No trading tools.
+- No order placement.
+- No executable order preparation.
+- Fail clearly if OpenD is unavailable.
+- Cache data only within the run unless explicitly persisted elsewhere.
+
+`moomail-opend-mcp` should be implemented before final SQL design. The project should first inspect exactly what OpenD provides and design persistence around available fields.
+
+### `moomail-portfolio-sql-mcp`
+
+Purpose: portfolio history, snapshots, calculated metrics, run records, and audit logs.
+
+Capabilities:
+
+- Store portfolio snapshots
+- Read historical snapshots
+- Store calculated metrics
+- Read metric history
+- Store audit records
+- Store simple output summaries
+- Store agent run metadata
+
+Constraints:
+
+- No destructive writes from agents.
+- Writes are limited to approved tables.
+- Store structured JSON and concise summaries where useful.
+- Do not store hidden model reasoning.
+- Store output summaries rather than full final responses.
+
+### `moomail-finance-metrics-mcp`
+
+Purpose: deterministic financial calculations.
+
+Capabilities:
+
+- Allocation and weights
+- Concentration
+- Sector exposure aggregation
+- Cash weight and cash drag
+- Volatility
+- Drawdown
+- Sharpe ratio
+- Sortino ratio
+- VaR and CVaR
+- Beta
+- Correlation
+- Benchmark comparison
+- Scenario analysis
+- Contribution to risk where supported
+
+Design:
+
+- Implement as normal Python functions with unit tests.
+- Expose through MCP for agent use.
+- Prefer structured inputs over direct database access.
+- Return calculation version, assumptions, input scope, and warnings.
+
+### `research-rag-mcp`
+
+Purpose: curated research retrieval and GraphRAG.
+
+Capabilities:
+
+- Retrieve evidence by ticker
+- Retrieve evidence by company/entity
+- Expand graph context around events, risks, people, products, competitors, claims, and sectors
+- Return document chunks with parent document metadata
+- Return source quality and citation data
+- Surface contradictory evidence
+
+Constraints:
+
+- V1 uses manually populated corpus only.
+- No external web/news ingestion in v1.
+- Retrieval scope starts with portfolio holdings only.
+- User-authored notes are not included in Neo4j v1.
+
+### `memory-mcp`
+
+Purpose: Investment Agent long-term memory.
+
+Capabilities:
+
+- Retrieve relevant memories by query, ticker, mode, and memory type
+- Write routine agent-generated review summaries
+- Propose user preference or thesis memory changes for explicit approval
+- Mark memories as inactive or superseded
+- Return memory provenance and timestamps
+
+Constraints:
+
+- Investment Agent only.
+- Portfolio Agent and Sentiment Agent do not directly access Pinecone.
+- Pinecone does not store source-of-truth financial records.
+- Avoid exact raw account values in memory.
+- IPS, current portfolio data, and cited source data outrank memory.
+
+## Data Stores
+
+### MooMoo/OpenD
+
+Role: live/current read-only source for holdings, balances, cash, and quotes.
+
+Current limitation: historical portfolio data may not be extractable from OpenD. The system should explore OpenD first and persist useful snapshots into SQL.
+
+### SQL Portfolio Store
+
+Role: source of truth for portfolio history and audit records once implemented.
+
+Expected data:
+
+- Portfolios
+- Accounts
+- Assets
+- Positions
+- Cash balances
+- Quotes captured during runs
+- Snapshots
+- Transactions if available or manually imported
+- Calculated metrics
+- Agent runs
+- Tool calls
+- Audit summaries
+
+The final SQL schema should be designed after OpenD field exploration.
+
+### Neo4j GraphRAG Store
+
+Role: research graph for company, document, event, claim, risk, catalyst, management, and sector relationships.
+
+First-class nodes:
+
+- `Company`
+- `Ticker`
+- `Document`
+- `Person`
+- `Event`
+- `Metric`
+- `Risk`
+- `Catalyst`
+- `Claim`
+- `Sector`
+- `Product`
+
+Key relationships:
+
+- `ISSUED_BY`
+- `MENTIONS`
+- `ASSERTS`
+- `CONTRADICTS`
+- `AFFECTS`
+- `GUIDED_BY`
+- `LED_BY`
+- `COMPETES_WITH`
+- `EXPOSED_TO`
+- `SUPPORTED_BY`
+
+### Research Vector Store
+
+Role: semantic chunk retrieval for documents.
+
+Neo4j should store graph metadata and references to vector chunk IDs. Final citations should point to chunk-level evidence with parent document metadata.
+
+### Pinecone Memory
+
+Role: Investment Agent long-term memory.
+
+Memory types:
+
+- `user_preference`
+- `investment_thesis`
+- `past_recommendation`
+- `decision_record`
+- `portfolio_review_summary`
+- `risk_concern`
+- `watchlist_interest`
+- `agent_observation`
+
+Some memories should expire or be superseded. Durable policy preferences should remain in the canonical IPS instead of Pinecone.
+
+## Orchestration
+
+Use LangGraph for the Investment Agent state machine, with LangChain components where useful.
+
+Suggested nodes:
+
+1. Classify query
+2. Load IPS
+3. Retrieve memory
+4. Get portfolio context
+5. Decide sentiment scope
+6. Call Portfolio Agent
+7. Call Sentiment Agent when needed
+8. Synthesize response
+9. Guardrail review
+10. Emit final structured output
+11. Store audit summary
+12. Propose or write memory update
+
+Portfolio Agent and Sentiment Agent can begin as callable chains, but their interfaces should be designed as subgraphs so they can evolve cleanly.
+
+## Frontend Direction
+
+The frontend started as a delayed concern, but a dependency-light local chat UI
+now exists over the current backend contracts. Backend agents, tools, memory,
+orchestration, and output contracts remain the source of truth for future UI
+expansion.
+
+Terminal output remains useful for inspection and regression checks.
+
+When built, the frontend should be:
+
+- TypeScript
+- Chat-first
+- Capable of rendering structured report panels
+- Capable of showing streaming operational status
+- Capable of showing citations and a technical trace drawer
+
+Structured panels planned for later:
+
+- Portfolio snapshot
+- Allocation
+- Risk diagnostics
+- Holding deep dives
+- Sentiment evidence
+- Recommendations
+- Missing data
+- Audit/source drawer

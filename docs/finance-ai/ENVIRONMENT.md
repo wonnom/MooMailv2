@@ -1,0 +1,169 @@
+# Python Environment
+
+Use the project-local virtual environment for all Python commands. This avoids the interpreter mismatch where `pip install` succeeds in one Python installation but scripts run with another.
+
+## Created Environment
+
+The local environment is:
+
+```text
+.venv/
+```
+
+It was created with:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev,opend]'
+```
+
+Installed project extras:
+
+- `dev`: pytest and test tooling
+- `opend`: MooMoo OpenAPI SDK and its dependencies
+- `mcp`: optional official MCP SDK runtime for future FastMCP work
+
+The current local MCP server scripts do not require the official MCP SDK. They
+use the project's lightweight stdio adapter so tests can run without network
+dependency installation.
+
+## Recommended Command Style
+
+Either activate the environment:
+
+```bash
+source .venv/bin/activate
+```
+
+Then run:
+
+```bash
+python -m pytest
+python scripts/run_prototype.py "Review my portfolio"
+python scripts/check_opend.py --env-file config/local.env
+python scripts/explore_opend_fields.py --env-file config/local.env --output reports/opend/field-report.json
+python scripts/portfolio_agent_review.py --env-file config/local.env --llm-provider gemini
+python scripts/serve_chat.py --env-file config/local.env --default-agent portfolio
+```
+
+Or call the venv interpreter directly:
+
+```bash
+.venv/bin/python -m pytest
+.venv/bin/python scripts/run_prototype.py "Review my portfolio"
+.venv/bin/python scripts/check_opend.py --env-file config/local.env
+.venv/bin/python scripts/explore_opend_fields.py --env-file config/local.env --output reports/opend/field-report.json
+.venv/bin/python scripts/portfolio_agent_review.py --env-file config/local.env --llm-provider gemini
+.venv/bin/python scripts/serve_chat.py --env-file config/local.env --default-agent portfolio
+```
+
+The second style is more explicit and avoids accidental shell interpreter drift.
+
+## Verify Interpreter
+
+Use these commands if imports behave strangely:
+
+```bash
+.venv/bin/python -c 'import sys; print(sys.executable)'
+.venv/bin/python -c 'import pydantic; print(pydantic.__version__); print(pydantic.__file__)'
+.venv/bin/python -c 'import pytest; print(pytest.__version__)'
+```
+
+Expected interpreter:
+
+```text
+/Users/weesi/Documents/MooMailV2/.venv/bin/python
+```
+
+Pydantic should resolve inside:
+
+```text
+/Users/weesi/Documents/MooMailV2/.venv/lib/python3.12/site-packages/pydantic
+```
+
+## OpenD Notes
+
+OpenD must be manually opened and logged in before live checks can succeed.
+
+The venv includes `moomoo-api`, but the SDK connects through the local OpenD gateway. It does not use a normal REST API key.
+
+Create local config:
+
+```bash
+cp config/example.env config/local.env
+```
+
+Then edit:
+
+```env
+MOOMAIL_OPEND_HOST=127.0.0.1
+MOOMAIL_OPEND_PORT=11111
+```
+
+Use the API port configured in OpenD.
+
+Optional RSA configuration goes here only if OpenD encryption is configured:
+
+```env
+MOOMAIL_OPEND_RSA_PRIVATE_KEY_PATH=/path/to/conn_key.txt
+```
+
+There is intentionally no trade unlock password setting.
+
+## Portfolio Agent LLM
+
+The Portfolio Agent LLM evaluator is provider-neutral. The current default is
+Gemini, but OpenAI can be selected through env or CLI.
+
+Gemini:
+
+```env
+MOOMAIL_PORTFOLIO_AGENT_LLM_PROVIDER=gemini
+MOOMAIL_GEMINI_API_KEY=...
+MOOMAIL_GEMINI_MODEL=...
+```
+
+OpenAI:
+
+```env
+MOOMAIL_PORTFOLIO_AGENT_LLM_PROVIDER=openai
+MOOMAIL_OPENAI_API_KEY=...
+MOOMAIL_OPENAI_MODEL=...
+```
+
+CLI override:
+
+```bash
+.venv/bin/python scripts/portfolio_agent_review.py --llm-provider openai
+```
+
+## Updating Packages
+
+When dependencies change:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev,opend]'
+```
+
+Install the optional official MCP SDK when actively working on the FastMCP
+runtime migration:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev,opend,mcp]'
+```
+
+Do not use plain `pip install` unless the venv is activated. Prefer:
+
+```bash
+.venv/bin/python -m pip install package-name
+```
+
+## Live Connector Tests
+
+Live connector tests are opt-in and are skipped during normal test runs.
+
+```bash
+MOOMAIL_RUN_LIVE_CONNECTOR_TESTS=1 .venv/bin/python -m pytest tests/live -q
+```
+
+See [CONNECTOR_TESTS.md](CONNECTOR_TESTS.md) for required environment variables and one-connector-at-a-time commands.

@@ -1,0 +1,131 @@
+from __future__ import annotations
+
+from moomail_finance_ai.config import OpenDConfig
+from moomail_finance_ai.mcp.agent_access import build_agent_manifest
+from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
+from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
+from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
+from moomail_finance_ai.mcp.stdio import JsonRpcMCPServer
+from moomail_finance_ai.metrics import calculate_snapshot_metrics
+from moomail_finance_ai.mocks import mock_investment_policy, mock_portfolio_packet
+from moomail_finance_ai.sql_store import PortfolioSqlStore
+
+
+def test_finance_metrics_mcp_lists_tools_resources_and_calls_metric():
+    module = build_finance_metrics_mcp_module()
+    tool_names = [tool.name for tool in module.list_tools()]
+
+    result = module.call_tool(
+        "calculate_cash_weight",
+        {"total_value": 1000.0, "cash_value": 125.0},
+    )
+    resource = module.read_resource("finance-metrics://version")
+
+    assert "calculate_snapshot_metrics" in tool_names
+    assert result.structured_content["metric_name"] == "cash_weight"
+    assert result.structured_content["value"] == 0.125
+    assert "finance-metrics://version" in resource["contents"][0]["uri"]
+
+
+def test_mcp_stdio_adapter_exposes_tools_and_resources():
+    server = JsonRpcMCPServer(build_finance_metrics_mcp_module())
+
+    initialized = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    tools = server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    called = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "calculate_cash_weight",
+                "arguments": {"total_value": 1000.0, "cash_value": 50.0},
+            },
+        }
+    )
+    resources = server.handle_request({"jsonrpc": "2.0", "id": 4, "method": "resources/list"})
+
+    assert initialized is not None
+    assert initialized["result"]["serverInfo"]["name"] == "moomail-finance-metrics-mcp"
+    assert tools is not None
+    assert tools["result"]["tools"][0]["inputSchema"]["type"] == "object"
+    assert called is not None
+    assert called["result"]["structuredContent"]["value"] == 0.05
+    assert resources is not None
+    assert resources["result"]["resources"]
+
+
+def test_opend_mcp_is_read_only_and_can_normalize_recorded_snapshot(recorded_opend_client):
+    module = build_opend_mcp_module(
+        client=recorded_opend_client,
+        config=OpenDConfig(base_currency="USD"),
+    )
+    tool_names = [tool.name for tool in module.list_tools()]
+
+    snapshot_result = module.call_tool(
+        "opend_get_normalized_portfolio_snapshot",
+        {"portfolio_id": "portfolio_default"},
+    )
+    capabilities = module.read_resource("opend://capabilities/read-only")
+
+    assert "opend_get_positions" in tool_names
+    assert not any("order" in name or "place" in name or "cancel" in name for name in tool_names)
+    assert snapshot_result.structured_content["holdings"][0]["ticker"] == "AAPL"
+    assert snapshot_result.structured_content["data_quality"]["freshness_status"] == "fresh"
+    assert "place order" in capabilities["contents"][0]["text"]
+
+
+def test_portfolio_sql_mcp_stores_snapshot_metrics_and_reads_history(tmp_path):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    module = build_portfolio_sql_mcp_module(store=store)
+    packet = mock_portfolio_packet()
+    ips = mock_investment_policy()
+
+    stored = module.call_tool(
+        "portfolio_sql_store_snapshot",
+        {"snapshot": packet.snapshot.model_dump(mode="json")},
+    )
+    metrics = calculate_snapshot_metrics(packet.snapshot, ips)
+    metric_result = module.call_tool(
+        "portfolio_sql_store_metrics",
+        {
+            "snapshot_id": stored.structured_content["snapshot_id"],
+            "metrics": [metric.model_dump(mode="json") for metric in metrics],
+        },
+    )
+    status = module.call_tool(
+        "portfolio_sql_history_status",
+        {
+            "portfolio_id": packet.portfolio_id,
+            "now": packet.snapshot.as_of.isoformat(),
+            "min_snapshots_for_history": 1,
+        },
+    )
+    latest = module.call_tool(
+        "portfolio_sql_latest_snapshot",
+        {"portfolio_id": packet.portfolio_id},
+    )
+    schema_resource = module.read_resource("portfolio-sql://schema")
+
+    assert stored.structured_content["holdings_count"] == len(packet.snapshot.holdings)
+    assert metric_result.structured_content["metrics_stored"] == len(metrics)
+    assert status.structured_content["snapshot_count"] == 1
+    assert latest.structured_content["snapshot"]["portfolio_id"] == packet.portfolio_id
+    assert "portfolio_snapshots" in schema_resource["contents"][0]["text"]
+
+
+def test_agent_mcp_manifest_scopes_allowed_servers_and_tools(tmp_path, recorded_opend_client):
+    modules = [
+        build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+        build_portfolio_sql_mcp_module(db_path=tmp_path / "portfolio.sqlite"),
+        build_finance_metrics_mcp_module(),
+    ]
+
+    portfolio_manifest = build_agent_manifest("portfolio_agent", modules)
+    sentiment_manifest = build_agent_manifest("sentiment_agent", modules)
+    investment_manifest = build_agent_manifest("investment_agent", modules)
+
+    assert "moomail-opend-mcp" in portfolio_manifest.allowed_servers
+    assert any(tool.endswith(":opend_get_positions") for tool in portfolio_manifest.allowed_tools)
+    assert "moomail-opend-mcp" not in sentiment_manifest.allowed_servers
+    assert all(":opend_" not in tool for tool in investment_manifest.allowed_tools)

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Finance AI</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="chat-column" aria-label="Chat">
+        <header class="app-header">
+          <h1>Finance AI</h1>
+          <span id="guardrailBadge" class="badge">Idle</span>
+        </header>
+        <form id="chatForm" class="chat-form">
+          <select id="agentSelect" name="agent" aria-label="Agent">
+            <option value="portfolio" selected>Portfolio</option>
+            <option value="investment">Investment</option>
+          </select>
+          <input id="queryInput" name="query" value="Review my portfolio" autocomplete="off" />
+          <button id="runButton" type="submit">Run</button>
+        </form>
+        <ol id="statusList" class="status-list"></ol>
+        <details class="trace-panel">
+          <summary>Trace</summary>
+          <pre id="traceOutput"></pre>
+        </details>
+      </section>
+
+      <section class="report-column" aria-label="Report">
+        <section class="panel report-summary">
+          <div class="panel-heading">
+            <h2 id="reportTitle">Portfolio Review</h2>
+            <span id="reportMode" class="muted">review</span>
+          </div>
+          <p id="reportSummary">Run a review to load the latest local report.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Allocation</h2>
+          <div id="allocationBars" class="bar-stack"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Portfolio Evaluation</h2>
+          <div id="portfolioEvaluation" class="evaluation-grid"></div>
+        </section>
+
+        <section class="grid-panels">
+          <section class="panel">
+            <h2>Recommendations</h2>
+            <ul id="recommendationsList" class="plain-list"></ul>
+          </section>
+          <section class="panel">
+            <h2>Missing Data</h2>
+            <ul id="missingDataList" class="plain-list"></ul>
+          </section>
+        </section>
+
+        <section class="grid-panels">
+          <section class="panel">
+            <h2>Sentiment</h2>
+            <div id="sentimentList" class="holding-list"></div>
+          </section>
+          <section class="panel">
+            <h2>Citations</h2>
+            <div id="citationList" class="citation-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,33 @@
+[project]
+name = "moomail-finance-ai"
+version = "0.1.0"
+description = "Personal multi-agent finance AI prototype."
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.8,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+]
+opend = [
+  "moomoo-api>=10,<11",
+]
+mcp = [
+  "mcp>=1,<2",
+]
+
+[project.scripts]
+finance-ai-prototype = "moomail_finance_ai.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+  "live_connector: tests that call live/local connectors and are skipped unless MOOMAIL_RUN_LIVE_CONNECTOR_TESTS=1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

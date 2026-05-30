@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -109,7 +110,7 @@ class LLMPortfolioEvaluator:
                 history_status=history_status,
             ),
             system_instruction=PORTFOLIO_EVALUATOR_SYSTEM_PROMPT,
-            max_output_tokens=2048,
+            max_output_tokens=4096,
             temperature=0.1,
         )
         model = getattr(getattr(self.llm, "config", None), "model", None)
@@ -274,8 +275,9 @@ You are the Portfolio Agent evaluator for a personal finance AI.
 Use only the portfolio snapshot, deterministic metrics, SQL history status, and Investment Policy
 Statement supplied by the tool pipeline. Do not use market news, sentiment, external outlook, or
 unsupported facts. Do not recommend trade placement, order entry, exact share counts, or execution
-instructions. Return only valid JSON with these keys: summary, strengths, risks, ips_mismatches,
-history_observations, open_questions.
+instructions. Return a compact JSON object only, with no markdown fences and no prose outside JSON.
+Use these keys exactly: summary, strengths, risks, ips_mismatches, history_observations,
+open_questions. Keep each list to at most 4 items and each item under 180 characters.
 """.strip()
 
 
@@ -289,6 +291,11 @@ def _evaluation_prompt(
     storage_result: dict[str, Any],
     history_status: dict[str, Any],
 ) -> str:
+    cash_value = sum(cash.amount for cash in snapshot.cash)
+    cash_equivalent_holdings = [
+        holding for holding in snapshot.holdings if holding.asset_type == "cash_equivalent"
+    ]
+    cash_equivalent_value = sum(holding.market_value for holding in cash_equivalent_holdings)
     context = {
         "user_query": query,
         "investment_policy": ips.model_dump(mode="json"),
@@ -298,6 +305,25 @@ def _evaluation_prompt(
             "base_currency": snapshot.base_currency,
             "total_value": snapshot.total_value.model_dump(mode="json"),
             "cash": [cash.model_dump(mode="json") for cash in snapshot.cash],
+            "effective_cash": {
+                "cash_value": cash_value,
+                "cash_equivalent_value": cash_equivalent_value,
+                "effective_cash_value": cash_value + cash_equivalent_value,
+                "effective_cash_weight": (
+                    0.0
+                    if snapshot.total_value.amount == 0
+                    else (cash_value + cash_equivalent_value) / snapshot.total_value.amount
+                ),
+                "cash_equivalent_holdings": [
+                    {
+                        "ticker": holding.ticker,
+                        "name": holding.name,
+                        "market_value": holding.market_value,
+                        "portfolio_weight": holding.portfolio_weight,
+                    }
+                    for holding in cash_equivalent_holdings
+                ],
+            },
             "holdings": [
                 {
                     "ticker": holding.ticker,
@@ -334,22 +360,23 @@ def _evaluation_from_text(text: str, *, model: str | None) -> PortfolioEvaluatio
         evaluation = PortfolioEvaluation.model_validate(payload)
         return evaluation.model_copy(update={"llm_model": model})
     except Exception as exc:
+        recovered = _recover_evaluation_payload(text)
+        if recovered is not None:
+            evaluation = PortfolioEvaluation.model_validate(recovered)
+            warnings = list(evaluation.warnings)
+            warnings.append(
+                f"Portfolio evaluator returned malformed JSON and was partially recovered: {exc}"
+            )
+            return evaluation.model_copy(update={"llm_model": model, "warnings": warnings})
         return PortfolioEvaluation(
-            summary=text.strip() or "Portfolio evaluator returned no usable summary.",
+            summary=_fallback_evaluation_summary(text),
             llm_model=model,
             warnings=[f"Portfolio evaluator returned non-JSON output: {exc}"],
         )
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        stripped = "\n".join(lines).strip()
+    stripped = _strip_markdown_fence(text)
     start = stripped.find("{")
     end = stripped.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -358,6 +385,79 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("JSON output is not an object")
     return payload
+
+
+def _recover_evaluation_payload(text: str) -> dict[str, Any] | None:
+    stripped = _strip_markdown_fence(text)
+    summary = _recover_json_string_field(stripped, "summary")
+    if summary is None:
+        return None
+    return {
+        "summary": summary,
+        "strengths": _recover_json_string_array(stripped, "strengths"),
+        "risks": _recover_json_string_array(stripped, "risks"),
+        "ips_mismatches": _recover_json_string_array(stripped, "ips_mismatches"),
+        "history_observations": _recover_json_string_array(stripped, "history_observations"),
+        "open_questions": _recover_json_string_array(stripped, "open_questions"),
+    }
+
+
+def _recover_json_string_field(text: str, field: str) -> str | None:
+    match = re.search(rf'"{re.escape(field)}"\s*:\s*"((?:\\.|[^"\\])*)"', text, flags=re.DOTALL)
+    if match is None:
+        return None
+    return _decode_json_string(match.group(1))
+
+
+def _recover_json_string_array(text: str, field: str) -> list[str]:
+    field_match = re.search(rf'"{re.escape(field)}"\s*:\s*\[', text)
+    if field_match is None:
+        return []
+    body_start = field_match.end()
+    next_field = re.search(
+        r',\s*"(?:summary|strengths|risks|ips_mismatches|history_observations|open_questions)"\s*:',
+        text[body_start:],
+        flags=re.DOTALL,
+    )
+    body_end = body_start + next_field.start() if next_field else len(text)
+    body = text[body_start:body_end]
+    values = [
+        _decode_json_string(match.group(1))
+        for match in re.finditer(r'"((?:\\.|[^"\\])*)"', body, flags=re.DOTALL)
+    ]
+    return [value for value in values if value]
+
+
+def _decode_json_string(value: str) -> str:
+    try:
+        decoded = json.loads(f'"{value}"')
+    except json.JSONDecodeError:
+        decoded = value
+    return str(decoded).strip()
+
+
+def _fallback_evaluation_summary(text: str) -> str:
+    stripped = _strip_markdown_fence(text).strip()
+    if not stripped:
+        return "Portfolio evaluator returned no usable summary."
+    if stripped.startswith("{") or '"summary"' in stripped:
+        return (
+            "Portfolio evaluator returned malformed structured output that could not be fully "
+            "parsed."
+        )
+    return stripped[:1000]
+
+
+def _strip_markdown_fence(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
 
 
 def _metrics_storage_skip_result(storage_result: dict[str, Any]) -> dict[str, Any]:

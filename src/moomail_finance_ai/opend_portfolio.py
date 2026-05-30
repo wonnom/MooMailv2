@@ -49,17 +49,19 @@ def build_portfolio_snapshot_from_report(
     portfolio_id: str,
     base_currency: str,
 ) -> PortfolioSnapshot:
-    funds = _required_table(report, "funds")
+    funds = _optional_table(report, "funds")
     positions = _required_table(report, "positions")
     quotes = _optional_table(report, "quotes")
 
-    if not funds.rows:
-        raise OpenDPortfolioDataError("OpenD funds table is empty.")
-
-    fund_row = funds.rows[0]
+    fund_row = funds.rows[0] if funds and funds.rows else {}
     as_of = _latest_as_of([funds, positions, quotes])
-    total_value = _number(fund_row.get("total_assets"))
-    cash_value = _number(fund_row.get("cash"))
+    cash_fields = _cash_field_names(base_currency)
+    total_value_fields = _total_value_field_names(base_currency)
+    cash_value = _first_available_number(fund_row, cash_fields)
+    position_market_value = sum(_number(row.get("market_val")) for row in positions.rows)
+    total_value = _first_available_number(fund_row, total_value_fields)
+    if total_value == 0 and (position_market_value != 0 or cash_value != 0):
+        total_value = position_market_value + cash_value
     currency = str(fund_row.get("currency") or base_currency)
 
     quote_by_code = {row.get("code"): row for row in quotes.rows} if quotes else {}
@@ -67,12 +69,53 @@ def build_portfolio_snapshot_from_report(
         _holding_from_position(row, quote_by_code.get(row.get("code")), total_value, as_of)
         for row in positions.rows
     ]
+    cash_sweep_value = _cash_sweep_value(fund_row, holdings)
+    cash_balances = [
+        CashBalance(
+            account_id="opend_selected_account",
+            amount=cash_value,
+            currency=currency,
+            weight=_weight(cash_value, total_value),
+        )
+    ]
+    if cash_sweep_value > 0:
+        cash_balances.append(
+            CashBalance(
+                account_id="opend_fund_assets_cash_sweep",
+                amount=cash_sweep_value,
+                currency=currency,
+                weight=_weight(cash_sweep_value, total_value),
+            )
+        )
 
     warnings = list(report.warnings)
     for table in report.tables:
         warnings.extend(table.warnings)
 
     missing_fields = []
+    if funds is None:
+        missing_fields.append("funds_table")
+        warnings.append(
+            "OpenD account funds were unavailable; total value was inferred from positions and "
+            "cash was set to 0."
+        )
+    elif not funds.rows:
+        missing_fields.append("funds_rows")
+        warnings.append(
+            "OpenD account funds returned no rows; total value was inferred from positions and "
+            "cash was set to 0."
+        )
+    else:
+        if not _has_any_number(fund_row, total_value_fields):
+            missing_fields.append("total_assets")
+            warnings.append("OpenD funds did not include total assets; total value was inferred.")
+        if not _has_any_number(fund_row, cash_fields):
+            missing_fields.append("cash")
+            warnings.append("OpenD funds did not include a usable cash balance; cash was set to 0.")
+    if cash_sweep_value > 0:
+        warnings.append(
+            "OpenD fund_assets is treated as a cash-equivalent sweep balance."
+        )
     if not quotes or len(quotes.rows) < len(positions.rows):
         missing_fields.append("quotes_for_all_positions")
 
@@ -81,14 +124,7 @@ def build_portfolio_snapshot_from_report(
         as_of=as_of,
         base_currency=base_currency,
         total_value=Money(amount=total_value, currency=currency, source="opend", as_of=as_of),
-        cash=[
-            CashBalance(
-                account_id="opend_selected_account",
-                amount=cash_value,
-                currency=currency,
-                weight=_weight(cash_value, total_value),
-            )
-        ],
+        cash=cash_balances,
         holdings=holdings,
         data_quality=DataQuality(
             freshness_status="fresh" if report.connection.ok else "unknown",
@@ -114,7 +150,7 @@ def build_portfolio_agent_packet(
     ]
     by_asset.extend(
         AllocationSlice(
-            name="Cash",
+            name=_cash_slice_name(cash),
             value=cash.amount,
             weight=cash.weight,
             currency=cash.currency,
@@ -129,7 +165,7 @@ def build_portfolio_agent_packet(
 
     by_type_values: dict[str, float] = defaultdict(float)
     for holding in snapshot.holdings:
-        by_type_values[holding.asset_type] += holding.market_value
+        by_type_values[_allocation_asset_type(holding)] += holding.market_value
     for cash in snapshot.cash:
         by_type_values["cash"] += cash.amount
 
@@ -166,7 +202,13 @@ def build_portfolio_agent_packet(
             f"{excluded_holdings} holding(s) are stored but excluded from v1 US-equity analysis."
         )
     if snapshot.cash and snapshot.cash[0].amount < 0:
-        warnings.append("Negative cash or margin balance is stored but not treated as a v1 equity issue.")
+        warnings.append(
+            "Negative cash or margin balance is stored but not treated as a v1 equity issue."
+        )
+    if any(holding.asset_type == "cash_equivalent" for holding in snapshot.holdings):
+        warnings.append(
+            "Cash-equivalent fund holdings are counted with cash in allocation metrics."
+        )
 
     return PortfolioAgentPacket(
         portfolio_id=snapshot.portfolio_id,
@@ -225,7 +267,9 @@ def _holding_from_position(
     return Holding(
         asset_id=f"opend:{code}",
         ticker=ticker,
-        name=str(row.get("stock_name") or quote.get("name") if quote else row.get("stock_name") or ticker),
+        name=str(
+            row.get("stock_name") or quote.get("name") if quote else row.get("stock_name") or ticker
+        ),
         asset_type=_asset_type(code, row, quote),
         exchange=str(row.get("position_market") or "").upper() or None,
         currency=str(row.get("currency") or "USD"),
@@ -241,21 +285,48 @@ def _holding_from_position(
 
 
 def _asset_type(code: str, row: dict[str, Any], quote: dict[str, Any] | None) -> str:
+    name = str(row.get("stock_name") or quote.get("name") if quote else row.get("stock_name") or "")
+    normalized = f"{code} {name}".upper()
     if quote and quote.get("option_valid") is True:
         return "option"
+    if _looks_like_cash_equivalent(normalized, quote):
+        return "cash_equivalent"
+    if "BITCOIN" in normalized or "BTC" in normalized:
+        return "crypto"
     if quote and quote.get("trust_valid") is True:
         return "fund"
     if quote and quote.get("equity_valid") is False:
         return "other"
-    name = str(row.get("stock_name") or quote.get("name") if quote else row.get("stock_name") or "")
-    normalized = f"{code} {name}".upper()
-    if "BITCOIN" in normalized or "BTC" in normalized:
-        return "crypto"
     if "MONEY" in normalized and "FUND" in normalized:
-        return "fund"
+        return "cash_equivalent"
     if row.get("position_side") in {"LONG", "SHORT"} and _looks_like_option_code(code):
         return "option"
     return "equity"
+
+
+def _looks_like_cash_equivalent(
+    normalized_code_and_name: str,
+    quote: dict[str, Any] | None,
+) -> bool:
+    terms = (
+        "CASH PLUS",
+        "CASH FUND",
+        "MONEY MARKET",
+        "MONEY FUND",
+        "LIQUIDITY FUND",
+        "TREASURY FUND",
+    )
+    if not any(term in normalized_code_and_name for term in terms):
+        return False
+    return "FUND" in normalized_code_and_name or (
+        quote is not None and quote.get("trust_valid") is True
+    )
+
+
+def _allocation_asset_type(holding: Holding) -> str:
+    if holding.asset_type == "cash_equivalent":
+        return "cash"
+    return holding.asset_type
 
 
 def _looks_like_option_code(code: str) -> bool:
@@ -266,7 +337,9 @@ def _looks_like_option_code(code: str) -> bool:
 def _required_table(report: OpenDFieldReport, name: str) -> OpenDTableResult:
     table = _optional_table(report, name)
     if table is None:
-        raise OpenDPortfolioDataError(f"OpenD field report is missing {name} table.")
+        warning_text = "; ".join(report.warnings)
+        detail = f" Upstream warnings: {warning_text}" if warning_text else ""
+        raise OpenDPortfolioDataError(f"OpenD field report is missing {name} table.{detail}")
     return table
 
 
@@ -288,6 +361,67 @@ def _optional_number(value: Any) -> float | None:
     if value in (None, "", "N/A"):
         return None
     return float(value)
+
+
+def _first_available_number(row: dict[str, Any], keys: list[str]) -> float:
+    for key in keys:
+        value = _optional_number(row.get(key))
+        if value is not None:
+            return value
+    return 0.0
+
+
+def _has_any_number(row: dict[str, Any], keys: list[str]) -> bool:
+    return any(_optional_number(row.get(key)) is not None for key in keys)
+
+
+def _cash_field_names(base_currency: str) -> list[str]:
+    currency = base_currency.upper()
+    prefix_by_currency = {
+        "AUD": "au",
+        "CNY": "cn",
+        "CNH": "cn",
+        "HKD": "hk",
+        "JPY": "jp",
+        "SGD": "sg",
+        "USD": "us",
+    }
+    prefix = prefix_by_currency.get(currency, currency.lower())
+    return [
+        "cash",
+        f"{prefix}_cash",
+        "available_funds",
+        f"{prefix}_avl_withdrawal_cash",
+        "avl_withdrawal_cash",
+        f"{currency.lower()}_net_cash_power",
+        "net_cash_power",
+    ]
+
+
+def _cash_sweep_value(fund_row: dict[str, Any], holdings: list[Holding]) -> float:
+    fund_assets = _first_available_number(fund_row, ["fund_assets"])
+    explicit_cash_equivalent_value = sum(
+        holding.market_value
+        for holding in holdings
+        if holding.asset_type in {"cash_equivalent", "fund"}
+    )
+    return max(0.0, fund_assets - explicit_cash_equivalent_value)
+
+
+def _cash_slice_name(cash: CashBalance) -> str:
+    if cash.account_id == "opend_fund_assets_cash_sweep":
+        return "Cash Sweep"
+    return "Cash"
+
+
+def _total_value_field_names(base_currency: str) -> list[str]:
+    return [
+        "total_assets",
+        f"{base_currency.lower()}_assets",
+        "securities_assets",
+        "market_val",
+        "long_mv",
+    ]
 
 
 def _weight(value: float, total: float) -> float:

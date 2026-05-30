@@ -30,8 +30,10 @@ def v1_us_equity_holdings(snapshot: PortfolioSnapshot) -> list[Holding]:
 
 def calculate_cash_weight(snapshot: PortfolioSnapshot) -> MetricResult:
     cash_value = sum(cash.amount for cash in snapshot.cash)
+    cash_equivalent_value = _cash_equivalent_value(snapshot)
+    effective_cash_value = cash_value + cash_equivalent_value
     total_value = snapshot.total_value.amount
-    value = _weight(cash_value, total_value)
+    value = _weight(effective_cash_value, total_value)
     return MetricResult(
         metric_name="cash_weight",
         value=value,
@@ -41,6 +43,8 @@ def calculate_cash_weight(snapshot: PortfolioSnapshot) -> MetricResult:
             "snapshot_as_of": snapshot.as_of.isoformat(),
             "total_value": total_value,
             "cash_value": cash_value,
+            "cash_equivalent_value": cash_equivalent_value,
+            "effective_cash_value": effective_cash_value,
         },
     )
 
@@ -114,7 +118,8 @@ def calculate_single_position_concentration(
 def calculate_asset_type_allocation(snapshot: PortfolioSnapshot) -> MetricResult:
     totals: dict[str, float] = {}
     for holding in snapshot.holdings:
-        totals[holding.asset_type] = totals.get(holding.asset_type, 0.0) + holding.market_value
+        asset_type = _allocation_asset_type(holding)
+        totals[asset_type] = totals.get(asset_type, 0.0) + holding.market_value
     for cash in snapshot.cash:
         totals["cash"] = totals.get("cash", 0.0) + cash.amount
 
@@ -189,8 +194,21 @@ def _scope_warnings(
     return [f"{excluded} holding(s) excluded from v1 US-equity metrics."]
 
 
+def _cash_equivalent_value(snapshot: PortfolioSnapshot) -> float:
+    return sum(
+        holding.market_value
+        for holding in snapshot.holdings
+        if holding.asset_type == "cash_equivalent"
+    )
+
+
+def _allocation_asset_type(holding: Holding) -> str:
+    if holding.asset_type == "cash_equivalent":
+        return "cash"
+    return holding.asset_type
+
+
 def _weight(value: float, total: float) -> float:
     if total == 0:
         return 0.0
     return value / total
-

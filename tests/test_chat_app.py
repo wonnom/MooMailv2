@@ -64,7 +64,13 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
 
     assert "/static/app.js" in html
     assert "agentSelect" in html
+    assert "sendButton" in html
+    assert "hideChatButton" in html
+    assert "showChatButton" in html
+    assert "chatResizeHandle" in html
     assert "/api/chat/stream" in ts
+    assert "setChatHidden" in ts
+    assert "resizeChatTo" in ts
     assert "renderPortfolioEvaluation" in ts
     assert "renderCitations" in ts
     assert "source_quality_rank" in ts

@@ -7,26 +7,36 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="chat-column" aria-label="Chat">
+    <main id="appShell" class="app-shell">
+      <button id="showChatButton" class="show-chat-button" type="button" hidden>Chat</button>
+      <aside class="chat-column" aria-label="Chat">
         <header class="app-header">
-          <h1>Finance AI</h1>
-          <span id="guardrailBadge" class="badge">Idle</span>
+          <div>
+            <h1>Finance AI</h1>
+            <span id="guardrailBadge" class="badge">Idle</span>
+          </div>
+          <button id="hideChatButton" class="icon-button" type="button" aria-label="Hide chat">Hide</button>
         </header>
+
+        <div id="chatLog" class="chat-log" aria-live="polite">
+          <ol id="statusList" class="status-list"></ol>
+        </div>
+
+        <details class="trace-panel">
+          <summary>Trace</summary>
+          <pre id="traceOutput"></pre>
+        </details>
+
         <form id="chatForm" class="chat-form">
           <select id="agentSelect" name="agent" aria-label="Agent">
             <option value="portfolio" selected>Portfolio</option>
             <option value="investment">Investment</option>
           </select>
-          <input id="queryInput" name="query" value="Review my portfolio" autocomplete="off" />
-          <button id="runButton" type="submit">Run</button>
+          <textarea id="queryInput" name="query" rows="1" autocomplete="off">Review my portfolio</textarea>
+          <button id="sendButton" type="submit">Send</button>
         </form>
-        <ol id="statusList" class="status-list"></ol>
-        <details class="trace-panel">
-          <summary>Trace</summary>
-          <pre id="traceOutput"></pre>
-        </details>
-      </section>
+        <div id="chatResizeHandle" class="chat-resize-handle" role="separator" aria-label="Resize chat" aria-orientation="vertical" tabindex="0"></div>
+      </aside>
 
       <section class="report-column" aria-label="Report">
         <section class="panel report-summary">

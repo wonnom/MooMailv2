@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from moomail_finance_ai.metrics import (
     METRIC_VERSION,
+    calculate_asset_type_allocation,
     calculate_cash_weight,
     calculate_position_weights,
     calculate_single_position_concentration,
@@ -20,6 +21,30 @@ def test_cash_weight_is_deterministic_and_versioned():
     assert result.metric_version == METRIC_VERSION
     assert result.value == 0.1
     assert result.source_inputs["total_value"] == 1000.0
+
+
+def test_cash_weight_counts_cash_equivalent_holdings():
+    snapshot = _snapshot()
+    snapshot = snapshot.model_copy(
+        update={
+            "holdings": [
+                holding.model_copy(update={"asset_type": "cash_equivalent"})
+                if holding.ticker == "MONEYFUND"
+                else holding
+                for holding in snapshot.holdings
+            ]
+        }
+    )
+
+    cash = calculate_cash_weight(snapshot)
+    allocation = calculate_asset_type_allocation(snapshot)
+
+    assert cash.value == 0.65
+    assert cash.source_inputs["cash_value"] == 100.0
+    assert cash.source_inputs["cash_equivalent_value"] == 550.0
+    assert cash.source_inputs["effective_cash_value"] == 650.0
+    cash_allocation = next(row for row in allocation.value if row["asset_type"] == "cash")
+    assert cash_allocation["market_value"] == 650.0
 
 
 def test_position_weights_default_to_v1_us_equities_scope():
@@ -126,4 +151,3 @@ def _snapshot() -> PortfolioSnapshot:
         ],
         data_quality=DataQuality(freshness_status="fresh"),
     )
-

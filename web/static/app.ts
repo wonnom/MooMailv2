@@ -38,10 +38,16 @@ type ChatState = {
   status_events: StatusEvent[];
 };
 
+const appShell = document.querySelector<HTMLElement>("#appShell")!;
 const form = document.querySelector<HTMLFormElement>("#chatForm")!;
 const agentSelect = document.querySelector<HTMLSelectElement>("#agentSelect")!;
-const input = document.querySelector<HTMLInputElement>("#queryInput")!;
-const runButton = document.querySelector<HTMLButtonElement>("#runButton")!;
+const input = document.querySelector<HTMLTextAreaElement>("#queryInput")!;
+const sendButton = document.querySelector<HTMLButtonElement>("#sendButton")!;
+const hideChatButton = document.querySelector<HTMLButtonElement>("#hideChatButton")!;
+const showChatButton = document.querySelector<HTMLButtonElement>("#showChatButton")!;
+const chatColumn = document.querySelector<HTMLElement>(".chat-column")!;
+const chatLog = document.querySelector<HTMLDivElement>("#chatLog")!;
+const chatResizeHandle = document.querySelector<HTMLDivElement>("#chatResizeHandle")!;
 const statusList = document.querySelector<HTMLOListElement>("#statusList")!;
 const guardrailBadge = document.querySelector<HTMLSpanElement>("#guardrailBadge")!;
 const reportTitle = document.querySelector<HTMLHeadingElement>("#reportTitle")!;
@@ -55,33 +61,81 @@ const sentimentList = document.querySelector<HTMLDivElement>("#sentimentList")!;
 const citationList = document.querySelector<HTMLDivElement>("#citationList")!;
 const traceOutput = document.querySelector<HTMLPreElement>("#traceOutput")!;
 
+const CHAT_WIDTH_KEY = "finance_ai_chat_width";
+const CHAT_HIDDEN_KEY = "finance_ai_chat_hidden";
+
+restoreChatLayout();
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  void runChat(input.value, agentSelect.value);
+  const query = input.value.trim();
+  if (!query) return;
+  clearRun();
+  addUserMessage(query);
+  void runChat(query, agentSelect.value);
+});
+
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
+});
+
+hideChatButton.addEventListener("click", () => setChatHidden(true));
+showChatButton.addEventListener("click", () => setChatHidden(false));
+
+chatResizeHandle.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  chatResizeHandle.setPointerCapture(event.pointerId);
+  resizeChatTo(event.clientX);
+});
+
+chatResizeHandle.addEventListener("pointermove", (event) => {
+  if (!chatResizeHandle.hasPointerCapture(event.pointerId)) return;
+  resizeChatTo(event.clientX);
+});
+
+chatResizeHandle.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const currentWidth = chatColumn.getBoundingClientRect().width;
+  const delta = event.key === "ArrowLeft" ? -24 : 24;
+  setChatWidth(currentWidth + delta);
 });
 
 async function runChat(query: string, agent: string): Promise<void> {
   setRunning(true);
-  clearRun();
-  const response = await fetch("/api/chat/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, agent }),
-  });
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Response stream unavailable");
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) handleStreamLine(line);
+  try {
+    const response = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, agent }),
+    });
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Response stream unavailable");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) handleStreamLine(line);
+    }
+    if (buffer.trim()) handleStreamLine(buffer);
+  } catch (error) {
+    addStatus({
+      status: "failed",
+      message: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString(),
+    });
+    guardrailBadge.textContent = "Failed";
+    guardrailBadge.className = "badge bad";
+  } finally {
+    setRunning(false);
   }
-  if (buffer.trim()) handleStreamLine(buffer);
-  setRunning(false);
 }
 
 function handleStreamLine(line: string): void {
@@ -104,13 +158,23 @@ function clearRun(): void {
 }
 
 function setRunning(running: boolean): void {
-  runButton.disabled = running;
+  sendButton.disabled = running;
+}
+
+function addUserMessage(query: string): void {
+  const item = document.createElement("li");
+  item.className = "user-message";
+  item.textContent = query;
+  statusList.appendChild(item);
+  scrollChatToBottom();
 }
 
 function addStatus(event: StatusEvent): void {
   const item = document.createElement("li");
+  item.className = "agent-message";
   item.textContent = `${event.status}: ${event.message}`;
   statusList.appendChild(item);
+  scrollChatToBottom();
 }
 
 function renderState(state: ChatState): void {
@@ -259,6 +323,33 @@ function renderCitations(citations: Citation[]): void {
     details.innerHTML = `<summary>${escapeHtml(citation.title)} · ${escapeHtml(citation.source_quality)} · rank ${rank}</summary><p>${escapeHtml(citation.snippet)}</p><p class="muted">${escapeHtml(citation.document_id)}</p>`;
     citationList.appendChild(details);
   });
+}
+
+function restoreChatLayout(): void {
+  const savedWidth = Number(localStorage.getItem(CHAT_WIDTH_KEY));
+  if (Number.isFinite(savedWidth) && savedWidth > 0) setChatWidth(savedWidth);
+  setChatHidden(localStorage.getItem(CHAT_HIDDEN_KEY) === "true");
+}
+
+function setChatHidden(hidden: boolean): void {
+  appShell.classList.toggle("chat-hidden", hidden);
+  showChatButton.hidden = !hidden;
+  localStorage.setItem(CHAT_HIDDEN_KEY, String(hidden));
+}
+
+function resizeChatTo(clientX: number): void {
+  setChatWidth(clientX);
+}
+
+function setChatWidth(width: number): void {
+  const maxWidth = Math.max(300, window.innerWidth - 420);
+  const nextWidth = Math.max(300, Math.min(width, maxWidth));
+  appShell.style.setProperty("--chat-column-width", `${nextWidth}px`);
+  localStorage.setItem(CHAT_WIDTH_KEY, String(Math.round(nextWidth)));
+}
+
+function scrollChatToBottom(): void {
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
 function escapeHtml(value: unknown): string {

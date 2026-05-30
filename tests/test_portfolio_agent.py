@@ -12,6 +12,7 @@ from moomail_finance_ai.portfolio_agent import (
     LLMPortfolioEvaluator,
     MCPPortfolioAgent,
     PortfolioEvaluation,
+    _evaluation_from_text,
 )
 from moomail_finance_ai.sql_store import PortfolioSqlStore
 
@@ -89,6 +90,37 @@ def test_llm_portfolio_evaluator_parses_structured_json_from_llm():
     assert evaluation.summary == "Cash is modest and one holding is material."
     assert evaluation.risks == ["Single-name concentration should be monitored."]
     assert evaluation.llm_model == "gemini-test"
+
+
+def test_llm_portfolio_evaluator_recovers_partial_json_without_raw_markdown_summary():
+    text = """
+    ```json
+    {
+      "summary": "The portfolio is growth-oriented with almost no cash.",
+      "strengths": [
+        "No single stock exceeds the concentration limit.",
+        "Several core positions have strong unrealized gains."
+      ],
+      "risks": [
+        "Cash balance is near zero.",
+        "Option spread introduces downside risk.",
+        "Geopolitical and regulatory risks"
+    """
+
+    evaluation = _evaluation_from_text(text, model="gemini-test")
+
+    assert evaluation.summary == "The portfolio is growth-oriented with almost no cash."
+    assert evaluation.strengths == [
+        "No single stock exceeds the concentration limit.",
+        "Several core positions have strong unrealized gains.",
+    ]
+    assert evaluation.risks == [
+        "Cash balance is near zero.",
+        "Option spread introduces downside risk.",
+        "Geopolitical and regulatory risks",
+    ]
+    assert not evaluation.summary.startswith("```json")
+    assert evaluation.warnings
 
 
 class CapturingEvaluator:

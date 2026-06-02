@@ -42,6 +42,7 @@ def main() -> None:
         report,
         portfolio_id=ips.portfolio_id,
         base_currency=config.base_currency,
+        treat_fund_assets_as_cash_sweep=config.treat_fund_assets_as_cash_sweep,
     )
     packet = build_portfolio_agent_packet(snapshot, ips, report)
     payload = json.dumps(packet.model_dump(mode="json"), indent=2)

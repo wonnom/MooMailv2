@@ -56,6 +56,9 @@ The system must not produce numeric or label-based confidence scores. It should 
 
 The backend should finalize agents, tooling, memory, orchestration, output formats, and requirements before expanding the frontend. Terminal output remains acceptable for backend validation.
 
+Current exception: a minimal local chatbot exists to exercise backend contracts.
+It should remain contract-driven rather than becoming the source of truth.
+
 ## Functional Requirements
 
 ### FR-1: OpenD Read-Only Integration
@@ -73,6 +76,9 @@ The system must persist portfolio snapshots and portfolio history in SQL once sc
 ### FR-4: Deterministic Metrics
 
 Financial metrics must be computed by deterministic Python functions exposed through MCP.
+
+Cash metrics must distinguish literal cash, explicit cash-equivalent holdings,
+and any configured cash-sweep assumption.
 
 ### FR-5: Portfolio Agent
 
@@ -117,6 +123,9 @@ Citations must reference chunk-level evidence and parent document metadata where
 ### FR-15: Missing Data Handling
 
 The system must explicitly report missing or stale data. Critical missing data must block recommendations.
+
+Unsupported quote rows, such as OpenD rejecting an OTC market snapshot while the
+position row is available, are non-critical warnings.
 
 ### FR-16: Guardrail Node
 
@@ -291,17 +300,23 @@ The following must never fail silently:
 
 ## V1 Acceptance Criteria
 
-V1 is complete when the system can run a local terminal-based portfolio review that uses:
+The first usable V1 is complete when the system can run a local portfolio-only
+review that uses:
 
-- Live read-only MooMoo/OpenD data
-- SQL portfolio history and snapshots
+- Live read-only MooMoo/OpenD securities account data
+- Current holdings, cash, optional configured cash sweep, and quote warnings
+- SQLite portfolio snapshots, metrics, audit summaries, and run summaries
 - Deterministic finance metrics
-- Curated GraphRAG research documents
-- Sentiment Agent analysis
-- Pinecone long-term memory retrieval
-- Canonical IPS checks
+- Portfolio-only LLM evaluation with structured output recovery
+- Canonical IPS checks where recommendations or optimization framing are used
 - Guardrail review
-- Source citations
-- Saved audit logs and output summaries
+- Clear missing-data warnings
+- Terminal output and the local TypeScript/static chatbot frontend
 
-The same workflow is already wrapped in a basic local TypeScript/static chat frontend. Production-quality frontend work should continue to follow the backend contracts.
+V1 intentionally does not require Pinecone, Neo4j GraphRAG, real research
+document ingestion, crypto account ingestion, scheduled checks, or OTC quote
+fallback. Those remain part of the planned architecture and v1.1+ backlog once
+the Portfolio Agent output contract is stable.
+
+See [V1_FINALIZATION_PLAN.md](V1_FINALIZATION_PLAN.md) for the operational
+release gate.

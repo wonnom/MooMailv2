@@ -11,6 +11,8 @@ This milestone implements a local full Investment Agent that preserves the plann
 - `moomail-finance-metrics-mcp`: implemented locally through deterministic Python metric functions.
 - `research-rag-mcp`: implemented locally through the deterministic research store from Milestone 4.
 - `moomail-opend-mcp`: supported through the recorded OpenD client for repeatable tests, and the live OpenD client when requested.
+- Portfolio-only LLM evaluator: provider-neutral Gemini/OpenAI adapter with
+  compact JSON prompting and partial structured-output recovery.
 
 Pinecone remains the intended long-term backend, but local file-backed memory is used for this milestone so tests do not require external secrets or network access.
 
@@ -101,7 +103,7 @@ tests/test_full_agent.py .... 4 passed
 Latest full suite:
 
 ```text
-53 passed, 4 skipped
+64 passed, 10 skipped
 ```
 
 Local terminal review:

@@ -22,6 +22,7 @@ class OpenDConfig(StrictModel):
     base_currency: str = Field(default="USD", min_length=3, max_length=3)
     account_id: int | None = None
     account_index: int = 0
+    treat_fund_assets_as_cash_sweep: bool = False
 
     @field_validator("security_firm", "trade_market", "trade_env", "base_currency")
     @classmethod
@@ -76,6 +77,10 @@ def load_opend_config(
         base_currency=merged.get("MOOMAIL_MOOMOO_BASE_CURRENCY", "USD"),
         account_id=_parse_optional_int(merged.get("MOOMAIL_MOOMOO_ACCOUNT_ID")),
         account_index=_parse_int(merged.get("MOOMAIL_MOOMOO_ACCOUNT_INDEX"), default=0),
+        treat_fund_assets_as_cash_sweep=_parse_bool(
+            merged.get("MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP"),
+            default=False,
+        ),
     )
 
 
@@ -105,6 +110,15 @@ def _parse_optional_bool(value: str | None) -> bool | None:
     if value.lower() in {"0", "false", "no", "n", "off"}:
         return False
     raise ValueError(f"Invalid optional bool value: {value}")
+
+
+def _parse_bool(value: str | None, *, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    parsed = _parse_optional_bool(value)
+    if parsed is None:
+        return default
+    return parsed
 
 
 def _clean_env_value(value: str) -> str:

@@ -42,6 +42,16 @@ Resources:
 This server is read-only. It does not expose trade unlock, order placement,
 order modification, cancellation, withdrawal, or transfer tools.
 
+Notes:
+
+- `opend_get_account_funds` wraps OpenD/moomoo `accinfo_query`; it is account
+  fund/balance data, not positions.
+- `opend_get_positions` wraps `position_list_query`.
+- OpenD may reject OTC quote snapshots. The adapter retries per symbol and keeps
+  supported quote rows while recording unsupported symbols as warnings.
+- Account-level `fund_assets` is treated as cash sweep only when
+  `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true`.
+
 ### `moomail-portfolio-sql-mcp`
 
 Tools:
@@ -87,6 +97,9 @@ Resources:
 
 This server is pure calculation. It should remain deterministic, versioned, and
 free of broker/database side effects.
+
+`calculate_cash_weight` reports effective cash weight. It includes cash balances
+plus holdings classified as `cash_equivalent`.
 
 ## Agent Access
 
@@ -179,6 +192,15 @@ Run it against a recorded OpenD report:
   --env-file config/local.env \
   --from-report reports/opend/field-report.json
 ```
+
+Diagnose the live OpenD trade-read path without running an agent:
+
+```bash
+.venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
+```
+
+The diagnostic script calls only read APIs: account list, account funds, and
+positions. It does not call trade unlock or order APIs.
 
 ## Verification
 

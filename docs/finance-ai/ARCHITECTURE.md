@@ -162,9 +162,22 @@ Constraints:
 
 ### MooMoo/OpenD
 
-Role: live/current read-only source for holdings, balances, cash, and quotes.
+Role: live/current read-only source for securities-account holdings, balances,
+cash, and quotes.
 
 Current limitation: historical portfolio data may not be extractable from OpenD. The system should explore OpenD first and persist useful snapshots into SQL.
+
+Current OpenD behavior:
+
+- `accinfo_query` is normalized as account funds/balances.
+- `position_list_query` is normalized as holdings.
+- `get_market_snapshot` may reject OTC symbols such as `US.TCEHY`; this is a
+  non-critical quote warning when the position row is still available.
+- Explicit money-market fund positions can be classified as `cash_equivalent`.
+- Account-level `fund_assets` can be treated as a cash sweep only when enabled
+  through `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
+- Crypto accounts require a separate future `OpenCryptoTradeContext` path and
+  are outside the current v1 securities-account workflow.
 
 ### SQL Portfolio Store
 
@@ -278,6 +291,15 @@ When built, the frontend should be:
 - Capable of rendering structured report panels
 - Capable of showing streaming operational status
 - Capable of showing citations and a technical trace drawer
+- Capable of hiding and resizing the chat rail for full report inspection
+
+Current local UI:
+
+- Uses `scripts/serve_chat.py`.
+- Sends chat requests to `/api/chat/stream`.
+- Streams status events into the chat rail.
+- Renders portfolio evaluation, allocation, missing data, sentiment, citations,
+  and trace panels.
 
 Structured panels planned for later:
 

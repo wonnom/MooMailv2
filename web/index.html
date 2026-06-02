@@ -48,8 +48,30 @@
         </section>
 
         <section class="panel">
-          <h2>Allocation</h2>
-          <div id="allocationBars" class="bar-stack"></div>
+          <div class="panel-heading panel-heading-spread">
+            <h2>Holdings & Cash</h2>
+            <span id="portfolioMeta" class="muted"></span>
+          </div>
+          <div id="portfolioPositions" class="position-table"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading panel-heading-spread">
+            <h2>Allocation</h2>
+            <div class="control-row">
+              <select id="allocationSort" aria-label="Sort allocation">
+                <option value="weight_desc">Largest first</option>
+                <option value="weight_asc">Smallest first</option>
+                <option value="name_asc">Name A-Z</option>
+                <option value="value_desc">Value first</option>
+              </select>
+              <div class="segmented-control" aria-label="Allocation view">
+                <button type="button" data-allocation-view="bars" class="active">Bars</button>
+                <button type="button" data-allocation-view="pie">Pie</button>
+              </div>
+            </div>
+          </div>
+          <div id="allocationChart" class="allocation-chart"></div>
         </section>
 
         <section class="panel">

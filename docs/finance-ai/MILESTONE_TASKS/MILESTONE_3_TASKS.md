@@ -6,6 +6,11 @@ Milestone 3 goal: persist portfolio history and calculate deterministic metrics.
 
 The SQL store preserves the full OpenD snapshot because accounting needs the whole account view. V1 analysis metrics default to the `v1_us_equities` scope, so non-US-equity assets such as Bitcoin exposure, money funds, options, margin/cash mechanics, and unsupported quote rows are stored but not treated as v1 equity-analysis problems by default.
 
+Cash-equivalent holdings are preserved as holdings but counted with effective
+cash in cash-weight/allocation metrics. Account-level OpenD `fund_assets` is
+counted as cash sweep only when
+`MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true`.
+
 ## Exit Criteria
 
 1. A portfolio review can use OpenD data and persisted SQL snapshots.
@@ -94,17 +99,19 @@ The SQLite database and generated reports are ignored by git.
 
 Milestone 3 is implemented as a local SQLite-backed prototype, now exposed through `moomail-portfolio-sql-mcp` and `moomail-finance-metrics-mcp`.
 
-Latest recorded run:
+Latest local run shape:
 
 - Database: `data/portfolio-history.sqlite`
 - Summary report: `reports/opend/history-summary.json`
-- Portfolio snapshots: 1
-- Cash balances: 1
-- Position snapshots: 15
-- Quote snapshots: 14
-- Calculated metrics: 5
-- Agent run summaries: 1
-- History status: fresh but missing `historical_depth`
+- Portfolio snapshots: written on demand, idempotent by portfolio/date through
+  the MCP daily snapshot tool
+- Cash balances: base cash plus optional cash-sweep row when enabled
+- Position snapshots: full OpenD position set
+- Quote snapshots: all supported OpenD quote rows; unsupported OTC quotes are
+  warnings
+- Calculated metrics: 5 v1 metrics per inserted snapshot
+- History status: fresh/stale/empty plus `historical_depth` warning when fewer
+  than the configured minimum snapshots exist
 
 The audit table stores concise metadata and `output_summary`; it does not include hidden reasoning or a full final response column.
 
@@ -119,5 +126,5 @@ Run:
 Latest result:
 
 ```text
-53 passed, 4 skipped
+64 passed, 10 skipped
 ```

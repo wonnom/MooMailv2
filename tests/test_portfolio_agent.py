@@ -92,6 +92,28 @@ def test_llm_portfolio_evaluator_parses_structured_json_from_llm():
     assert evaluation.llm_model == "gemini-test"
 
 
+def test_llm_portfolio_evaluator_prompt_requires_query_first_summary():
+    llm = CapturingLLM()
+    evaluator = LLMPortfolioEvaluator(llm)
+    packet = mock_portfolio_packet()
+    ips = mock_investment_policy()
+    metrics = calculate_snapshot_metrics(packet.snapshot, ips)
+
+    evaluator.evaluate(
+        query="How much effective cash do I have?",
+        ips=ips,
+        snapshot=packet.snapshot,
+        portfolio_packet=packet,
+        metrics=metrics,
+        storage_result={"status": "inserted"},
+        history_status={"snapshot_count": 1, "data_quality": {"warnings": []}},
+    )
+
+    assert "How much effective cash do I have?" in llm.prompt
+    assert "Answer user_query directly in the summary" in llm.prompt
+    assert "summary must answer the user_query directly" in llm.system_instruction
+
+
 def test_llm_portfolio_evaluator_recovers_partial_json_without_raw_markdown_summary():
     text = """
     ```json
@@ -159,3 +181,14 @@ class FakeLLM:
         }
         ```
         """
+
+
+class CapturingLLM(FakeLLM):
+    def __init__(self):
+        self.prompt = ""
+        self.system_instruction = ""
+
+    def generate_text(self, prompt, **kwargs) -> str:
+        self.prompt = prompt
+        self.system_instruction = kwargs.get("system_instruction", "")
+        return super().generate_text(prompt, **kwargs)

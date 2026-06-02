@@ -1,6 +1,7 @@
 # OpenD Field Summary
 
-Generated from live OpenD connections on 2026-05-23.
+Generated from live OpenD connections on 2026-05-23 and updated after the
+2026-05-30 live OpenD normalization checks.
 
 Raw field exploration output is saved locally to:
 
@@ -197,11 +198,17 @@ The current portfolio includes data types that matter for schema design:
 - Negative cash / financing fields
 - Realized and unrealized P&L fields
 - Per-currency cash and asset fields
+- Account-level `fund_assets`, which may represent a cash sweep in this user's
+  setup but is not universally safe to classify as cash
 
 Likely next checks:
 
 - Set `MOOMAIL_MOOMOO_ACCOUNT_ID` in `config/local.env` to the active real account id if multiple accounts cause ambiguity.
+- Enable `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true` only if
+  `fund_assets` represents the automatic MooMoo money-market cash sweep.
 - Decide whether OTC holdings should use a fallback quote provider in a later milestone.
+- Explore `OpenCryptoTradeContext` separately for crypto holdings under the
+  same account number.
 - Preserve option-position fields even if the first Investment Agent scope emphasizes equities.
 - Preserve margin and negative-cash fields in the eventual SQL schema.
 
@@ -226,8 +233,17 @@ Recorded command:
 
 Recorded output summary:
 
-- Holdings: 15
-- Cash balances: 1
+- Holdings: 15 in the first recorded report; 16 in the later live summary
+- Cash balances: base cash, plus an optional cash-sweep row when enabled
 - Candidate issues: 2
 - Missing fields: `quotes_for_all_positions`
 - Warning: one OTC quote was unsupported by OpenD market snapshots
+
+Live summary after OpenD was fixed:
+
+```text
+holdings_count: 16
+cash_balances_count: 2 when cash-sweep treatment is enabled
+missing_fields: quotes_for_all_positions
+warning: US.TCEHY quote query failed because OpenD does not support OTC market data for TCEHY
+```

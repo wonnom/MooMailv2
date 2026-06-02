@@ -94,6 +94,7 @@ def test_build_portfolio_snapshot_treats_account_fund_assets_as_cash_sweep():
         report,
         portfolio_id="portfolio_default",
         base_currency="USD",
+        treat_fund_assets_as_cash_sweep=True,
     )
     packet = build_portfolio_agent_packet(snapshot, mock_investment_policy(), report)
 
@@ -104,6 +105,27 @@ def test_build_portfolio_snapshot_treats_account_fund_assets_as_cash_sweep():
     assert sum(cash.amount for cash in snapshot.cash) == 253.0
     assert any(row.name == "Cash Sweep" for row in packet.allocation["by_asset"])
     assert any("fund_assets" in warning for warning in packet.data_quality.warnings)
+
+
+def test_build_portfolio_snapshot_does_not_treat_fund_assets_as_cash_by_default():
+    report = _sample_report(
+        fund_row={
+            "total_assets": 1000.0,
+            "cash": 3.0,
+            "fund_assets": 250.0,
+            "currency": "USD",
+        }
+    )
+
+    snapshot = build_portfolio_snapshot_from_report(
+        report,
+        portfolio_id="portfolio_default",
+        base_currency="USD",
+    )
+
+    assert [cash.account_id for cash in snapshot.cash] == ["opend_selected_account"]
+    assert snapshot.cash[0].amount == 3.0
+    assert any("fund_assets is present" in warning for warning in snapshot.data_quality.warnings)
 
 
 def test_build_portfolio_snapshot_reports_upstream_warning_when_positions_missing():

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
@@ -45,6 +45,7 @@ class FullInvestmentAgent:
     memory_store: FileMemoryStore
     research_store: LocalResearchStore
     ips: InvestmentPolicy
+    opend_config: OpenDConfig = field(default_factory=OpenDConfig)
 
     def run(self, query: str, *, status_callback: StatusCallback | None = None) -> AgentState:
         run_id = f"run_{uuid4().hex[:12]}"
@@ -66,7 +67,10 @@ class FullInvestmentAgent:
             snapshot = build_portfolio_snapshot_from_report(
                 report,
                 portfolio_id=self.ips.portfolio_id,
-                base_currency="USD",
+                base_currency=self.opend_config.base_currency,
+                treat_fund_assets_as_cash_sweep=(
+                    self.opend_config.treat_fund_assets_as_cash_sweep
+                ),
             )
             state.portfolio_packet = build_portfolio_agent_packet(snapshot, self.ips, report)
         except Exception as exc:
@@ -298,6 +302,7 @@ def build_default_full_agent(
     seed_default_memories(memory_store)
     return FullInvestmentAgent(
         portfolio_client=client,
+        opend_config=config,
         sql_store=PortfolioSqlStore(db_path),
         memory_store=memory_store,
         research_store=build_sample_research_store(),

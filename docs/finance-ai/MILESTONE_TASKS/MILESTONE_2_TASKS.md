@@ -121,6 +121,7 @@ Important fields:
 - `MOOMAIL_MOOMOO_ACCOUNT_ID`: optional real account id once discovered
 - `MOOMAIL_MOOMOO_ACCOUNT_INDEX`: fallback account index, default `0`
 - `MOOMAIL_MOOMOO_BASE_CURRENCY`: default `USD`
+- `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`: optional, default `false`
 
 There is intentionally no trade unlock password setting in v1.
 
@@ -129,6 +130,19 @@ There is intentionally no trade unlock password setting in v1.
 OpenD connection is working on `127.0.0.1:11111`.
 
 The `FUTUSG` configuration exposes real account metadata, funds, positions, and quote snapshots. One OTC holding is not supported by the OpenD market snapshot API, so the adapter retries quote requests per symbol and records unsupported symbols as warnings.
+
+Use this read-only diagnostic when account lists work but funds or positions do
+not:
+
+```bash
+.venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
+```
+
+It probes `get_acc_list`, `accinfo_query`, and `position_list_query` separately
+with cached/refresh variants. It never calls trade unlock or order APIs.
+
+OpenD `fund_assets` is an account-level aggregate. It is treated as a
+cash-equivalent sweep only when explicitly enabled in local config.
 
 See [OPEND_FIELD_SUMMARY.md](../OPEND_FIELD_SUMMARY.md) for the redacted field summary.
 

@@ -47,6 +47,7 @@ def main() -> None:
         report,
         portfolio_id=ips.portfolio_id,
         base_currency=config.base_currency,
+        treat_fund_assets_as_cash_sweep=config.treat_fund_assets_as_cash_sweep,
     )
     packet = build_portfolio_agent_packet(snapshot, ips, report)
     metrics = calculate_snapshot_metrics(snapshot, ips)
@@ -118,4 +119,3 @@ def _audit_for_demo(as_of: datetime, snapshot_id: str) -> AuditRecord:
 
 if __name__ == "__main__":
     main()
-

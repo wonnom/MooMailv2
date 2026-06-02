@@ -94,7 +94,9 @@ def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
         "final_report": {
             "title": "Portfolio Agent Evaluation",
             "mode": "portfolio",
+            "as_of": result.snapshot.as_of.isoformat(),
             "summary": result.evaluation.summary,
+            "portfolio_snapshot": result.snapshot.model_dump(mode="json"),
             "portfolio_analysis": {
                 "allocation": {
                     key: [item.model_dump(mode="json") for item in values]

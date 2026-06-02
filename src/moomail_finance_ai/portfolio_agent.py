@@ -110,7 +110,7 @@ class LLMPortfolioEvaluator:
                 history_status=history_status,
             ),
             system_instruction=PORTFOLIO_EVALUATOR_SYSTEM_PROMPT,
-            max_output_tokens=4096,
+            max_output_tokens=8192,
             temperature=0.1,
         )
         model = getattr(getattr(self.llm, "config", None), "model", None)
@@ -275,7 +275,11 @@ You are the Portfolio Agent evaluator for a personal finance AI.
 Use only the portfolio snapshot, deterministic metrics, SQL history status, and Investment Policy
 Statement supplied by the tool pipeline. Do not use market news, sentiment, external outlook, or
 unsupported facts. Do not recommend trade placement, order entry, exact share counts, or execution
-instructions. Return a compact JSON object only, with no markdown fences and no prose outside JSON.
+instructions. The summary must answer the user_query directly before giving any overview. If the
+query asks for a narrow portfolio-only fact, ranking, allocation, risk, cash, or holding question,
+answer that question first instead of defaulting to a broad portfolio review. If the query requires
+market sentiment, news, research, or broader synthesis, say what portfolio-only evidence can and
+cannot answer. Return a compact JSON object only, with no markdown fences and no prose outside JSON.
 Use these keys exactly: summary, strengths, risks, ips_mismatches, history_observations,
 open_questions. Keep each list to at most 4 items and each item under 180 characters.
 """.strip()
@@ -349,7 +353,8 @@ def _evaluation_prompt(
         "history_status": history_status,
     }
     return (
-        "Evaluate the portfolio-only evidence below. Keep the response concise and structured.\n\n"
+        "Evaluate the portfolio-only evidence below. Answer user_query directly in the summary, "
+        "then add concise supporting observations in the lists.\n\n"
         f"{json.dumps(context, sort_keys=True)}"
     )
 

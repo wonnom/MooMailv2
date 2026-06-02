@@ -112,5 +112,5 @@ Run:
 Latest result:
 
 ```text
-53 passed, 4 skipped
+64 passed, 10 skipped
 ```

@@ -13,7 +13,11 @@ const guardrailBadge = document.querySelector("#guardrailBadge");
 const reportTitle = document.querySelector("#reportTitle");
 const reportMode = document.querySelector("#reportMode");
 const reportSummary = document.querySelector("#reportSummary");
-const allocationBars = document.querySelector("#allocationBars");
+const portfolioMeta = document.querySelector("#portfolioMeta");
+const portfolioPositions = document.querySelector("#portfolioPositions");
+const allocationSort = document.querySelector("#allocationSort");
+const allocationChart = document.querySelector("#allocationChart");
+const allocationViewButtons = Array.from(document.querySelectorAll("[data-allocation-view]"));
 const portfolioEvaluation = document.querySelector("#portfolioEvaluation");
 const recommendationsList = document.querySelector("#recommendationsList");
 const missingDataList = document.querySelector("#missingDataList");
@@ -23,6 +27,22 @@ const traceOutput = document.querySelector("#traceOutput");
 
 const CHAT_WIDTH_KEY = "finance_ai_chat_width";
 const CHAT_HIDDEN_KEY = "finance_ai_chat_hidden";
+const PIE_COLORS = [
+  "#2563eb",
+  "#0f766e",
+  "#f59e0b",
+  "#dc2626",
+  "#7c3aed",
+  "#16a34a",
+  "#0891b2",
+  "#db2777",
+  "#4b5563",
+  "#ca8a04",
+  "#9333ea",
+  "#15803d",
+];
+let currentReport = null;
+let allocationView = "bars";
 
 restoreChatLayout();
 
@@ -44,6 +64,15 @@ input.addEventListener("keydown", (event) => {
 
 hideChatButton.addEventListener("click", () => setChatHidden(true));
 showChatButton.addEventListener("click", () => setChatHidden(false));
+allocationSort.addEventListener("change", renderCurrentAllocation);
+allocationViewButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextView = button.dataset.allocationView;
+    if (nextView !== "bars" && nextView !== "pie") return;
+    allocationView = nextView;
+    renderCurrentAllocation();
+  });
+});
 
 chatResizeHandle.addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -106,8 +135,12 @@ function handleStreamLine(line) {
 }
 
 function clearRun() {
+  currentReport = null;
   statusList.replaceChildren();
   traceOutput.textContent = "";
+  portfolioMeta.textContent = "";
+  portfolioPositions.replaceChildren();
+  allocationChart.replaceChildren();
   portfolioEvaluation.replaceChildren();
   guardrailBadge.textContent = "Running";
   guardrailBadge.className = "badge";
@@ -140,6 +173,7 @@ function renderState(state) {
   reportSummary.textContent = report.summary;
   guardrailBadge.textContent = state.guardrail_result?.passed ? "Guardrails Passed" : "Guardrails Blocked";
   guardrailBadge.className = state.guardrail_result?.passed ? "badge good" : "badge bad";
+  renderPortfolioSnapshot(report);
   renderAllocation(report);
   renderPortfolioEvaluation(report);
   renderRecommendations(report.recommendations);
@@ -156,15 +190,116 @@ function renderState(state) {
   }, null, 2);
 }
 
+function renderPortfolioSnapshot(report) {
+  const snapshot = report.portfolio_snapshot;
+  portfolioPositions.replaceChildren();
+  if (!snapshot) {
+    portfolioMeta.textContent = "";
+    const item = document.createElement("p");
+    item.className = "muted";
+    item.textContent = "No portfolio snapshot returned for this run.";
+    portfolioPositions.appendChild(item);
+    return;
+  }
+  portfolioMeta.textContent = [
+    formatCurrency(snapshot.total_value.amount, snapshot.total_value.currency),
+    `${snapshot.holdings.length} holdings`,
+    `${snapshot.cash.length} cash lines`,
+  ].join(" | ");
+  const rows = [
+    ...snapshot.cash.map((cash) => ({
+      label: cashLabel(cash),
+      detail: cash.account_id,
+      assetType: "cash",
+      quantity: null,
+      price: null,
+      value: cash.amount,
+      weight: cash.weight,
+      currency: cash.currency,
+      pnl: null,
+    })),
+    ...snapshot.holdings.map((holding) => ({
+      label: holding.ticker,
+      detail: holding.name,
+      assetType: holding.asset_type,
+      quantity: holding.quantity,
+      price: holding.market_price,
+      value: holding.market_value,
+      weight: holding.portfolio_weight,
+      currency: holding.currency,
+      pnl: holding.unrealized_pnl ?? null,
+    })),
+  ].sort((left, right) => Math.abs(right.weight) - Math.abs(left.weight));
+  const table = document.createElement("div");
+  table.className = "position-grid";
+  ["Asset", "Type", "Qty", "Price", "Value", "Weight", "Unrealized"].forEach((heading) => {
+    const cell = document.createElement("div");
+    cell.className = "position-heading";
+    cell.textContent = heading;
+    table.appendChild(cell);
+  });
+  rows.forEach((row) => {
+    const asset = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = row.label;
+    const detail = document.createElement("span");
+    detail.className = "muted";
+    detail.textContent = row.detail;
+    asset.append(name, detail);
+    const type = document.createElement("div");
+    type.textContent = row.assetType;
+    const quantity = document.createElement("div");
+    quantity.textContent = row.quantity === null ? "-" : formatNumber(row.quantity);
+    const price = document.createElement("div");
+    price.textContent = row.price === null ? "-" : formatCurrency(row.price, row.currency);
+    const value = document.createElement("div");
+    value.textContent = formatCurrency(row.value, row.currency);
+    const weight = document.createElement("div");
+    weight.textContent = formatPercent(row.weight);
+    const pnl = document.createElement("div");
+    pnl.textContent = row.pnl === null ? "-" : formatCurrency(row.pnl, row.currency);
+    pnl.className = row.pnl === null ? "" : row.pnl >= 0 ? "positive" : "negative";
+    table.append(asset, type, quantity, price, value, weight, pnl);
+  });
+  portfolioPositions.appendChild(table);
+}
+
 function renderAllocation(report) {
-  const allocation = report.portfolio_analysis?.allocation;
-  const rows = allocation?.by_asset ?? [];
-  allocationBars.replaceChildren();
-  rows.slice(0, 12).forEach((row) => {
+  currentReport = report;
+  renderCurrentAllocation();
+}
+
+function renderCurrentAllocation() {
+  allocationViewButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.allocationView === allocationView);
+  });
+  if (!currentReport) return;
+  const allocation = currentReport.portfolio_analysis?.allocation;
+  const rows = sortAllocationRows((allocation?.by_asset ?? []).filter((row) => Number.isFinite(row.weight)));
+  allocationChart.replaceChildren();
+  if (rows.length === 0) {
+    const item = document.createElement("p");
+    item.className = "muted";
+    item.textContent = "No allocation rows returned for this run.";
+    allocationChart.appendChild(item);
+    return;
+  }
+  if (allocationView === "pie") {
+    renderAllocationPie(rows);
+    return;
+  }
+  renderAllocationBars(rows);
+}
+
+function renderAllocationBars(rows) {
+  const stack = document.createElement("div");
+  stack.className = "bar-stack";
+  rows.forEach((row) => {
     const container = document.createElement("div");
     container.className = "bar-row";
     const name = document.createElement("span");
     name.textContent = row.name;
+    name.title = row.name;
     const track = document.createElement("div");
     track.className = "bar-track";
     const fill = document.createElement("div");
@@ -174,8 +309,88 @@ function renderAllocation(report) {
     const value = document.createElement("span");
     value.textContent = `${(row.weight * 100).toFixed(1)}%`;
     container.append(name, track, value);
-    allocationBars.appendChild(container);
+    stack.appendChild(container);
   });
+  allocationChart.appendChild(stack);
+}
+
+function renderAllocationPie(rows) {
+  const positiveRows = rows.filter((row) => row.weight > 0);
+  const totalWeight = positiveRows.reduce((total, row) => total + row.weight, 0);
+  if (totalWeight <= 0) {
+    const item = document.createElement("p");
+    item.className = "muted";
+    item.textContent = "No positive allocation weights available for a pie view.";
+    allocationChart.appendChild(item);
+    return;
+  }
+  const wrapper = document.createElement("div");
+  wrapper.className = "pie-layout";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 120 120");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Portfolio allocation pie chart");
+  let startAngle = -90;
+  positiveRows.forEach((row, index) => {
+    const span = (row.weight / totalWeight) * 360;
+    const endAngle = startAngle + span;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pieSlicePath(60, 60, 52, startAngle, endAngle));
+    path.setAttribute("fill", PIE_COLORS[index % PIE_COLORS.length]);
+    path.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "title"));
+    path.querySelector("title").textContent = `${row.name}: ${formatPercent(row.weight)}`;
+    svg.appendChild(path);
+    startAngle = endAngle;
+  });
+  const legend = document.createElement("div");
+  legend.className = "pie-legend";
+  positiveRows.forEach((row, index) => {
+    const item = document.createElement("div");
+    item.className = "pie-legend-item";
+    const swatch = document.createElement("span");
+    swatch.style.background = PIE_COLORS[index % PIE_COLORS.length];
+    const label = document.createElement("span");
+    label.textContent = `${row.name} | ${formatPercent(row.weight)}`;
+    item.append(swatch, label);
+    legend.appendChild(item);
+  });
+  wrapper.append(svg, legend);
+  allocationChart.appendChild(wrapper);
+}
+
+function sortAllocationRows(rows) {
+  const sorted = [...rows];
+  const sortMode = allocationSort.value;
+  if (sortMode === "weight_asc") {
+    return sorted.sort((left, right) => Math.abs(left.weight) - Math.abs(right.weight));
+  }
+  if (sortMode === "name_asc") {
+    return sorted.sort((left, right) => left.name.localeCompare(right.name));
+  }
+  if (sortMode === "value_desc") {
+    return sorted.sort((left, right) => Math.abs(right.value) - Math.abs(left.value));
+  }
+  return sorted.sort((left, right) => Math.abs(right.weight) - Math.abs(left.weight));
+}
+
+function pieSlicePath(centerX, centerY, radius, startAngle, endAngle) {
+  const start = polarToCartesian(centerX, centerY, radius, endAngle);
+  const end = polarToCartesian(centerX, centerY, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  return [
+    `M ${centerX} ${centerY}`,
+    `L ${start.x} ${start.y}`,
+    `A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
+  const angleInRadians = angleInDegrees * Math.PI / 180;
+  return {
+    x: centerX + radius * Math.cos(angleInRadians),
+    y: centerY + radius * Math.sin(angleInRadians),
+  };
 }
 
 function renderPortfolioEvaluation(report) {
@@ -248,7 +463,7 @@ function renderSentiment(sentiment) {
   holdings.forEach((holding) => {
     const card = document.createElement("article");
     card.className = "holding-card";
-    card.innerHTML = `<strong>${escapeHtml(holding.ticker)} · ${escapeHtml(holding.stance)}</strong><br>${escapeHtml(holding.thesis_summary)}`;
+    card.innerHTML = `<strong>${escapeHtml(holding.ticker)} | ${escapeHtml(holding.stance)}</strong><br>${escapeHtml(holding.thesis_summary)}`;
     sentimentList.appendChild(card);
   });
 }
@@ -259,7 +474,7 @@ function renderCitations(citations) {
     const details = document.createElement("details");
     details.className = "citation-card";
     const rank = citation.location?.source_quality_rank ?? "n/a";
-    details.innerHTML = `<summary>${escapeHtml(citation.title)} · ${escapeHtml(citation.source_quality)} · rank ${rank}</summary><p>${escapeHtml(citation.snippet)}</p><p class="muted">${escapeHtml(citation.document_id)}</p>`;
+    details.innerHTML = `<summary>${escapeHtml(citation.title)} | ${escapeHtml(citation.source_quality)} | rank ${rank}</summary><p>${escapeHtml(citation.snippet)}</p><p class="muted">${escapeHtml(citation.document_id)}</p>`;
     citationList.appendChild(details);
   });
 }
@@ -289,6 +504,33 @@ function setChatWidth(width) {
 
 function scrollChatToBottom() {
   chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function cashLabel(cash) {
+  if (cash.account_id === "opend_fund_assets_cash_sweep") return "Cash Sweep";
+  return "Cash";
+}
+
+function formatCurrency(value, currency) {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
+    }).format(value);
+  } catch {
+    return `${currency} ${formatNumber(value)}`;
+  }
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: Math.abs(value) >= 100 ? 0 : 4,
+  }).format(value);
+}
+
+function formatPercent(value) {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function escapeHtml(value) {

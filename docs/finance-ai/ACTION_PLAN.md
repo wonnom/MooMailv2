@@ -17,18 +17,22 @@ Implemented locally:
 - MCP-backed Portfolio Agent that calls OpenD, portfolio SQL, and finance metrics MCP modules.
 - Provider-neutral portfolio-only evaluator behind a structured LLM adapter,
   currently verified with Gemini and prepared for OpenAI.
-- Basic local chat frontend.
+- Local chat frontend with streaming status, report panels, trace output,
+  bottom composer, Send button, resizable chat rail, and hide/show controls.
 - Local MCP-facing modules and stdio server scripts for OpenD, portfolio SQL, and finance metrics.
+- Focused OpenD diagnostic script for account list, funds, and position reads.
 
 Actually connected at least once:
 
-- OpenD was connected live and recorded into `reports/opend/field-report.json`.
+- OpenD was connected live for the `FUTUSG` securities account path.
 - SQLite is real and stores local snapshots, metrics, audit summaries, and run records.
 - The local frontend can call the local Python backend.
 - MCP server scripts round-trip locally for finance metrics, OpenD recorded mode, and portfolio SQL.
 - The OpenD MCP live connector smoke test passes when OpenD is available and live connector tests are enabled.
 - Gemini live connector smoke tests pass when Gemini credentials are present and live connector tests are enabled.
 - The Portfolio Agent live test calls the configured LLM evaluator after running recorded OpenD data through the three MCP modules.
+- Live normalized OpenD portfolio summaries build with unsupported OTC quotes
+  captured as warnings.
 
 Still not real integrations:
 
@@ -40,12 +44,32 @@ Still not real integrations:
 - No LangGraph runtime is connected.
 - No proprietary SQL database is connected.
 - No real research document ingestion pipeline exists yet.
+- Crypto holdings are not yet read through `OpenCryptoTradeContext`.
+- OTC quote fallback outside OpenD is not yet implemented.
 
-## Next Iteration: Connector Validation Spike
+## Current Priority: V1 Finalization
+
+The connector validation spike has served its purpose for OpenD, local MCP
+modules, SQLite, and LLM adapters. The next objective is to stabilize the first
+usable Portfolio Agent version rather than broadening integrations.
+
+See [V1_FINALIZATION_PLAN.md](V1_FINALIZATION_PLAN.md) for the release gate.
+
+Immediate sequence:
+
+1. Harden live OpenD portfolio reads and document the exact env setup.
+2. Freeze the Portfolio Agent output contract consumed by terminal and web UI.
+3. Keep cash-sweep handling explicit through
+   `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
+4. Add a recorded fixture covering OTC quote failure and cash-equivalent handling.
+5. Verify terminal and web reviews against the same live OpenD data.
+6. Run deterministic tests and live OpenD-only tests before calling v1 done.
+
+## Deferred Connector Validation
 
 Goal: prove every major connector class with one thin, inspectable round trip before deeper integration. This is intentionally not the final architecture. It is a fail-early iteration so assumptions about auth, SDKs, network access, schemas, and operational friction surface while the system is still small.
 
-Minimum outcome by the end of the next iteration:
+Minimum outcome before resuming this deferred connector track:
 
 - At least one LLM call is wired into one agent path.
 - At least one MCP server is running locally and called by the agent layer.
@@ -66,7 +90,7 @@ Minimum outcome by the end of the next iteration:
 | Research graph | In-process local fixtures only | Add one Neo4j connection spike with a tiny company/document/claim graph | Neo4j URI, username, password, and database name | A test query can create/read a small graph fixture and return structured graph context |
 | Vector retrieval | No embedding/vector connector | Add a minimal embedding/vector round trip, either Pinecone namespace or local vector store | Provider key if using hosted embeddings | A sample document chunk can be embedded/upserted/retrieved |
 
-### Next Iteration Work Plan
+### Deferred Connector Work Plan
 
 1. Connector configuration
    - Create a single ignored local connector env file or extend existing local env handling.
@@ -272,16 +296,14 @@ Exit criteria:
 - The UI shows what the agent is doing in real time without exposing hidden reasoning.
 - Citations open source snippets or document metadata.
 
-## Suggested Build Order
+## Suggested Build Order From Here
 
-1. Static agent prototype
-2. OpenD exploration and read-only current portfolio retrieval
-3. SQL schema and portfolio history
-4. Finance metric tools
-5. Local research and Sentiment Agent prototype
-6. Local full Investment Agent and chat frontend prototype
-7. Connector validation spike: LLM, MCP, live OpenD, memory, research graph, and vector retrieval
-8. Replace local stand-ins with real connector-backed implementations one at a time
-9. LangGraph orchestration
-10. Guardrail hardening and evaluation suite
-11. Production-quality local frontend workflow
+1. Finalize live OpenD Portfolio Agent V1.
+2. Freeze the terminal and frontend output contract.
+3. Add the recorded OpenD fixture covering OTC quote failure and cash-sweep handling.
+4. Run terminal and web reviews against the same live account data.
+5. Harden frontend warning/failure rendering without changing the backend contract.
+6. Add the V1 release gate commands to the runbook.
+7. Resume deferred connectors one at a time: OTC quote fallback, crypto context,
+   Pinecone memory, Neo4j research GraphRAG, then official MCP SDK transport if
+   it still improves the architecture.

@@ -102,6 +102,25 @@ MOOMAIL_OPEND_PORT=11111
 
 Use the API port configured in OpenD.
 
+For FUTUSG securities accounts, the local env usually needs:
+
+```env
+MOOMAIL_MOOMOO_SECURITY_FIRM=FUTUSG
+MOOMAIL_MOOMOO_TRADE_ENV=REAL
+MOOMAIL_MOOMOO_TRADE_MARKET=US
+MOOMAIL_MOOMOO_BASE_CURRENCY=USD
+```
+
+If your MooMoo cash is automatically swept into a USD money-market fund and
+OpenD exposes that amount only through account-level `fund_assets`, enable:
+
+```env
+MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true
+```
+
+This is disabled by default because `fund_assets` can also represent ordinary
+fund exposure in other accounts.
+
 Optional RSA configuration goes here only if OpenD encryption is configured:
 
 ```env
@@ -109,6 +128,12 @@ MOOMAIL_OPEND_RSA_PRIVATE_KEY_PATH=/path/to/conn_key.txt
 ```
 
 There is intentionally no trade unlock password setting.
+
+Diagnose account funds and positions:
+
+```bash
+.venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
+```
 
 ## Portfolio Agent LLM
 

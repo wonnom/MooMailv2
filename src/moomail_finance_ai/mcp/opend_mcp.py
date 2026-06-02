@@ -108,6 +108,7 @@ def build_opend_mcp_module(
             client.explore_fields(),
             portfolio_id=str(arguments.get("portfolio_id") or "portfolio_default"),
             base_currency=str(arguments.get("base_currency") or config.base_currency),
+            treat_fund_assets_as_cash_sweep=config.treat_fund_assets_as_cash_sweep,
         ),
     )
     module.add_tool(
@@ -195,6 +196,7 @@ def _portfolio_context(
         report,
         portfolio_id=str(arguments.get("portfolio_id") or "portfolio_default"),
         base_currency=str(arguments.get("base_currency") or config.base_currency),
+        treat_fund_assets_as_cash_sweep=config.treat_fund_assets_as_cash_sweep,
     )
     return {"source_report": report, "snapshot": snapshot}
 
@@ -212,6 +214,7 @@ def _config_summary(
         "trade_market": config.trade_market,
         "trade_env": config.trade_env,
         "base_currency": config.base_currency,
+        "treat_fund_assets_as_cash_sweep": config.treat_fund_assets_as_cash_sweep,
         "account_id_configured": config.account_id is not None,
         "account_index": config.account_index,
         "rsa_private_key_configured": config.rsa_private_key_path is not None,

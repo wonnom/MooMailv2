@@ -17,6 +17,7 @@ def test_load_opend_config_defaults():
     assert config.base_currency == "USD"
     assert config.account_id is None
     assert config.account_index == 0
+    assert config.treat_fund_assets_as_cash_sweep is False
 
 
 def test_load_opend_config_from_env_values():
@@ -34,6 +35,7 @@ def test_load_opend_config_from_env_values():
             "MOOMAIL_MOOMOO_BASE_CURRENCY": "usd",
             "MOOMAIL_MOOMOO_ACCOUNT_ID": "123456",
             "MOOMAIL_MOOMOO_ACCOUNT_INDEX": "2",
+            "MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP": "true",
         }
     )
 
@@ -49,6 +51,7 @@ def test_load_opend_config_from_env_values():
     assert config.base_currency == "USD"
     assert config.account_id == 123456
     assert config.account_index == 2
+    assert config.treat_fund_assets_as_cash_sweep is True
 
 
 def test_load_env_file_parses_simple_key_values(tmp_path):

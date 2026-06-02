@@ -4,9 +4,8 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from moomail_finance_ai.config import OpenDConfig
 from moomail_finance_ai.metrics import v1_us_equity_holdings
-from moomail_finance_ai.opend import OpenDFieldReport, OpenDTableResult, ReadOnlyOpenDClient
+from moomail_finance_ai.opend import OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.schemas import (
     AllocationSlice,
     CandidateIssue,
@@ -26,28 +25,12 @@ class OpenDPortfolioDataError(RuntimeError):
     """Raised when OpenD data cannot be normalized into a portfolio snapshot."""
 
 
-class OpenDPortfolioAgent:
-    def __init__(self, client: ReadOnlyOpenDClient, config: OpenDConfig):
-        self.client = client
-        self.config = config
-        self.calls = 0
-
-    def run(self, query: str, ips: InvestmentPolicy) -> PortfolioAgentPacket:
-        self.calls += 1
-        report = self.client.explore_fields()
-        snapshot = build_portfolio_snapshot_from_report(
-            report,
-            portfolio_id=ips.portfolio_id,
-            base_currency=self.config.base_currency,
-        )
-        return build_portfolio_agent_packet(snapshot, ips, report)
-
-
 def build_portfolio_snapshot_from_report(
     report: OpenDFieldReport,
     *,
     portfolio_id: str,
     base_currency: str,
+    treat_fund_assets_as_cash_sweep: bool = False,
 ) -> PortfolioSnapshot:
     funds = _optional_table(report, "funds")
     positions = _required_table(report, "positions")
@@ -69,7 +52,9 @@ def build_portfolio_snapshot_from_report(
         _holding_from_position(row, quote_by_code.get(row.get("code")), total_value, as_of)
         for row in positions.rows
     ]
-    cash_sweep_value = _cash_sweep_value(fund_row, holdings)
+    cash_sweep_value = (
+        _cash_sweep_value(fund_row, holdings) if treat_fund_assets_as_cash_sweep else 0.0
+    )
     cash_balances = [
         CashBalance(
             account_id="opend_selected_account",
@@ -115,6 +100,11 @@ def build_portfolio_snapshot_from_report(
     if cash_sweep_value > 0:
         warnings.append(
             "OpenD fund_assets is treated as a cash-equivalent sweep balance."
+        )
+    elif _first_available_number(fund_row, ["fund_assets"]) > 0:
+        warnings.append(
+            "OpenD fund_assets is present but not treated as cash because "
+            "MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP is disabled."
         )
     if not quotes or len(quotes.rows) < len(positions.rows):
         missing_fields.append("quotes_for_all_positions")

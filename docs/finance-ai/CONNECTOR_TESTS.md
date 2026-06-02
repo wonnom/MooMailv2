@@ -116,6 +116,23 @@ scripts/mcp_opend_server.py
 It uses the same OpenD env file as the direct OpenD adapter test and requires
 OpenD to be open, logged in, and listening on the configured API port.
 
+For faster manual diagnosis, run:
+
+```bash
+.venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
+```
+
+This prints a redacted read-only report for:
+
+- `get_acc_list`
+- `accinfo_query` with cached and forced-refresh variants
+- `position_list_query` with configured-market and all-market variants
+
+If `get_acc_list` works but funds/positions fail with `Network interruption`,
+the local OpenD session is reachable but account trade-read APIs are not ready.
+Restart OpenD, confirm the local session is fully logged in, and check whether
+manual verification/unlock is pending in the MooMoo/OpenD UI.
+
 ### OpenD
 
 OpenD must be manually open and logged in.
@@ -141,6 +158,16 @@ MOOMAIL_MOOMOO_SECURITY_FIRM=FUTUSG
 MOOMAIL_MOOMOO_TRADE_ENV=REAL
 MOOMAIL_MOOMOO_TRADE_MARKET=US
 ```
+
+Optional for MooMoo automatic money-market cash sweep accounts:
+
+```env
+MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true
+```
+
+Leave this disabled unless `fund_assets` represents a cash-sweep balance for
+your account. It is an account-level aggregate and should not be treated as cash
+for every account by default.
 
 ### SQLite
 

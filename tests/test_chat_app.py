@@ -52,6 +52,7 @@ def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
     assert any(line["type"] == "status" for line in lines)
     assert final["agent_type"] == "portfolio_agent"
     assert final["final_report"]["summary"] == "Portfolio evaluator test summary."
+    assert final["final_report"]["portfolio_snapshot"]["holdings"][0]["ticker"] == "AAPL"
     assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
     assert final["final_report"]["portfolio_analysis"]["evaluation"]["risks"] == [
         "Concentration requires review."
@@ -68,9 +69,15 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     assert "hideChatButton" in html
     assert "showChatButton" in html
     assert "chatResizeHandle" in html
+    assert "portfolioPositions" in html
+    assert "allocationSort" in html
+    assert "data-allocation-view=\"pie\"" in html
     assert "/api/chat/stream" in ts
     assert "setChatHidden" in ts
     assert "resizeChatTo" in ts
+    assert "renderPortfolioSnapshot" in ts
+    assert "sortAllocationRows" in ts
+    assert "renderAllocationPie" in ts
     assert "renderPortfolioEvaluation" in ts
     assert "renderCitations" in ts
     assert "source_quality_rank" in ts

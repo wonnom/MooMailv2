@@ -59,6 +59,10 @@ Responsibilities:
 - Analyze actual portfolio state, allocation, concentration, risk, and performance.
 - Detect stale or missing data.
 - Return structured diagnostics and candidate concerns to the Investment Agent.
+- Treat explicit cash-equivalent holdings as cash for cash-weight/allocation
+  metrics while preserving the original holding in the snapshot.
+- Treat OpenD account-level `fund_assets` as a cash sweep only when the local
+  OpenD config explicitly enables that assumption.
 
 The Portfolio Agent does not generate final user-facing recommendations. It provides evidence, metrics, and portfolio performance analysis for the Investment Agent to synthesize.
 
@@ -69,7 +73,10 @@ Current implementation:
   optional metric storage, and `portfolio_sql_history_status`.
 - LLM evaluator: a provider-neutral LLM adapter produces a portfolio-only
   structured evaluation after deterministic tools complete. Gemini and OpenAI
-  are supported, with Gemini as the current default.
+  are supported, with Gemini as the current default. The evaluator now asks for
+  compact JSON, answers portfolio-only user queries directly before giving a
+  broad overview, and recovers partial structured fields when a provider returns
+  malformed or truncated fenced JSON.
 - Persistence policy: SQL MCP inserts at most one snapshot per portfolio/date
   and skips duplicate same-day writes.
 
@@ -96,6 +103,8 @@ The Portfolio Agent should return:
 - Candidate issues for Investment Agent review
 - Portfolio-only LLM evaluation with strengths, risks, IPS mismatches, history
   observations, and open questions
+- Data-quality warnings for unsupported OTC quotes and opt-in cash-sweep
+  assumptions
 
 ### Required Metrics
 
@@ -104,6 +113,8 @@ Required v1 metrics:
 - Total portfolio value
 - Position value and weight
 - Cash weight
+- Effective cash weight, including explicit cash-equivalent holdings and
+  configured cash sweep balances
 - Unrealized P&L
 - Realized P&L if available
 - Sector allocation

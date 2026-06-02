@@ -11,6 +11,10 @@ The frontend is local and dependency-light:
 - TypeScript source checked in under `web/static/app.ts`.
 - Browser-ready JavaScript checked in under `web/static/app.js` because npm/TypeScript tooling is not required for tests.
 - Streaming status uses a newline-delimited event stream over `fetch`.
+- Chat-style input uses a bottom composer with a Send button.
+- The chat rail can be resized or hidden for full report inspection.
+- Portfolio snapshot rendering shows all returned holdings and cash lines.
+- Allocation rendering supports sortable bars and a pie-chart view.
 
 ## Exit Criteria
 
@@ -44,6 +48,9 @@ A. FullInvestmentAgent from Milestone 5
 | C | Add `/api/chat` endpoint | B | Done |
 | E | Add static frontend | B | Done |
 | H | Render report panels from backend JSON | E | Done |
+| H1 | Add chat-style Send composer | E | Done |
+| H2 | Add resizable and hideable chat rail | E | Done |
+| H3 | Add holdings/cash table and sortable allocation views | E | Done |
 | J | Add API/frontend static tests | B, E | Done |
 
 ### EC2: UI shows real-time status without hidden reasoning
@@ -86,13 +93,13 @@ Run:
 Latest focused tests:
 
 ```text
-tests/test_chat_app.py ... 3 passed
+tests/test_chat_app.py .... 4 passed
 ```
 
 Latest full suite:
 
 ```text
-53 passed, 4 skipped
+64 passed, 10 skipped
 ```
 
 Local server check:

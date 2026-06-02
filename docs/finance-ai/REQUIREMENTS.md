@@ -78,7 +78,7 @@ The system must persist portfolio snapshots and portfolio history in SQL once sc
 Financial metrics must be computed by deterministic Python functions exposed through MCP.
 
 Cash metrics must distinguish literal cash, explicit cash-equivalent holdings,
-and any configured cash-sweep assumption.
+and any configured auto-invested fund-assets assumption.
 
 ### FR-5: Portfolio Agent
 
@@ -205,7 +205,7 @@ Use `portfolio_id` as the canonical portfolio unit, even with one portfolio in v
 
 ### DR-2: Account Identity
 
-Use `account_id` for brokerage accounts, including provider metadata, base currency, account type, and status.
+Use `account_id` for brokerage accounts, including provider metadata, base currency, and account type.
 
 ### DR-3: Asset Identity
 
@@ -213,7 +213,8 @@ Use internal `asset_id` records. Do not rely on ticker alone.
 
 ### DR-4: Currency
 
-Store currency on every cash balance, position, quote, transaction, and snapshot.
+Store currency on every portfolio value snapshot, position state, allocation
+weight row, and asset record where applicable.
 
 ### DR-5: Timestamps
 
@@ -229,7 +230,29 @@ Transaction-level history is not mandatory for v1.
 
 ### DR-8: Metric Versioning
 
-Calculated metrics must store metric name, value, input period, calculation version, source inputs, timestamp, and scope.
+Portfolio-history should store only the derived metric values needed for
+historical portfolio reconstruction and display, especially overall portfolio
+weights. It does not need to persist metric version, input scope, or full source
+input artifacts in V1.
+
+### DR-8A: Position State History
+
+Position state history must stay compact. Insert a new position-state row when
+quantity, average cost, side, active status, or asset identity changes. Update
+the active row when only market price, market value, unrealized P&L, or
+last-observed timestamp changes.
+
+### DR-8B: Portfolio Value and Weight History
+
+Portfolio growth must be stored as daily portfolio value snapshots. Historical
+allocation must be stored as child portfolio weight rows rather than a JSON
+dictionary or full stock-price history table.
+
+### DR-8C: Raw Source Storage
+
+Portfolio-history must not store broad raw OpenD source-observation blobs in V1
+when the same information is already parsed into first-class tables. Missing
+data and unsupported quote problems should be stored as data-quality events.
 
 ### DR-9: Document Metadata
 
@@ -304,8 +327,10 @@ The first usable V1 is complete when the system can run a local portfolio-only
 review that uses:
 
 - Live read-only MooMoo/OpenD securities account data
-- Current holdings, cash, optional configured cash sweep, and quote warnings
-- SQLite portfolio snapshots, metrics, audit summaries, and run summaries
+- Current holdings, literal cash, optional configured auto-invested fund assets,
+  and quote warnings
+- SQLite portfolio value snapshots, allocation weight history, compact position
+  states, data-quality events, audit summaries, and run summaries
 - Deterministic finance metrics
 - Portfolio-only LLM evaluation with structured output recovery
 - Canonical IPS checks where recommendations or optimization framing are used

@@ -41,10 +41,34 @@ def test_cash_weight_counts_cash_equivalent_holdings():
 
     assert cash.value == 0.65
     assert cash.source_inputs["cash_value"] == 100.0
+    assert cash.source_inputs["auto_invested_fund_assets_value"] == 0
     assert cash.source_inputs["cash_equivalent_value"] == 550.0
     assert cash.source_inputs["effective_cash_value"] == 650.0
     cash_allocation = next(row for row in allocation.value if row["asset_type"] == "cash")
     assert cash_allocation["market_value"] == 650.0
+
+
+def test_cash_weight_keeps_auto_invested_fund_assets_separate_from_literal_cash():
+    snapshot = _snapshot().model_copy(
+        update={
+            "cash": [
+                CashBalance(account_id="acct", amount=100.0, currency="USD", weight=0.1),
+                CashBalance(
+                    account_id="opend_fund_assets_cash_sweep",
+                    amount=250.0,
+                    currency="USD",
+                    weight=0.25,
+                ),
+            ]
+        }
+    )
+
+    cash = calculate_cash_weight(snapshot)
+
+    assert cash.value == 0.35
+    assert cash.source_inputs["cash_value"] == 100.0
+    assert cash.source_inputs["auto_invested_fund_assets_value"] == 250.0
+    assert cash.source_inputs["effective_cash_value"] == 350.0
 
 
 def test_position_weights_default_to_v1_us_equities_scope():

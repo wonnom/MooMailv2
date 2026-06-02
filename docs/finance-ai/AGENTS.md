@@ -54,15 +54,17 @@ The Portfolio Agent is quantitative and portfolio-focused.
 Responsibilities:
 
 - Read current positions, balances, cash, and quotes from `moomail-opend-mcp`.
-- Read historical snapshots and portfolio history from `moomail-portfolio-sql-mcp`.
+- Read portfolio growth, allocation history, and compact position states from
+  `moomail-portfolio-sql-mcp`.
 - Use `moomail-finance-metrics-mcp` for deterministic calculations.
 - Analyze actual portfolio state, allocation, concentration, risk, and performance.
 - Detect stale or missing data.
 - Return structured diagnostics and candidate concerns to the Investment Agent.
 - Treat explicit cash-equivalent holdings as cash for cash-weight/allocation
   metrics while preserving the original holding in the snapshot.
-- Treat OpenD account-level `fund_assets` as a cash sweep only when the local
-  OpenD config explicitly enables that assumption.
+- Treat OpenD account-level `fund_assets` as auto-invested money-market fund
+  assets/effective cash-equivalent purchasing power only when the local OpenD
+  config explicitly enables that assumption. This is not idle cash.
 
 The Portfolio Agent does not generate final user-facing recommendations. It provides evidence, metrics, and portfolio performance analysis for the Investment Agent to synthesize.
 
@@ -79,6 +81,17 @@ Current implementation:
   malformed or truncated fenced JSON.
 - Persistence policy: SQL MCP inserts at most one snapshot per portfolio/date
   and skips duplicate same-day writes.
+
+Target persistence policy after the 2026-06-02 portfolio-history refactor:
+
+- Upsert portfolio, account, and asset identity rows.
+- Upsert compact position states, using `average_cost` as canonical cost basis.
+- Store one daily portfolio value snapshot per portfolio/account/date.
+- Store child portfolio weight snapshots for holdings, literal cash, configured
+  cash sweep, options, and cash-equivalent funds.
+- Store unsupported quote, stale history, and cash-sweep assumption warnings as
+  data-quality events.
+- Do not store broad raw OpenD blobs or daily quote history.
 
 The Portfolio Agent LLM may interpret portfolio-only facts. It must not decide
 whether to write SQL rows, invent market sentiment, or issue trade instructions.
@@ -103,8 +116,8 @@ The Portfolio Agent should return:
 - Candidate issues for Investment Agent review
 - Portfolio-only LLM evaluation with strengths, risks, IPS mismatches, history
   observations, and open questions
-- Data-quality warnings for unsupported OTC quotes and opt-in cash-sweep
-  assumptions
+- Data-quality warnings for unsupported OTC quote snapshots and opt-in
+  auto-invested fund-assets assumptions
 
 ### Required Metrics
 
@@ -113,8 +126,8 @@ Required v1 metrics:
 - Total portfolio value
 - Position value and weight
 - Cash weight
-- Effective cash weight, including explicit cash-equivalent holdings and
-  configured cash sweep balances
+- Effective cash weight, including literal cash, explicit cash-equivalent
+  holdings, and configured auto-invested fund assets
 - Unrealized P&L
 - Realized P&L if available
 - Sector allocation

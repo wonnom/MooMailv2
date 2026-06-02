@@ -48,13 +48,15 @@ Notes:
   fund/balance data, not positions.
 - `opend_get_positions` wraps `position_list_query`.
 - OpenD may reject OTC quote snapshots. The adapter retries per symbol and keeps
-  supported quote rows while recording unsupported symbols as warnings.
-- Account-level `fund_assets` is treated as cash sweep only when
+  supported quote rows while recording unsupported symbols as warnings. The
+  position can still display when `position_list_query` returned it.
+- Account-level `fund_assets` is treated as auto-invested money-market fund
+  assets/effective cash-equivalent purchasing power only when
   `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true`.
 
 ### `moomail-portfolio-sql-mcp`
 
-Tools:
+Current prototype tools:
 
 - `portfolio_sql_initialize`
 - `portfolio_sql_store_snapshot`
@@ -70,13 +72,61 @@ Resources:
 - `portfolio-sql://schema`
 - `portfolio-sql://status`
 
-This server owns durable portfolio snapshots, calculated metric rows, and
-compact audit summaries. It stores summaries and structured records, not hidden
-model reasoning.
+This server currently owns prototype portfolio snapshots, calculated metric
+rows, and compact audit summaries. Its target role is lean portfolio value
+history, allocation weight history, compact position states, data-quality
+events, and run summaries. It stores summaries and structured records, not
+hidden model reasoning.
 
 The daily snapshot tool is idempotent. It inserts one snapshot per portfolio and
 snapshot date, and skips duplicate writes while updating the row's
 `last_observed_at` timestamp.
+
+Refactor target from the 2026-06-02 portfolio-history design review:
+
+- Replace broad raw snapshot persistence with lean parsed tables:
+  `portfolios`, `broker_accounts`, `assets`, `position_states`,
+  `portfolio_value_snapshots`, `portfolio_weight_snapshots`,
+  `data_quality_events`, `agent_runs`, and `agent_run_sources`.
+- Do not store a raw OpenD source-observation table or full raw final responses.
+- Do not store daily quote history. Store quote failures and missing data as
+  `data_quality_events`; fetch market prices from external APIs when a query
+  needs price history.
+- Store one portfolio value snapshot per portfolio/account/date.
+- Store one set of portfolio weight rows per value snapshot, including holdings,
+  options, cash-equivalent funds, literal cash, and configured cash-sweep rows.
+- Store compact position states. Insert a new state when quantity, average cost,
+  side, active status, or asset identity changes. Update the active state when
+  only market price, market value, unrealized P&L, or last-observed timestamp
+  changes.
+
+Planned SQL MCP tools:
+
+- `portfolio_sql_initialize`
+- `portfolio_sql_upsert_portfolio`
+- `portfolio_sql_upsert_broker_account`
+- `portfolio_sql_upsert_assets`
+- `portfolio_sql_upsert_position_states`
+- `portfolio_sql_store_daily_value_snapshot`
+- `portfolio_sql_store_weight_snapshots`
+- `portfolio_sql_store_data_quality_events`
+- `portfolio_sql_get_history_status`
+- `portfolio_sql_get_latest_portfolio_state`
+- `portfolio_sql_get_portfolio_growth`
+- `portfolio_sql_get_allocation_history`
+- `portfolio_sql_store_agent_run`
+- `portfolio_sql_link_agent_run_sources`
+- `portfolio_sql_table_count`
+
+Migration approach:
+
+1. Add the new tables alongside the existing prototype tables.
+2. Add new MCP tools while keeping current tools temporarily for compatibility.
+3. Update tests to assert value snapshots, weight snapshots, and position-state
+   upsert behavior.
+4. Update the Portfolio Agent to use the new tools.
+5. Remove or deprecate prototype snapshot/quote/metric storage tools once no
+   agent path depends on them.
 
 ### `moomail-finance-metrics-mcp`
 
@@ -98,8 +148,11 @@ Resources:
 This server is pure calculation. It should remain deterministic, versioned, and
 free of broker/database side effects.
 
-`calculate_cash_weight` reports effective cash weight. It includes cash balances
-plus holdings classified as `cash_equivalent`.
+`calculate_cash_weight` separates literal cash, configured auto-invested fund
+assets, and holdings classified as `cash_equivalent`. The portfolio-history
+database should store the resulting overall portfolio weights needed for
+history; it does not need to persist metric version or input-scope details for
+V1.
 
 ## Agent Access
 
@@ -165,11 +218,30 @@ The MCP-backed Portfolio Agent calls:
 
 - `moomail-opend-mcp` for the current OpenD portfolio context.
 - `moomail-finance-metrics-mcp` for deterministic metric calculations.
-- `moomail-portfolio-sql-mcp` for idempotent daily snapshot persistence,
-  metric storage, and history status.
+- `moomail-portfolio-sql-mcp` for idempotent daily value snapshots,
+  position-state upserts, allocation weight history, data-quality events, and
+  history status.
 - A provider-neutral LLM evaluator for portfolio-only evaluation after
   deterministic tools finish. Gemini and OpenAI adapters are supported; Gemini is
   the current default.
+
+Portfolio Agent refactor sequence:
+
+1. Retrieve OpenD context as today.
+2. Normalize holdings, literal cash, optional configured cash sweep, and
+   data-quality warnings.
+3. Build asset upserts from normalized holdings plus synthetic cash assets.
+4. Upsert compact position states using quantity and `average_cost` as the
+   state-changing fields.
+5. Store or update the daily `portfolio_value_snapshots` row from parsed OpenD
+   funds fields: `total_assets`, `cash`, `fund_assets`, `securities_assets`,
+   `market_val`, and currency.
+6. Store child `portfolio_weight_snapshots` rows for all holdings and cash rows,
+   with overall weight out of total assets.
+7. Store unsupported quote, missing data, and cash-sweep assumptions as
+   `data_quality_events`.
+8. Read history status/growth/allocation context from SQL MCP.
+9. Pass current snapshot plus lean historical context to the LLM evaluator.
 
 Run it against live OpenD and Gemini:
 

@@ -111,6 +111,7 @@ def test_llm_portfolio_evaluator_prompt_requires_query_first_summary():
 
     assert "How much effective cash do I have?" in llm.prompt
     assert "Answer user_query directly in the summary" in llm.prompt
+    assert "auto_invested_fund_assets_value" in llm.prompt
     assert "summary must answer the user_query directly" in llm.system_instruction
 
 

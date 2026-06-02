@@ -70,14 +70,15 @@ Constraints:
 
 ### `moomail-portfolio-sql-mcp`
 
-Purpose: portfolio history, snapshots, calculated metrics, run records, and audit logs.
+Purpose: lean portfolio history, value snapshots, allocation weights, position
+states, run records, and audit logs.
 
 Capabilities:
 
-- Store portfolio snapshots
-- Read historical snapshots
-- Store calculated metrics
-- Read metric history
+- Store portfolio value snapshots
+- Store compact position states
+- Store per-snapshot portfolio weights
+- Read historical portfolio growth and allocation snapshots
 - Store audit records
 - Store simple output summaries
 - Store agent run metadata
@@ -86,7 +87,8 @@ Constraints:
 
 - No destructive writes from agents.
 - Writes are limited to approved tables.
-- Store structured JSON and concise summaries where useful.
+- Keep storage lean; do not persist raw duplicated OpenD blobs when parsed
+  fields already exist in first-class tables.
 - Do not store hidden model reasoning.
 - Store output summaries rather than full final responses.
 
@@ -116,7 +118,9 @@ Design:
 - Implement as normal Python functions with unit tests.
 - Expose through MCP for agent use.
 - Prefer structured inputs over direct database access.
-- Return calculation version, assumptions, input scope, and warnings.
+- Return structured metric values, assumptions, and warnings. The
+  portfolio-history database should store only the metrics needed for portfolio
+  history and display, not every calculation input/scope artifact.
 
 ### `research-rag-mcp`
 
@@ -172,33 +176,267 @@ Current OpenD behavior:
 - `accinfo_query` is normalized as account funds/balances.
 - `position_list_query` is normalized as holdings.
 - `get_market_snapshot` may reject OTC symbols such as `US.TCEHY`; this is a
-  non-critical quote warning when the position row is still available.
+  non-critical quote warning when the position row is still available, so the
+  holding can still display in the frontend.
 - Explicit money-market fund positions can be classified as `cash_equivalent`.
-- Account-level `fund_assets` can be treated as a cash sweep only when enabled
-  through `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
+- Account-level `fund_assets` can be treated as auto-invested money-market fund
+  assets/effective cash-equivalent purchasing power only when enabled through
+  `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
 - Crypto accounts require a separate future `OpenCryptoTradeContext` path and
   are outside the current v1 securities-account workflow.
 
 ### SQL Portfolio Store
 
-Role: source of truth for portfolio history and audit records once implemented.
+Role: lean source of truth for portfolio growth, position state, allocation
+history, and audit records.
 
-Expected data:
+Design review decision, 2026-06-02:
 
-- Portfolios
-- Accounts
-- Assets
-- Positions
-- Cash balances
-- Quotes captured during runs
-- Snapshots
-- Transactions if available or manually imported
-- Calculated metrics
-- Agent runs
-- Tool calls
-- Audit summaries
+- Store parsed portfolio facts in first-class tables rather than duplicating
+  raw OpenD payloads.
+- Do not build a stock-price-history warehouse. Pull historic/current prices
+  from market-data APIs when a query needs them.
+- Preserve portfolio growth and allocation history by storing one daily
+  portfolio value snapshot and child weight rows.
+- Keep position state compact. Update a position state when only market price,
+  market value, unrealized P&L, or last-observed timestamp changes. Insert a new
+  position state when quantity, average cost, side, active status, or asset
+  identity changes.
+- Store OpenD `fund_assets` as reported. When
+  `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true`, MCP/tool logic should
+  expose interpreted cash-equivalent liquidity from `cash + fund_assets`; the
+  database value itself remains raw parsed OpenD funds data.
+- Store quote failures and other missing-data problems as data-quality events,
+  not as a raw source-observation table.
 
-The final SQL schema should be designed after OpenD field exploration.
+Recommended V1 tables:
+
+```text
+portfolios
+broker_accounts
+assets
+position_states
+portfolio_value_snapshots
+portfolio_weight_snapshots
+data_quality_events
+agent_runs
+agent_run_sources
+```
+
+Core relationships:
+
+```text
+portfolios
+  -> broker_accounts
+  -> portfolio_value_snapshots
+      -> portfolio_weight_snapshots
+          -> assets
+      -> data_quality_events
+  -> position_states
+      -> assets
+
+agent_runs
+  -> agent_run_sources
+      -> portfolio_value_snapshots
+      -> data_quality_events
+```
+
+#### `portfolios`
+
+One logical portfolio.
+
+```text
+portfolio_id PK
+name
+base_currency
+created_at
+```
+
+#### `broker_accounts`
+
+Minimal broker account identity. V1 uses the securities account; crypto can be
+added later as a separate account type.
+
+```text
+account_id PK
+portfolio_id FK
+provider
+security_firm
+account_type
+base_currency
+created_at
+```
+
+#### `assets`
+
+Canonical asset identity. Ticker alone is not sufficient because provider codes,
+options, OTC symbols, funds, and future crypto holdings can collide or differ by
+source.
+
+```text
+asset_id PK
+provider_code
+ticker
+name
+asset_type
+exchange
+currency
+first_seen_at
+last_seen_at
+```
+
+#### `position_states`
+
+Compact ownership/cost-basis state. `average_cost` is the canonical cost basis.
+
+```text
+position_state_id PK
+portfolio_id FK
+account_id FK
+asset_id FK
+quantity
+average_cost
+market_price
+market_value
+unrealized_pl
+currency
+position_side
+first_observed_at
+last_observed_at
+is_active
+```
+
+Insert a new row when quantity, average cost, side, active status, or asset
+identity changes. Update the existing active row when only market price, market
+value, unrealized P&L, or `last_observed_at` changes.
+
+#### `portfolio_value_snapshots`
+
+The portfolio-growth spine. Store one row per portfolio/account/day. If multiple
+reviews run on the same date, update `last_observed_at` rather than inserting a
+duplicate daily value snapshot.
+
+```text
+value_snapshot_id PK
+portfolio_id FK
+account_id FK
+snapshot_date
+as_of
+total_assets
+cash
+fund_assets
+securities_assets
+market_val
+currency
+created_at
+last_observed_at
+```
+
+This table stores parsed OpenD funds data without extra margin, risk,
+per-currency, or buying-power fields for V1.
+
+#### `portfolio_weight_snapshots`
+
+The allocation-history spine. This preserves historical portfolio weights
+without storing full stock price history.
+
+```text
+weight_snapshot_id PK
+value_snapshot_id FK
+portfolio_id FK
+account_id FK
+asset_id FK
+quantity
+average_cost
+market_value
+weight
+unrealized_pl
+asset_type
+currency
+as_of
+```
+
+Include normal holdings, options, cash-equivalent funds, and synthetic cash rows
+such as `cash:USD` and `cash_sweep:USD`. Analysis can exclude out-of-scope rows,
+but the history store should preserve the full portfolio view.
+
+#### `data_quality_events`
+
+Warnings and missing-data events without raw source duplication.
+
+```text
+event_id PK
+portfolio_id FK
+account_id FK nullable
+asset_id FK nullable
+value_snapshot_id FK nullable
+run_id nullable
+event_type
+severity
+message
+source
+as_of
+created_at
+```
+
+Examples:
+
+```text
+unsupported_quote: OpenD does not support OTC market data for US.TCEHY
+missing_history: fewer than the configured historical snapshots are available
+cash_sweep_assumption: fund_assets interpreted as cash-equivalent liquidity
+```
+
+#### `agent_runs`
+
+Audit summary only.
+
+```text
+run_id PK
+portfolio_id FK
+agent_type
+user_query
+mode
+started_at
+completed_at
+tools_called_json
+snapshot_refs_json
+guardrail_result_json
+missing_data_json
+output_summary
+created_at
+```
+
+#### `agent_run_sources`
+
+Links an agent run to the value snapshots, weight snapshots, and data-quality
+events used in the response.
+
+```text
+id PK
+run_id FK
+source_type
+source_id
+created_at
+```
+
+Prototype note: the current local SQLite implementation still stores
+`portfolio_snapshots`, `position_snapshots`, `cash_balances`, `quote_snapshots`,
+and `calculated_metrics`. Those tables are useful for proving the pipeline, but
+the next SQL refactor should migrate toward the lean schema above.
+
+Open implementation clarifications before coding:
+
+- Decide whether `broker_accounts.account_id` is an internal stable ID or the
+  real MooMoo/OpenD account ID. Recommended: use an internal ID as the primary
+  key and store provider account metadata separately only if needed.
+- Decide how to mark a position inactive when a holding disappears. Recommended:
+  mark inactive only after a successful complete position read omits the asset,
+  not after a failed or partial OpenD run.
+- Decide whether same-day `portfolio_weight_snapshots` should be replaced when
+  the same daily value snapshot is re-observed. Recommended: replace the child
+  weight rows for that daily value snapshot so the latest same-day observation
+  is coherent.
 
 ### Neo4j GraphRAG Store
 

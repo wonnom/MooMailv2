@@ -25,6 +25,10 @@ class OpenDPortfolioDataError(RuntimeError):
     """Raised when OpenD data cannot be normalized into a portfolio snapshot."""
 
 
+OPEND_FUND_ASSETS_CASH_SWEEP_ID = "opend_fund_assets_cash_sweep"
+OPEND_AUTO_INVESTED_FUND_ASSETS_LABEL = "Fund Assets"
+
+
 def build_portfolio_snapshot_from_report(
     report: OpenDFieldReport,
     *,
@@ -66,7 +70,7 @@ def build_portfolio_snapshot_from_report(
     if cash_sweep_value > 0:
         cash_balances.append(
             CashBalance(
-                account_id="opend_fund_assets_cash_sweep",
+                account_id=OPEND_FUND_ASSETS_CASH_SWEEP_ID,
                 amount=cash_sweep_value,
                 currency=currency,
                 weight=_weight(cash_sweep_value, total_value),
@@ -99,11 +103,12 @@ def build_portfolio_snapshot_from_report(
             warnings.append("OpenD funds did not include a usable cash balance; cash was set to 0.")
     if cash_sweep_value > 0:
         warnings.append(
-            "OpenD fund_assets is treated as a cash-equivalent sweep balance."
+            "OpenD fund_assets is treated as auto-invested money-market fund assets "
+            "that can contribute to purchasing power; this is not idle cash."
         )
     elif _first_available_number(fund_row, ["fund_assets"]) > 0:
         warnings.append(
-            "OpenD fund_assets is present but not treated as cash because "
+            "OpenD fund_assets is present but not counted as effective cash because "
             "MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP is disabled."
         )
     if not quotes or len(quotes.rows) < len(positions.rows):
@@ -131,7 +136,7 @@ def build_portfolio_agent_packet(
 ) -> PortfolioAgentPacket:
     by_asset = [
         AllocationSlice(
-            name=holding.ticker,
+            name=_allocation_asset_name(holding),
             value=holding.market_value,
             weight=holding.portfolio_weight,
             currency=holding.currency,
@@ -197,7 +202,12 @@ def build_portfolio_agent_packet(
         )
     if any(holding.asset_type == "cash_equivalent" for holding in snapshot.holdings):
         warnings.append(
-            "Cash-equivalent fund holdings are counted with cash in allocation metrics."
+            "Cash-equivalent fund holdings are counted with effective cash in allocation metrics."
+        )
+    if any(cash.account_id == OPEND_FUND_ASSETS_CASH_SWEEP_ID for cash in snapshot.cash):
+        warnings.append(
+            "Configured OpenD fund_assets is counted as effective cash-equivalent purchasing "
+            "power because MooMoo can auto-redeem and auto-invest idle cash into the fund."
         )
 
     return PortfolioAgentPacket(
@@ -319,6 +329,12 @@ def _allocation_asset_type(holding: Holding) -> str:
     return holding.asset_type
 
 
+def _allocation_asset_name(holding: Holding) -> str:
+    if holding.asset_type in {"cash_equivalent", "fund"} and holding.name:
+        return holding.name
+    return holding.ticker
+
+
 def _looks_like_option_code(code: str) -> bool:
     symbol = code.split(".", 1)[1] if "." in code else code
     return len(symbol) > 9 and any(marker in symbol for marker in ("C", "P"))
@@ -399,8 +415,8 @@ def _cash_sweep_value(fund_row: dict[str, Any], holdings: list[Holding]) -> floa
 
 
 def _cash_slice_name(cash: CashBalance) -> str:
-    if cash.account_id == "opend_fund_assets_cash_sweep":
-        return "Cash Sweep"
+    if cash.account_id == OPEND_FUND_ASSETS_CASH_SWEEP_ID:
+        return OPEND_AUTO_INVESTED_FUND_ASSETS_LABEL
     return "Cash"
 
 

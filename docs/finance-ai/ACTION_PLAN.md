@@ -31,8 +31,9 @@ Actually connected at least once:
 - The OpenD MCP live connector smoke test passes when OpenD is available and live connector tests are enabled.
 - Gemini live connector smoke tests pass when Gemini credentials are present and live connector tests are enabled.
 - The Portfolio Agent live test calls the configured LLM evaluator after running recorded OpenD data through the three MCP modules.
-- Live normalized OpenD portfolio summaries build with unsupported OTC quotes
-  captured as warnings.
+- Live normalized OpenD portfolio summaries build with unsupported OTC quote
+  snapshots captured as warnings while affected holdings remain visible from
+  position rows.
 
 Still not real integrations:
 
@@ -58,12 +59,18 @@ See [V1_FINALIZATION_PLAN.md](V1_FINALIZATION_PLAN.md) for the release gate.
 Immediate sequence:
 
 1. Harden live OpenD portfolio reads and document the exact env setup.
-2. Freeze the Portfolio Agent output contract consumed by terminal and web UI.
-3. Keep cash-sweep handling explicit through
+2. Refactor portfolio-history toward the 2026-06-02 lean schema:
+   position states, daily value snapshots, allocation weight snapshots, and
+   data-quality events.
+3. Update `moomail-portfolio-sql-mcp` around the new schema before changing the
+   Portfolio Agent output contract.
+4. Update the Portfolio Agent to write/read the new SQL MCP contract.
+5. Freeze the Portfolio Agent output contract consumed by terminal and web UI.
+6. Keep auto-invested fund-assets handling explicit through
    `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
-4. Add a recorded fixture covering OTC quote failure and cash-equivalent handling.
-5. Verify terminal and web reviews against the same live OpenD data.
-6. Run deterministic tests and live OpenD-only tests before calling v1 done.
+7. Add a recorded fixture covering OTC quote failure and cash-equivalent handling.
+8. Verify terminal and web reviews against the same live OpenD data.
+9. Run deterministic tests and live OpenD-only tests before calling v1 done.
 
 ## Deferred Connector Validation
 
@@ -216,19 +223,24 @@ Goal: persist portfolio history and calculate deterministic metrics.
 
 Work:
 
-- Design SQL schema based on OpenD exploration.
+- Refactor SQL schema based on OpenD exploration and the 2026-06-02
+  portfolio-history design review.
 - Implement `moomail-portfolio-sql-mcp`.
-- Store on-demand portfolio snapshots when a review runs.
-- Store captured quotes used during runs.
-- Store calculated metrics with version metadata.
+- Store idempotent daily portfolio value snapshots when a review runs.
+- Upsert compact position states.
+- Store per-snapshot portfolio weight rows for holdings, cash, and configured
+  cash-sweep rows.
+- Store unsupported quote and missing-data problems as data-quality events.
+- Avoid broad raw OpenD blob, quote-history, and metric-input storage.
 - Store audit records and simple output summaries.
 - Implement `moomail-finance-metrics-mcp` with tested Python calculations.
 - Add benchmark comparison, defaulting to `SPY` or `VTI`.
 
 Exit criteria:
 
-- A portfolio review can use live OpenD data and persisted SQL snapshots.
-- Metrics are deterministic, tested, and versioned.
+- A portfolio review can use live OpenD data and persisted SQL portfolio
+  history.
+- Metrics are deterministic, tested, and produce overall portfolio weights.
 - The system detects missing or stale portfolio history.
 - SQL stores run metadata and concise summaries, not hidden reasoning or full final responses.
 
@@ -298,12 +310,16 @@ Exit criteria:
 
 ## Suggested Build Order From Here
 
-1. Finalize live OpenD Portfolio Agent V1.
-2. Freeze the terminal and frontend output contract.
-3. Add the recorded OpenD fixture covering OTC quote failure and cash-sweep handling.
-4. Run terminal and web reviews against the same live account data.
-5. Harden frontend warning/failure rendering without changing the backend contract.
-6. Add the V1 release gate commands to the runbook.
-7. Resume deferred connectors one at a time: OTC quote fallback, crypto context,
+1. Finalize live OpenD Portfolio Agent V1. The OpenD health report command is
+   now available; run it live as the first V1 gate.
+2. Refactor portfolio-history and SQL MCP to the lean schema.
+3. Update Portfolio Agent persistence/history calls to the new SQL MCP tools.
+4. Freeze the terminal and frontend output contract.
+5. Keep the recorded OpenD fixture covering OTC quote failure and auto-invested
+   fund-assets handling in the deterministic test set.
+6. Run terminal and web reviews against the same live account data.
+7. Harden frontend warning/failure rendering without changing the backend contract.
+8. Add the V1 release gate commands to the runbook.
+9. Resume deferred connectors one at a time: OTC quote fallback, crypto context,
    Pinecone memory, Neo4j research GraphRAG, then official MCP SDK transport if
    it still improves the architecture.

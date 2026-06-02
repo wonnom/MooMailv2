@@ -1,7 +1,7 @@
 # OpenD Field Summary
 
 Generated from live OpenD connections on 2026-05-23 and updated after the
-2026-05-30 live OpenD normalization checks.
+2026-06-02 live OpenD normalization checks.
 
 Raw field exploration output is saved locally to:
 
@@ -182,7 +182,10 @@ Fields returned: 142 fields, including:
 Warnings:
 
 ```text
-One OTC holding was not supported by the OpenD market snapshot API. The adapter now retries quotes per symbol, so supported quote rows are retained and unsupported symbols are recorded as warnings.
+One OTC holding was returned by `position_list_query` but was not supported by
+the OpenD market snapshot API. The adapter now retries quotes per symbol, so
+supported quote rows are retained and unsupported quote symbols are recorded as
+warnings without hiding the holding.
 ```
 
 ## Interpretation
@@ -192,20 +195,24 @@ The OpenD gateway is reachable and the `FUTUSG` configuration exposes the real a
 The current portfolio includes data types that matter for schema design:
 
 - US-listed equities
-- At least one OTC holding where OpenD quote snapshots may fail
+- At least one OTC holding where OpenD quote snapshots may fail while position
+  data remains available
 - Options positions
 - Margin account fields
 - Negative cash / financing fields
 - Realized and unrealized P&L fields
 - Per-currency cash and asset fields
-- Account-level `fund_assets`, which may represent a cash sweep in this user's
-  setup but is not universally safe to classify as cash
+- Account-level `fund_assets`, which may represent auto-invested money-market
+  fund assets in this user's setup but is not universally safe to classify as
+  effective cash
 
 Likely next checks:
 
 - Set `MOOMAIL_MOOMOO_ACCOUNT_ID` in `config/local.env` to the active real account id if multiple accounts cause ambiguity.
 - Enable `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true` only if
-  `fund_assets` represents the automatic MooMoo money-market cash sweep.
+  `fund_assets` represents automatic MooMoo money-market fund assets that can
+  be auto-redeemed/auto-invested as purchasing power.
+- Run `.venv/bin/python scripts/opend_health_report.py --env-file config/local.env --expected-holdings-count <N>` as the V1 live OpenD hardening gate.
 - Decide whether OTC holdings should use a fallback quote provider in a later milestone.
 - Explore `OpenCryptoTradeContext` separately for crypto holdings under the
   same account number.
@@ -231,19 +238,27 @@ Recorded command:
   --output reports/opend/portfolio-packet.json
 ```
 
+Recorded health command:
+
+```bash
+.venv/bin/python scripts/opend_health_report.py \
+  --from-report reports/opend/field-report.json
+```
+
 Recorded output summary:
 
 - Holdings: 15 in the first recorded report; 16 in the later live summary
-- Cash balances: base cash, plus an optional cash-sweep row when enabled
+- Cash balances: base cash, plus an optional auto-invested fund-assets row when enabled
 - Candidate issues: 2
 - Missing fields: `quotes_for_all_positions`
-- Warning: one OTC quote was unsupported by OpenD market snapshots
+- Warning: one OTC quote was unsupported by OpenD market snapshots, while the
+  holding itself was returned by positions
 
 Live summary after OpenD was fixed:
 
 ```text
 holdings_count: 16
-cash_balances_count: 2 when cash-sweep treatment is enabled
+cash_balances_count: 2 when auto-invested fund-assets treatment is enabled
 missing_fields: quotes_for_all_positions
 warning: US.TCEHY quote query failed because OpenD does not support OTC market data for TCEHY
 ```

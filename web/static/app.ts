@@ -648,7 +648,7 @@ function scrollChatToBottom(): void {
 }
 
 function cashLabel(cash: CashBalance): string {
-  if (cash.account_id === "opend_fund_assets_cash_sweep") return "Cash Sweep";
+  if (cash.account_id === "opend_fund_assets_cash_sweep") return "Fund Assets";
   return "Cash";
 }
 

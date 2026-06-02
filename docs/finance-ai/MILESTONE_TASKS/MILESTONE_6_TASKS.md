@@ -99,7 +99,7 @@ tests/test_chat_app.py .... 4 passed
 Latest full suite:
 
 ```text
-64 passed, 10 skipped
+66 passed, 10 skipped
 ```
 
 Local server check:

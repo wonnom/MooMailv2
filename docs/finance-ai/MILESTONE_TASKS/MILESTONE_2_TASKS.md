@@ -129,7 +129,7 @@ There is intentionally no trade unlock password setting in v1.
 
 OpenD connection is working on `127.0.0.1:11111`.
 
-The `FUTUSG` configuration exposes real account metadata, funds, positions, and quote snapshots. One OTC holding is not supported by the OpenD market snapshot API, so the adapter retries quote requests per symbol and records unsupported symbols as warnings.
+The `FUTUSG` configuration exposes real account metadata, funds, positions, and quote snapshots. One OTC holding is returned by positions but is not supported by the OpenD market snapshot API, so the adapter retries quote requests per symbol and records unsupported quote symbols as warnings.
 
 Use this read-only diagnostic when account lists work but funds or positions do
 not:
@@ -141,8 +141,22 @@ not:
 It probes `get_acc_list`, `accinfo_query`, and `position_list_query` separately
 with cached/refresh variants. It never calls trade unlock or order APIs.
 
-OpenD `fund_assets` is an account-level aggregate. It is treated as a
-cash-equivalent sweep only when explicitly enabled in local config.
+Use this as the V1 live health gate after OpenD is logged in:
+
+```bash
+.venv/bin/python scripts/opend_health_report.py \
+  --env-file config/local.env \
+  --expected-holdings-count <your-current-position-count> \
+  --output reports/opend/health-report.json
+```
+
+The command reads only connection, accounts, funds, positions, and quotes, then
+builds a normalized portfolio summary. Unsupported OTC quotes are warnings, not
+failures, as long as the holding is still present in positions.
+
+OpenD `fund_assets` is an account-level aggregate. It is treated as
+auto-invested money-market fund assets/effective cash-equivalent purchasing
+power only when explicitly enabled in local config.
 
 See [OPEND_FIELD_SUMMARY.md](../OPEND_FIELD_SUMMARY.md) for the redacted field summary.
 
@@ -173,6 +187,13 @@ Then build normalized portfolio packets from the saved report without touching O
 .venv/bin/python scripts/opend_portfolio_snapshot.py \
   --from-report reports/opend/field-report.json \
   --output reports/opend/portfolio-packet.json
+```
+
+Run the same health gate against the saved report:
+
+```bash
+.venv/bin/python scripts/opend_health_report.py \
+  --from-report reports/opend/field-report.json
 ```
 
 This acts as a temporary local API response while the schema and Portfolio Agent normalization are still being designed.

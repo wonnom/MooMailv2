@@ -25,7 +25,10 @@ from moomail_finance_ai.mcp.registry import MCPModule
 from moomail_finance_ai.metrics import MetricResult
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.opend import OpenDFieldReport
-from moomail_finance_ai.opend_portfolio import build_portfolio_agent_packet
+from moomail_finance_ai.opend_portfolio import (
+    OPEND_FUND_ASSETS_CASH_SWEEP_ID,
+    build_portfolio_agent_packet,
+)
 from moomail_finance_ai.schemas import (
     InvestmentPolicy,
     PortfolioAgentPacket,
@@ -295,11 +298,21 @@ def _evaluation_prompt(
     storage_result: dict[str, Any],
     history_status: dict[str, Any],
 ) -> str:
-    cash_value = sum(cash.amount for cash in snapshot.cash)
+    literal_cash_balances = [
+        cash for cash in snapshot.cash if cash.account_id != OPEND_FUND_ASSETS_CASH_SWEEP_ID
+    ]
+    auto_invested_fund_assets = [
+        cash for cash in snapshot.cash if cash.account_id == OPEND_FUND_ASSETS_CASH_SWEEP_ID
+    ]
+    cash_value = sum(cash.amount for cash in literal_cash_balances)
+    auto_invested_fund_assets_value = sum(cash.amount for cash in auto_invested_fund_assets)
     cash_equivalent_holdings = [
         holding for holding in snapshot.holdings if holding.asset_type == "cash_equivalent"
     ]
     cash_equivalent_value = sum(holding.market_value for holding in cash_equivalent_holdings)
+    effective_cash_value = (
+        cash_value + auto_invested_fund_assets_value + cash_equivalent_value
+    )
     context = {
         "user_query": query,
         "investment_policy": ips.model_dump(mode="json"),
@@ -311,13 +324,17 @@ def _evaluation_prompt(
             "cash": [cash.model_dump(mode="json") for cash in snapshot.cash],
             "effective_cash": {
                 "cash_value": cash_value,
+                "auto_invested_fund_assets_value": auto_invested_fund_assets_value,
                 "cash_equivalent_value": cash_equivalent_value,
-                "effective_cash_value": cash_value + cash_equivalent_value,
+                "effective_cash_value": effective_cash_value,
                 "effective_cash_weight": (
                     0.0
                     if snapshot.total_value.amount == 0
-                    else (cash_value + cash_equivalent_value) / snapshot.total_value.amount
+                    else effective_cash_value / snapshot.total_value.amount
                 ),
+                "auto_invested_fund_assets": [
+                    cash.model_dump(mode="json") for cash in auto_invested_fund_assets
+                ],
                 "cash_equivalent_holdings": [
                     {
                         "ticker": holding.ticker,

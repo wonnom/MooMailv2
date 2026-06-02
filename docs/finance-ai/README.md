@@ -46,17 +46,26 @@ The future Budgeting, Expenses, and Savings Agent is acknowledged as part of the
 
 ## Architecture Diagram
 
-Add the hand-drawn architecture diagram here when ready. Suggested location:
+### Agents
+```mermaid
+flowchart TD
+  UI["Chat / CLI"] --> IA["Investment Agent"]
 
-```text
-docs/finance-ai/assets/architecture-diagram.png
+  IA --> PA["Portfolio Agent"]
+  IA --> SA["Sentiment Agent"]
+  IA --> MEM["Investment Memory"]
+
+  PA --> OPEND["MCP: OpenD / MooMoo Read-Only"]
+  PA --> SQL["MCP: Portfolio SQL History"]
+  PA --> METRICS["MCP: Finance Metrics"]
+
+  SA --> RAG["MCP: Research / GraphRAG"]
+  SA --> METRICS
+
+  IA --> GUARD["Mandatory Guardrails"]
 ```
 
-Suggested README embed once the image exists:
 
-```md
-![Personal Finance AI architecture](assets/architecture-diagram.png)
-```
 
 ## Core Decisions
 
@@ -67,9 +76,13 @@ Suggested README embed once the image exists:
 - MCP servers are the boundary for broker access, portfolio data, metrics, research retrieval, and memory.
 - MooMoo/OpenD is the read-only source for current portfolio data.
 - OpenD exploration drives the SQL schema and portfolio normalization.
-- OpenD unsupported OTC quotes are warnings when positions are still available.
-- Account-level `fund_assets` can be treated as cash sweep only when explicitly enabled in local config.
-- SQL stores historical portfolio records, snapshots, metrics, audit logs, and run summaries.
+- OpenD unsupported OTC quote snapshots are warnings when positions are still available.
+- Account-level `fund_assets` can be treated as effective cash-equivalent purchasing power only when explicitly enabled in local config.
+- SQL stores lean portfolio history: daily value snapshots, compact position
+  states, allocation weight snapshots, data-quality events, audit logs, and run
+  summaries.
+- SQL does not store broad raw OpenD blobs, full quote history, hidden
+  reasoning, or full final responses in v1.
 - Pinecone stores Investment Agent long-term memory, not source-of-truth financial records.
 - Neo4j GraphRAG is separate from Pinecone memory.
 - Sentiment retrieval starts with portfolio holdings only.
@@ -91,6 +104,7 @@ Or call it directly:
 .venv/bin/python scripts/run_prototype.py "Review my portfolio"
 .venv/bin/python scripts/check_opend.py --env-file config/local.env
 .venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
+.venv/bin/python scripts/opend_health_report.py --env-file config/local.env --expected-holdings-count <N>
 ```
 
 See [ENVIRONMENT.md](ENVIRONMENT.md) for the full setup and verification workflow.

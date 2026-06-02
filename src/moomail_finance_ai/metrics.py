@@ -9,6 +9,7 @@ from moomail_finance_ai.schemas import Holding, InvestmentPolicy, PortfolioSnaps
 
 METRIC_VERSION = "finance-metrics-v0.1.0"
 V1_EQUITY_SCOPE = "v1_us_equities"
+OPEND_FUND_ASSETS_CASH_SWEEP_ID = "opend_fund_assets_cash_sweep"
 
 
 class MetricResult(StrictModel):
@@ -29,9 +30,12 @@ def v1_us_equity_holdings(snapshot: PortfolioSnapshot) -> list[Holding]:
 
 
 def calculate_cash_weight(snapshot: PortfolioSnapshot) -> MetricResult:
-    cash_value = sum(cash.amount for cash in snapshot.cash)
+    cash_value = _literal_cash_value(snapshot)
+    auto_invested_fund_assets_value = _auto_invested_fund_assets_value(snapshot)
     cash_equivalent_value = _cash_equivalent_value(snapshot)
-    effective_cash_value = cash_value + cash_equivalent_value
+    effective_cash_value = (
+        cash_value + auto_invested_fund_assets_value + cash_equivalent_value
+    )
     total_value = snapshot.total_value.amount
     value = _weight(effective_cash_value, total_value)
     return MetricResult(
@@ -43,6 +47,7 @@ def calculate_cash_weight(snapshot: PortfolioSnapshot) -> MetricResult:
             "snapshot_as_of": snapshot.as_of.isoformat(),
             "total_value": total_value,
             "cash_value": cash_value,
+            "auto_invested_fund_assets_value": auto_invested_fund_assets_value,
             "cash_equivalent_value": cash_equivalent_value,
             "effective_cash_value": effective_cash_value,
         },
@@ -199,6 +204,22 @@ def _cash_equivalent_value(snapshot: PortfolioSnapshot) -> float:
         holding.market_value
         for holding in snapshot.holdings
         if holding.asset_type == "cash_equivalent"
+    )
+
+
+def _literal_cash_value(snapshot: PortfolioSnapshot) -> float:
+    return sum(
+        cash.amount
+        for cash in snapshot.cash
+        if cash.account_id != OPEND_FUND_ASSETS_CASH_SWEEP_ID
+    )
+
+
+def _auto_invested_fund_assets_value(snapshot: PortfolioSnapshot) -> float:
+    return sum(
+        cash.amount
+        for cash in snapshot.cash
+        if cash.account_id == OPEND_FUND_ASSETS_CASH_SWEEP_ID
     )
 
 

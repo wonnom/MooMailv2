@@ -111,7 +111,7 @@ MOOMAIL_MOOMOO_TRADE_MARKET=US
 MOOMAIL_MOOMOO_BASE_CURRENCY=USD
 ```
 
-If your MooMoo cash is automatically swept into a USD money-market fund and
+If your MooMoo cash is automatically invested into a USD money-market fund and
 OpenD exposes that amount only through account-level `fund_assets`, enable:
 
 ```env
@@ -119,7 +119,9 @@ MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true
 ```
 
 This is disabled by default because `fund_assets` can also represent ordinary
-fund exposure in other accounts.
+fund exposure in other accounts. When enabled, the agent treats it as
+cash-equivalent purchasing power that can be auto-redeemed/auto-invested, not as
+idle cash.
 
 Optional RSA configuration goes here only if OpenD encryption is configured:
 
@@ -133,6 +135,26 @@ Diagnose account funds and positions:
 
 ```bash
 .venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
+```
+
+Run the full read-only OpenD health gate:
+
+```bash
+.venv/bin/python scripts/opend_health_report.py \
+  --env-file config/local.env \
+  --expected-holdings-count <your-current-position-count> \
+  --output reports/opend/health-report.json
+```
+
+The health report checks connection, account list, funds, positions, quote
+snapshots, and the normalized portfolio summary. It exits `1` only on `fail`.
+Unsupported OTC quote rows and other partial quote gaps are `warn` when the
+position rows still normalize. Use recorded mode when you want the same report
+without calling OpenD:
+
+```bash
+.venv/bin/python scripts/opend_health_report.py \
+  --from-report reports/opend/field-report.json
 ```
 
 ## Portfolio Agent LLM

@@ -74,6 +74,9 @@ def test_build_portfolio_snapshot_classifies_money_market_fund_as_cash_equivalen
     cash_allocation = next(row for row in packet.allocation["by_sector"] if row.name == "cash")
 
     assert cash_fund.asset_type == "cash_equivalent"
+    assert any(
+        row.name == "Moomoo USD Cash Plus Fund" for row in packet.allocation["by_asset"]
+    )
     assert cash_allocation.value == 200.0 + snapshot.cash[0].amount
     assert any(
         "Cash-equivalent fund holdings" in warning for warning in packet.data_quality.warnings
@@ -103,8 +106,10 @@ def test_build_portfolio_snapshot_treats_account_fund_assets_as_cash_sweep():
         "opend_fund_assets_cash_sweep",
     ]
     assert sum(cash.amount for cash in snapshot.cash) == 253.0
-    assert any(row.name == "Cash Sweep" for row in packet.allocation["by_asset"])
-    assert any("fund_assets" in warning for warning in packet.data_quality.warnings)
+    assert any(
+        row.name == "Fund Assets" for row in packet.allocation["by_asset"]
+    )
+    assert any("auto-invested" in warning for warning in packet.data_quality.warnings)
 
 
 def test_build_portfolio_snapshot_does_not_treat_fund_assets_as_cash_by_default():

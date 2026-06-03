@@ -6,7 +6,6 @@ from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
 from moomail_finance_ai.mcp.stdio import JsonRpcMCPServer
-from moomail_finance_ai.metrics import calculate_snapshot_metrics
 from moomail_finance_ai.mocks import mock_investment_policy, mock_portfolio_packet
 from moomail_finance_ai.sql_store import PortfolioSqlStore
 
@@ -75,26 +74,32 @@ def test_opend_mcp_is_read_only_and_can_normalize_recorded_snapshot(recorded_ope
     assert "place order" in capabilities["contents"][0]["text"]
 
 
-def test_portfolio_sql_mcp_stores_snapshot_metrics_and_reads_history(tmp_path):
+def test_portfolio_sql_mcp_stores_lean_history_and_reads_history(tmp_path):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     module = build_portfolio_sql_mcp_module(store=store)
     packet = mock_portfolio_packet()
-    ips = mock_investment_policy()
 
-    stored = module.call_tool(
-        "portfolio_sql_store_snapshot",
+    account = module.call_tool(
+        "portfolio_sql_upsert_broker_account",
+        {
+            "portfolio_id": packet.portfolio_id,
+            "base_currency": packet.snapshot.base_currency,
+        },
+    )
+    value = module.call_tool(
+        "portfolio_sql_store_daily_value_snapshot",
         {"snapshot": packet.snapshot.model_dump(mode="json")},
     )
-    metrics = calculate_snapshot_metrics(packet.snapshot, ips)
-    metric_result = module.call_tool(
-        "portfolio_sql_store_metrics",
+    weights = module.call_tool(
+        "portfolio_sql_store_weight_snapshots",
         {
-            "snapshot_id": stored.structured_content["snapshot_id"],
-            "metrics": [metric.model_dump(mode="json") for metric in metrics],
+            "snapshot": packet.snapshot.model_dump(mode="json"),
+            "account_id": account.structured_content["account_id"],
+            "value_snapshot_id": value.structured_content["value_snapshot_id"],
         },
     )
     status = module.call_tool(
-        "portfolio_sql_history_status",
+        "portfolio_sql_get_history_status",
         {
             "portfolio_id": packet.portfolio_id,
             "now": packet.snapshot.as_of.isoformat(),
@@ -102,16 +107,18 @@ def test_portfolio_sql_mcp_stores_snapshot_metrics_and_reads_history(tmp_path):
         },
     )
     latest = module.call_tool(
-        "portfolio_sql_latest_snapshot",
+        "portfolio_sql_get_latest_portfolio_state",
         {"portfolio_id": packet.portfolio_id},
     )
     schema_resource = module.read_resource("portfolio-sql://schema")
 
-    assert stored.structured_content["holdings_count"] == len(packet.snapshot.holdings)
-    assert metric_result.structured_content["metrics_stored"] == len(metrics)
+    assert value.structured_content["status"] == "inserted"
+    assert weights.structured_content["rows_stored"] == (
+        len(packet.snapshot.holdings) + len(packet.snapshot.cash)
+    )
     assert status.structured_content["snapshot_count"] == 1
-    assert latest.structured_content["snapshot"]["portfolio_id"] == packet.portfolio_id
-    assert "portfolio_snapshots" in schema_resource["contents"][0]["text"]
+    assert latest.structured_content["value_snapshot"]["portfolio_id"] == packet.portfolio_id
+    assert "portfolio_value_snapshots" in schema_resource["contents"][0]["text"]
 
 
 def test_agent_mcp_manifest_scopes_allowed_servers_and_tools(tmp_path, recorded_opend_client):

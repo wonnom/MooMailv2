@@ -84,9 +84,11 @@ class FullInvestmentAgent:
             return state
 
         emit("saving_snapshot", "Saving portfolio snapshot and metrics to SQL.")
-        stored = self.sql_store.store_snapshot(state.portfolio_packet.snapshot, source_report=report)
-        metrics = calculate_snapshot_metrics(state.portfolio_packet.snapshot, self.ips)
-        self.sql_store.store_metrics(stored.snapshot_id, metrics)
+        self.sql_store.store_portfolio_observation(
+            state.portfolio_packet.snapshot,
+            source_report=report,
+        )
+        calculate_snapshot_metrics(state.portfolio_packet.snapshot, self.ips)
         history_status = self.sql_store.history_status(self.ips.portfolio_id)
 
         emit("selecting_research_scope", "Selecting material US-equity holdings for research.")

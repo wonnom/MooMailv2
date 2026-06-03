@@ -30,7 +30,7 @@ MCP boundary calls those layers correctly.
 
 | File | Scope | Covered by MCP tests? | Keep because |
 | --- | --- | --- | --- |
-| `tests/test_sql_store.py` | SQLite schema, snapshot/metric/audit persistence, stale-history detection | Partially | Protects the storage implementation and audit table shape |
+| `tests/test_sql_store.py` | Lean SQLite schema, value snapshots, position states, allocation weights, data-quality events, audit links, stale-history detection | Partially | Protects the storage implementation and audit table shape |
 | `tests/test_mcp_tool_contracts.py` | MCP wrapper around SQL storage tools | Yes | Verifies tool names, arguments, resources, and JSON-compatible return payloads |
 
 The portfolio SQL MCP server currently uses local SQLite. It does not connect to

@@ -151,17 +151,19 @@ def test_live_opend_read_only_connection_and_field_report():
     assert not any("order" in name or "trade" in name for name in dir(client) if not name.startswith("_"))
 
 
-def test_live_sqlite_connector_snapshot_metric_and_audit_round_trip(tmp_path):
+def test_live_sqlite_connector_lean_history_round_trip(tmp_path):
     _require_live_tests()
     store = PortfolioSqlStore(tmp_path / "connector-smoke.sqlite")
     snapshot = mock_portfolio_packet().snapshot
-    stored = store.store_snapshot(snapshot)
-    metric_count = store.store_metrics(stored.snapshot_id, [calculate_cash_weight(snapshot)])
+    stored = store.store_portfolio_observation(snapshot)
     status = store.history_status(snapshot.portfolio_id, min_snapshots_for_history=1)
 
-    assert store.table_count("portfolio_snapshots") == 1
-    assert store.table_count("position_snapshots") == len(snapshot.holdings)
-    assert store.table_count("calculated_metrics") == metric_count == 1
+    assert stored.status == "inserted"
+    assert store.table_count("portfolio_value_snapshots") == 1
+    assert store.table_count("position_states") == len(snapshot.holdings)
+    assert store.table_count("portfolio_weight_snapshots") == (
+        len(snapshot.holdings) + len(snapshot.cash)
+    )
     assert status.snapshot_count == 1
 
 

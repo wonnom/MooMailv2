@@ -69,44 +69,44 @@ A. OpenD field report from Milestone 2
 | Task | Description | Depends on | Status |
 | --- | --- | --- | --- |
 | A | Use recorded OpenD field report from Milestone 2 | None | Done |
-| B | Redesign SQLite schema around value snapshots, weight snapshots, and position states | A | Planned |
-| C | Add new `PortfolioSqlStore` tables alongside prototype tables | B | Planned |
-| D | Upsert portfolio, account, and asset identity rows | C | Planned |
-| E | Upsert compact position states | C, D | Planned |
-| F | Store idempotent daily portfolio value snapshot | C, D | Planned |
-| G | Store child portfolio weight snapshots for holdings and cash rows | F | Planned |
-| H | Store data-quality events instead of raw quote/source rows | C, F | Planned |
+| B | Redesign SQLite schema around value snapshots, weight snapshots, and position states | A | Done |
+| C | Add lean `PortfolioSqlStore` tables | B | Done |
+| D | Upsert portfolio, account, and asset identity rows | C | Done |
+| E | Upsert compact position states | C, D | Done |
+| F | Store idempotent daily portfolio value snapshot | C, D | Done |
+| G | Store child portfolio weight snapshots for holdings and cash rows | F | Done |
+| H | Store data-quality events instead of raw quote/source rows | C, F | Done |
 | N | Build normalized packet from recorded report | A | Done |
-| O | Persist recorded packet through lean history tools | C, N | Planned |
+| O | Persist recorded packet through lean history tools | C, N | Done |
 
 ### EC2: Metrics are deterministic, tested, and produce overall weights
 
 | Task | Description | Depends on | Status |
 | --- | --- | --- | --- |
 | K | Define deterministic metric result contract | None | Done |
-| L | Implement overall portfolio weights for holdings, literal cash, and configured cash sweep | K | Planned |
-| M | Add unit tests with known inputs | L | Planned |
-| P | Store portfolio weights in `portfolio_weight_snapshots` rather than a broad metric-history table | F, L | Planned |
+| L | Implement overall portfolio weights for holdings, literal cash, and configured cash sweep | K | Done |
+| M | Add unit tests with known inputs | L | Done |
+| P | Store portfolio weights in `portfolio_weight_snapshots` rather than a broad metric-history table | F, L | Done |
 
 ### EC3: Missing or stale portfolio history is detected
 
 | Task | Description | Depends on | Status |
 | --- | --- | --- | --- |
-| J | Add history status query against value snapshots | C | Planned |
-| J1 | Detect empty history | J | Planned |
-| J2 | Detect stale latest snapshot | J | Planned |
-| J3 | Detect insufficient historical depth | J | Planned |
-| J4 | Add portfolio growth and allocation-history reads | J, G | Planned |
+| J | Add history status query against value snapshots | C | Done |
+| J1 | Detect empty history | J | Done |
+| J2 | Detect stale latest snapshot | J | Done |
+| J3 | Detect insufficient historical depth | J | Done |
+| J4 | Add portfolio growth and allocation-history reads | J, G | Done |
 
 ### EC4: SQL stores metadata and concise summaries only
 
 | Task | Description | Depends on | Status |
 | --- | --- | --- | --- |
-| I | Store agent run metadata and output summary | C | Planned |
-| I1 | Store tool calls, snapshot refs, missing data, assumptions, and guardrail JSON | I | Planned |
-| I2 | Do not store hidden reasoning or full final responses | I | Planned |
-| I3 | Link agent runs to snapshots/events through `agent_run_sources` | I | Planned |
-| I4 | Add tests for audit storage shape | I | Planned |
+| I | Store agent run metadata and output summary | C | Done |
+| I1 | Store tool calls, snapshot refs, missing data, assumptions, and guardrail JSON | I | Done |
+| I2 | Do not store hidden reasoning or full final responses | I | Done |
+| I3 | Link agent runs to snapshots/events through `agent_run_sources` | I | Done |
+| I4 | Add tests for audit storage shape | I | Done |
 
 ## Commands
 
@@ -123,7 +123,7 @@ The SQLite database and generated reports are ignored by git.
 
 ## Refactor Implementation Order
 
-1. Add schema version 2 tables alongside the prototype tables.
+1. Add schema version 2 lean tables.
 2. Implement model/serializer helpers that convert a normalized
    `PortfolioSnapshot` plus OpenD funds context into:
    - portfolio/account/asset upserts,
@@ -141,10 +141,7 @@ The SQLite database and generated reports are ignored by git.
    - store weight snapshots,
    - store data-quality events,
    - read history status/growth/allocation context.
-6. Keep the current prototype tools available until the Portfolio Agent and
-   tests no longer depend on them.
-7. Update terminal/frontend output only after SQL persistence is stable.
-8. Remove or deprecate prototype tables/tools in a separate cleanup pass.
+6. Update terminal/frontend output only after SQL persistence is stable.
 
 Non-goals for this refactor:
 
@@ -155,29 +152,27 @@ Non-goals for this refactor:
 
 ## Current Status
 
-Milestone 3 is implemented as a local SQLite-backed prototype, now exposed through `moomail-portfolio-sql-mcp` and `moomail-finance-metrics-mcp`.
-
-The next Milestone 3 pass is a schema refactor, not a broad feature expansion.
-The goal is to move from broad snapshot/quote/metric prototype tables to the
-lean portfolio-history design agreed on 2026-06-02.
+Milestone 3 is implemented as a local SQLite-backed lean portfolio-history
+store, now exposed through `moomail-portfolio-sql-mcp` and
+`moomail-finance-metrics-mcp`.
 
 Latest local run shape:
 
 - Database: `data/portfolio-history.sqlite`
 - Summary report: `reports/opend/history-summary.json`
-- Portfolio snapshots: written on demand, idempotent by portfolio/date through
-  the MCP daily snapshot tool
-- Cash balances: base cash plus optional auto-invested fund-assets row when enabled
-- Position snapshots: full OpenD position set
-- Quote snapshots: all supported OpenD quote rows; unsupported OTC quotes are
-  warnings
-- Calculated metrics: 5 v1 metrics per inserted snapshot
+- Portfolio value snapshots: written on demand, idempotent by portfolio/account/date
+- Portfolio weight snapshots: holdings plus literal cash and optional
+  auto-invested fund-assets rows
+- Position states: compact active/inactive ownership state
+- Data-quality events: unsupported quote, missing data, and cash-sweep warnings
+- Calculated metrics: computed deterministically for agent use, while metric
+  internals are not persisted in SQL V1
 - History status: fresh/stale/empty plus `historical_depth` warning when fewer
   than the configured minimum snapshots exist
 
 The audit table stores concise metadata and `output_summary`; it does not include hidden reasoning or a full final response column.
 
-Target run shape after refactor:
+Current run shape after refactor:
 
 - Portfolio/account/asset identity rows are upserted.
 - Position states remain compact and update in place for price/P&L-only changes.
@@ -201,5 +196,5 @@ Run:
 Latest result:
 
 ```text
-66 passed, 10 skipped
+74 passed, 10 skipped
 ```

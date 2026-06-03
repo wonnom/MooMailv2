@@ -13,8 +13,9 @@ Implemented and locally verified:
   as OTC `US.TCEHY`; the holding itself still displays from position data.
 - Optional account-level `fund_assets` effective-cash treatment through
   `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
-- SQLite portfolio snapshot, quote, metric, audit, and run-summary prototype
-  storage.
+- SQLite lean portfolio-history storage: portfolio/account/assets,
+  position states, daily value snapshots, allocation weight snapshots,
+  data-quality events, audit summaries, and run-source links.
 - `moomail-portfolio-sql-mcp` and `moomail-finance-metrics-mcp`.
 - MCP-backed Portfolio Agent using OpenD, SQL, metrics, and a provider-neutral
   LLM evaluator.
@@ -29,7 +30,7 @@ Implemented and locally verified:
 Verified deterministic suite:
 
 ```text
-66 passed, 10 skipped
+74 passed, 10 skipped
 ```
 
 ## V1 Definition

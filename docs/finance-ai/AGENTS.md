@@ -71,18 +71,23 @@ The Portfolio Agent does not generate final user-facing recommendations. It prov
 Current implementation:
 
 - Deterministic pipeline: `opend_get_portfolio_context`,
-  `calculate_snapshot_metrics`, `portfolio_sql_store_daily_snapshot_if_needed`,
-  optional metric storage, and `portfolio_sql_history_status`.
+  `calculate_snapshot_metrics`, lean SQL identity upserts,
+  `portfolio_sql_upsert_position_states`,
+  `portfolio_sql_store_daily_value_snapshot`,
+  `portfolio_sql_store_weight_snapshots`,
+  `portfolio_sql_store_data_quality_events`, and
+  `portfolio_sql_get_history_status`.
 - LLM evaluator: a provider-neutral LLM adapter produces a portfolio-only
   structured evaluation after deterministic tools complete. Gemini and OpenAI
   are supported, with Gemini as the current default. The evaluator now asks for
   compact JSON, answers portfolio-only user queries directly before giving a
   broad overview, and recovers partial structured fields when a provider returns
   malformed or truncated fenced JSON.
-- Persistence policy: SQL MCP inserts at most one snapshot per portfolio/date
-  and skips duplicate same-day writes.
+- Persistence policy: SQL MCP stores one daily value snapshot per
+  portfolio/account/date, updates same-day observations in place, and replaces
+  child allocation weight rows for coherence.
 
-Target persistence policy after the 2026-06-02 portfolio-history refactor:
+Implemented persistence policy after the 2026-06-02 portfolio-history refactor:
 
 - Upsert portfolio, account, and asset identity rows.
 - Upsert compact position states, using `average_cost` as canonical cost basis.

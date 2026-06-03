@@ -56,51 +56,7 @@ Notes:
 
 ### `moomail-portfolio-sql-mcp`
 
-Current prototype tools:
-
-- `portfolio_sql_initialize`
-- `portfolio_sql_store_snapshot`
-- `portfolio_sql_store_daily_snapshot_if_needed`
-- `portfolio_sql_store_metrics`
-- `portfolio_sql_store_audit_record`
-- `portfolio_sql_history_status`
-- `portfolio_sql_latest_snapshot`
-- `portfolio_sql_table_count`
-
-Resources:
-
-- `portfolio-sql://schema`
-- `portfolio-sql://status`
-
-This server currently owns prototype portfolio snapshots, calculated metric
-rows, and compact audit summaries. Its target role is lean portfolio value
-history, allocation weight history, compact position states, data-quality
-events, and run summaries. It stores summaries and structured records, not
-hidden model reasoning.
-
-The daily snapshot tool is idempotent. It inserts one snapshot per portfolio and
-snapshot date, and skips duplicate writes while updating the row's
-`last_observed_at` timestamp.
-
-Refactor target from the 2026-06-02 portfolio-history design review:
-
-- Replace broad raw snapshot persistence with lean parsed tables:
-  `portfolios`, `broker_accounts`, `assets`, `position_states`,
-  `portfolio_value_snapshots`, `portfolio_weight_snapshots`,
-  `data_quality_events`, `agent_runs`, and `agent_run_sources`.
-- Do not store a raw OpenD source-observation table or full raw final responses.
-- Do not store daily quote history. Store quote failures and missing data as
-  `data_quality_events`; fetch market prices from external APIs when a query
-  needs price history.
-- Store one portfolio value snapshot per portfolio/account/date.
-- Store one set of portfolio weight rows per value snapshot, including holdings,
-  options, cash-equivalent funds, literal cash, and configured cash-sweep rows.
-- Store compact position states. Insert a new state when quantity, average cost,
-  side, active status, or asset identity changes. Update the active state when
-  only market price, market value, unrealized P&L, or last-observed timestamp
-  changes.
-
-Planned SQL MCP tools:
+Current tools:
 
 - `portfolio_sql_initialize`
 - `portfolio_sql_upsert_portfolio`
@@ -118,15 +74,35 @@ Planned SQL MCP tools:
 - `portfolio_sql_link_agent_run_sources`
 - `portfolio_sql_table_count`
 
-Migration approach:
+Resources:
 
-1. Add the new tables alongside the existing prototype tables.
-2. Add new MCP tools while keeping current tools temporarily for compatibility.
-3. Update tests to assert value snapshots, weight snapshots, and position-state
-   upsert behavior.
-4. Update the Portfolio Agent to use the new tools.
-5. Remove or deprecate prototype snapshot/quote/metric storage tools once no
-   agent path depends on them.
+- `portfolio-sql://schema`
+- `portfolio-sql://status`
+
+This server owns lean portfolio value history, allocation weight history,
+compact position states, data-quality events, and run summaries. It stores
+summaries and structured records, not hidden model reasoning.
+
+Implemented schema from the 2026-06-02 portfolio-history design review:
+
+- Replace broad raw snapshot persistence with lean parsed tables:
+  `portfolios`, `broker_accounts`, `assets`, `position_states`,
+  `portfolio_value_snapshots`, `portfolio_weight_snapshots`,
+  `data_quality_events`, `agent_runs`, and `agent_run_sources`.
+- Do not store a raw OpenD source-observation table or full raw final responses.
+- Do not store daily quote history. Store quote failures and missing data as
+  `data_quality_events`; fetch market prices from external APIs when a query
+  needs price history.
+- Store one portfolio value snapshot per portfolio/account/date.
+- Store one set of portfolio weight rows per value snapshot, including holdings,
+  options, cash-equivalent funds, literal cash, and configured cash-sweep rows.
+- Store compact position states. Insert a new state when quantity, average cost,
+  side, active status, or asset identity changes. Update the active state when
+  only market price, market value, unrealized P&L, or last-observed timestamp
+  changes.
+- If the same daily value snapshot is observed again, update the value row's
+  latest parsed values and `last_observed_at`, then replace its child weight
+  rows so the daily allocation view stays coherent.
 
 ### `moomail-finance-metrics-mcp`
 

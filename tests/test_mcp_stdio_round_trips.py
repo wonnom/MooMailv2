@@ -54,10 +54,10 @@ def test_portfolio_sql_mcp_stdio_server_round_trip(tmp_path):
     try:
         initialized = client.request("initialize", {"clientInfo": {"name": "pytest"}})
         init_result = client.request("tools/call", {"name": "portfolio_sql_initialize"})
-        stored = client.request(
+        value = client.request(
             "tools/call",
             {
-                "name": "portfolio_sql_store_snapshot",
+                "name": "portfolio_sql_store_daily_value_snapshot",
                 "arguments": {"snapshot": snapshot.model_dump(mode="json")},
             },
         )
@@ -65,7 +65,7 @@ def test_portfolio_sql_mcp_stdio_server_round_trip(tmp_path):
             "tools/call",
             {
                 "name": "portfolio_sql_table_count",
-                "arguments": {"table_name": "portfolio_snapshots"},
+                "arguments": {"table_name": "portfolio_value_snapshots"},
             },
         )
         status = client.request("resources/read", {"uri": "portfolio-sql://status"})
@@ -74,7 +74,7 @@ def test_portfolio_sql_mcp_stdio_server_round_trip(tmp_path):
 
     assert initialized["serverInfo"]["name"] == "moomail-portfolio-sql-mcp"
     assert init_result["structuredContent"]["initialized"] is True
-    assert stored["structuredContent"]["portfolio_id"] == snapshot.portfolio_id
+    assert value["structuredContent"]["portfolio_id"] == snapshot.portfolio_id
     assert count["structuredContent"]["count"] == 1
     assert "portfolio-sql://status" in status["contents"][0]["uri"]
 

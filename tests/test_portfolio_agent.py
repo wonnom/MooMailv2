@@ -38,14 +38,19 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
         "single_position_concentration",
     }
     assert result.storage_result["status"] == "inserted"
-    assert result.metrics_storage_result["metrics_stored"] == 5
+    assert result.metrics_storage_result["metrics_stored"] == 0
+    assert result.metrics_storage_result["weight_rows_stored"] == 2
     assert result.evaluation.summary == "Portfolio-only evaluation complete."
     assert evaluator.calls == 1
-    assert store.table_count("portfolio_snapshots") == 1
-    assert store.table_count("calculated_metrics") == 5
+    assert store.table_count("portfolio_value_snapshots") == 1
+    assert store.table_count("portfolio_weight_snapshots") == 2
+    assert store.table_count("position_states") == 1
     assert "moomail-opend-mcp:opend_get_portfolio_context" in result.tool_calls
     assert "moomail-finance-metrics-mcp:calculate_snapshot_metrics" in result.tool_calls
-    assert "moomail-portfolio-sql-mcp:portfolio_sql_store_daily_snapshot_if_needed" in (
+    assert "moomail-portfolio-sql-mcp:portfolio_sql_store_daily_value_snapshot" in (
+        result.tool_calls
+    )
+    assert "moomail-portfolio-sql-mcp:portfolio_sql_store_weight_snapshots" in (
         result.tool_calls
     )
 
@@ -64,11 +69,11 @@ def test_portfolio_agent_daily_storage_is_idempotent(tmp_path, recorded_opend_cl
     second = agent.run("Review my portfolio again", ips)
 
     assert first.storage_result["status"] == "inserted"
-    assert second.storage_result["status"] == "skipped"
-    assert second.storage_result["existing_snapshot_id"] == first.storage_result["snapshot_id"]
+    assert second.storage_result["status"] == "updated"
+    assert second.storage_result["value_snapshot_id"] == first.storage_result["value_snapshot_id"]
     assert second.metrics_storage_result["metrics_stored"] == 0
-    assert store.table_count("portfolio_snapshots") == 1
-    assert store.table_count("calculated_metrics") == 5
+    assert store.table_count("portfolio_value_snapshots") == 1
+    assert store.table_count("portfolio_weight_snapshots") == 2
 
 
 def test_llm_portfolio_evaluator_parses_structured_json_from_llm():

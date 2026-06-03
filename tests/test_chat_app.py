@@ -59,6 +59,23 @@ def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
     ]
 
 
+def test_chat_service_portfolio_agent_handles_legacy_chat_db(tmp_path):
+    report_path = _write_recorded_report(tmp_path)
+    db_path = tmp_path / "legacy-chat.sqlite"
+    _create_legacy_agent_runs_table(db_path)
+    service = ChatService(
+        from_report=report_path,
+        db_path=db_path,
+        portfolio_evaluator=FakePortfolioEvaluator(),
+    )
+
+    lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
+    final = lines[-1]["state"]
+
+    assert final["agent_type"] == "portfolio_agent"
+    assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
+
+
 def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     ts = (WEB / "static" / "app.ts").read_text(encoding="utf-8")
@@ -81,6 +98,42 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     assert "renderPortfolioEvaluation" in ts
     assert "renderCitations" in ts
     assert "source_quality_rank" in ts
+
+
+def _create_legacy_agent_runs_table(db_path):
+    import sqlite3
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE agent_runs (
+                run_id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                user_query TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                tools_called_json TEXT NOT NULL,
+                data_timestamps_json TEXT NOT NULL,
+                source_ids_json TEXT NOT NULL,
+                assumptions_json TEXT NOT NULL,
+                guardrail_result_json TEXT NOT NULL,
+                output_summary TEXT NOT NULL,
+                memory_updates_json TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO agent_runs (
+                run_id, timestamp, user_query, mode, tools_called_json,
+                data_timestamps_json, source_ids_json, assumptions_json,
+                guardrail_result_json, output_summary, memory_updates_json
+            )
+            VALUES (
+                'legacy_run', '2026-05-23T00:00:00+00:00', 'Review', 'review',
+                '[]', '[]', '[]', '[]', '{}', 'legacy summary', '[]'
+            )
+            """
+        )
 
 
 def _write_recorded_report(tmp_path):

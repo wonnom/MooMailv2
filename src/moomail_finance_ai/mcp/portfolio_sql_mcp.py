@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,14 +10,21 @@ from moomail_finance_ai.mcp.registry import (
     RegisteredMCPModule,
     object_schema,
 )
-from moomail_finance_ai.metrics import MetricResult
 from moomail_finance_ai.opend import OpenDFieldReport
 from moomail_finance_ai.schemas import AuditRecord, PortfolioSnapshot
-from moomail_finance_ai.sql_store import ALLOWED_COUNT_TABLES, SCHEMA_SQL, PortfolioSqlStore
+from moomail_finance_ai.sql_store import (
+    ALLOWED_COUNT_TABLES,
+    DEFAULT_ACCOUNT_ID,
+    DEFAULT_ACCOUNT_TYPE,
+    DEFAULT_PROVIDER,
+    SCHEMA_SQL,
+    SCHEMA_VERSION,
+    PortfolioSqlStore,
+)
 
 
 SERVER_NAME = "moomail-portfolio-sql-mcp"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.0"
 
 
 def build_portfolio_sql_mcp_module(
@@ -32,7 +38,7 @@ def build_portfolio_sql_mcp_module(
     module.add_tool(
         MCPToolSpec(
             name="portfolio_sql_initialize",
-            description="Initialize the local portfolio SQL schema.",
+            description="Initialize the lean portfolio-history SQL schema.",
             input_schema=object_schema(),
             read_only=False,
         ),
@@ -40,101 +46,177 @@ def build_portfolio_sql_mcp_module(
     )
     module.add_tool(
         MCPToolSpec(
-            name="portfolio_sql_store_snapshot",
-            description="Store a normalized PortfolioSnapshot and optional OpenD source report.",
+            name="portfolio_sql_upsert_portfolio",
+            description="Upsert one logical portfolio identity row.",
             input_schema=object_schema(
                 {
-                    "snapshot": {"type": "object", "description": "PortfolioSnapshot JSON."},
-                    "source_report": {
-                        "type": "object",
-                        "description": "Optional OpenDFieldReport JSON used for quote rows.",
-                    },
+                    "portfolio_id": {"type": "string", "default": "portfolio_default"},
+                    "name": {"type": "string"},
+                    "base_currency": {"type": "string", "default": "USD"},
+                    "observed_at": {"type": "string"},
                 },
-                required=["snapshot"],
+                required=["portfolio_id"],
             ),
             read_only=False,
         ),
-        lambda arguments: store.store_snapshot(
-            PortfolioSnapshot.model_validate(arguments["snapshot"]),
-            source_report=_optional_source_report(arguments),
+        lambda arguments: store.upsert_portfolio(
+            str(arguments["portfolio_id"]),
+            name=arguments.get("name"),
+            base_currency=str(arguments.get("base_currency", "USD")),
+            observed_at=_optional_datetime(arguments.get("observed_at")),
         ),
     )
     module.add_tool(
         MCPToolSpec(
-            name="portfolio_sql_store_daily_snapshot_if_needed",
-            description=(
-                "Store one portfolio snapshot per portfolio/date. If a daily snapshot already "
-                "exists, update its last observed timestamp and return a skipped result."
+            name="portfolio_sql_upsert_broker_account",
+            description="Upsert an internal broker account identity row.",
+            input_schema=object_schema(
+                {
+                    "portfolio_id": {"type": "string", "default": "portfolio_default"},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                    "provider": {"type": "string", "default": DEFAULT_PROVIDER},
+                    "security_firm": {"type": "string"},
+                    "account_type": {"type": "string", "default": DEFAULT_ACCOUNT_TYPE},
+                    "base_currency": {"type": "string", "default": "USD"},
+                    "observed_at": {"type": "string"},
+                },
+                required=["portfolio_id"],
             ),
+            read_only=False,
+        ),
+        lambda arguments: store.upsert_broker_account(
+            portfolio_id=str(arguments["portfolio_id"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
+            provider=str(arguments.get("provider", DEFAULT_PROVIDER)),
+            security_firm=arguments.get("security_firm"),
+            account_type=str(arguments.get("account_type", DEFAULT_ACCOUNT_TYPE)),
+            base_currency=str(arguments.get("base_currency", "USD")),
+            observed_at=_optional_datetime(arguments.get("observed_at")),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
+            name="portfolio_sql_upsert_assets",
+            description="Upsert canonical assets from a normalized PortfolioSnapshot.",
             input_schema=object_schema(
                 {
                     "snapshot": {"type": "object", "description": "PortfolioSnapshot JSON."},
-                    "source_report": {
-                        "type": "object",
-                        "description": "Optional OpenDFieldReport JSON used for quote rows.",
-                    },
-                    "observed_at": {
-                        "type": "string",
-                        "description": "Optional ISO timestamp for deterministic tests.",
-                    },
+                    "include_cash_assets": {"type": "boolean", "default": True},
+                    "observed_at": {"type": "string"},
                 },
                 required=["snapshot"],
             ),
             read_only=False,
         ),
-        lambda arguments: store.store_daily_snapshot_if_needed(
+        lambda arguments: store.upsert_assets(
             PortfolioSnapshot.model_validate(arguments["snapshot"]),
+            include_cash_assets=bool(arguments.get("include_cash_assets", True)),
+            observed_at=_optional_datetime(arguments.get("observed_at")),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
+            name="portfolio_sql_upsert_position_states",
+            description=(
+                "Upsert compact position states. New rows are inserted when quantity, "
+                "average cost, side, active status, or asset identity changes."
+            ),
+            input_schema=object_schema(
+                {
+                    "snapshot": {"type": "object", "description": "PortfolioSnapshot JSON."},
+                    "source_report": {"type": "object", "description": "Optional OpenDFieldReport."},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                    "observed_at": {"type": "string"},
+                    "mark_missing_inactive": {"type": "boolean", "default": True},
+                },
+                required=["snapshot"],
+            ),
+            read_only=False,
+        ),
+        lambda arguments: store.upsert_position_states(
+            PortfolioSnapshot.model_validate(arguments["snapshot"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
+            source_report=_optional_source_report(arguments),
+            observed_at=_optional_datetime(arguments.get("observed_at")),
+            mark_missing_inactive=bool(arguments.get("mark_missing_inactive", True)),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
+            name="portfolio_sql_store_daily_value_snapshot",
+            description="Insert or update one portfolio value snapshot per portfolio/account/date.",
+            input_schema=object_schema(
+                {
+                    "snapshot": {"type": "object", "description": "PortfolioSnapshot JSON."},
+                    "source_report": {"type": "object", "description": "Optional OpenDFieldReport."},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                    "observed_at": {"type": "string"},
+                },
+                required=["snapshot"],
+            ),
+            read_only=False,
+        ),
+        lambda arguments: store.store_daily_value_snapshot(
+            PortfolioSnapshot.model_validate(arguments["snapshot"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
             source_report=_optional_source_report(arguments),
             observed_at=_optional_datetime(arguments.get("observed_at")),
         ),
     )
     module.add_tool(
         MCPToolSpec(
-            name="portfolio_sql_store_metrics",
-            description="Store deterministic MetricResult rows for a stored snapshot.",
+            name="portfolio_sql_store_weight_snapshots",
+            description="Replace child allocation weight rows for one value snapshot.",
             input_schema=object_schema(
                 {
-                    "snapshot_id": {"type": "string"},
-                    "metrics": {
-                        "type": "array",
-                        "items": {"type": "object"},
-                        "description": "MetricResult JSON rows.",
-                    },
+                    "snapshot": {"type": "object", "description": "PortfolioSnapshot JSON."},
+                    "value_snapshot_id": {"type": "string"},
+                    "source_report": {"type": "object", "description": "Optional OpenDFieldReport."},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
                 },
-                required=["snapshot_id", "metrics"],
+                required=["snapshot", "value_snapshot_id"],
             ),
             read_only=False,
         ),
-        lambda arguments: {
-            "metrics_stored": store.store_metrics(
-                str(arguments["snapshot_id"]),
-                [MetricResult.model_validate(item) for item in arguments["metrics"]],
-            )
-        },
+        lambda arguments: store.store_weight_snapshots(
+            PortfolioSnapshot.model_validate(arguments["snapshot"]),
+            value_snapshot_id=str(arguments["value_snapshot_id"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
+            source_report=_optional_source_report(arguments),
+        ),
     )
     module.add_tool(
         MCPToolSpec(
-            name="portfolio_sql_store_audit_record",
-            description="Store a compact agent audit record with output summary only.",
+            name="portfolio_sql_store_data_quality_events",
+            description="Store warning and missing-data events without raw source duplication.",
             input_schema=object_schema(
-                {"audit_record": {"type": "object", "description": "AuditRecord JSON."}},
-                required=["audit_record"],
+                {
+                    "snapshot": {"type": "object", "description": "PortfolioSnapshot JSON."},
+                    "value_snapshot_id": {"type": "string"},
+                    "source_report": {"type": "object", "description": "Optional OpenDFieldReport."},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                    "run_id": {"type": "string"},
+                },
+                required=["snapshot"],
             ),
             read_only=False,
         ),
-        lambda arguments: _store_audit_record(store, arguments),
+        lambda arguments: store.store_data_quality_events(
+            PortfolioSnapshot.model_validate(arguments["snapshot"]),
+            value_snapshot_id=arguments.get("value_snapshot_id"),
+            account_id=arguments.get("account_id", DEFAULT_ACCOUNT_ID),
+            source_report=_optional_source_report(arguments),
+            run_id=arguments.get("run_id"),
+        ),
     )
     module.add_tool(
         MCPToolSpec(
-            name="portfolio_sql_history_status",
-            description="Report snapshot count, latest timestamp, freshness, and depth warnings.",
+            name="portfolio_sql_get_history_status",
+            description="Report value snapshot count, latest timestamp, freshness, and depth warnings.",
             input_schema=object_schema(
                 {
                     "portfolio_id": {"type": "string", "default": "portfolio_default"},
-                    "now": {
-                        "type": "string",
-                        "description": "Optional ISO timestamp for deterministic tests.",
-                    },
+                    "now": {"type": "string"},
                     "stale_after_hours": {"type": "number", "default": 24},
                     "min_snapshots_for_history": {"type": "integer", "default": 2},
                 },
@@ -150,14 +232,103 @@ def build_portfolio_sql_mcp_module(
     )
     module.add_tool(
         MCPToolSpec(
-            name="portfolio_sql_latest_snapshot",
-            description="Read the latest stored snapshot metadata and raw snapshot JSON.",
+            name="portfolio_sql_get_latest_portfolio_state",
+            description="Read the latest value snapshot with active position, weight, and event rows.",
             input_schema=object_schema(
-                {"portfolio_id": {"type": "string", "default": "portfolio_default"}},
+                {
+                    "portfolio_id": {"type": "string", "default": "portfolio_default"},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                },
                 required=["portfolio_id"],
             ),
         ),
-        lambda arguments: _latest_snapshot(store, str(arguments["portfolio_id"])),
+        lambda arguments: store.latest_portfolio_state(
+            str(arguments["portfolio_id"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
+            name="portfolio_sql_get_portfolio_growth",
+            description="Read daily portfolio value history.",
+            input_schema=object_schema(
+                {
+                    "portfolio_id": {"type": "string", "default": "portfolio_default"},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                    "limit": {"type": "integer", "default": 30},
+                },
+                required=["portfolio_id"],
+            ),
+        ),
+        lambda arguments: store.portfolio_growth(
+            str(arguments["portfolio_id"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
+            limit=int(arguments.get("limit", 30)),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
+            name="portfolio_sql_get_allocation_history",
+            description="Read historical allocation weight rows.",
+            input_schema=object_schema(
+                {
+                    "portfolio_id": {"type": "string", "default": "portfolio_default"},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                    "limit": {"type": "integer", "default": 30},
+                },
+                required=["portfolio_id"],
+            ),
+        ),
+        lambda arguments: store.allocation_history(
+            str(arguments["portfolio_id"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
+            limit=int(arguments.get("limit", 30)),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
+            name="portfolio_sql_store_agent_run",
+            description="Store compact agent run metadata and output summary only.",
+            input_schema=object_schema(
+                {
+                    "audit_record": {"type": "object", "description": "AuditRecord JSON."},
+                    "portfolio_id": {"type": "string", "default": "portfolio_default"},
+                    "agent_type": {"type": "string", "default": "investment_agent"},
+                    "snapshot_refs": {"type": "array", "items": {"type": "string"}},
+                    "missing_data": {"type": "array", "items": {"type": "string"}},
+                },
+                required=["audit_record"],
+            ),
+            read_only=False,
+        ),
+        lambda arguments: store.store_agent_run(
+            AuditRecord.model_validate(arguments["audit_record"]),
+            portfolio_id=str(arguments.get("portfolio_id", "portfolio_default")),
+            agent_type=str(arguments.get("agent_type", "investment_agent")),
+            snapshot_refs=list(arguments.get("snapshot_refs", [])),
+            missing_data=list(arguments.get("missing_data", [])),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
+            name="portfolio_sql_link_agent_run_sources",
+            description="Replace source links for an agent run.",
+            input_schema=object_schema(
+                {
+                    "run_id": {"type": "string"},
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                    },
+                },
+                required=["run_id", "sources"],
+            ),
+            read_only=False,
+        ),
+        lambda arguments: store.link_agent_run_sources(
+            str(arguments["run_id"]),
+            list(arguments["sources"]),
+        ),
     )
     module.add_tool(
         MCPToolSpec(
@@ -182,15 +353,19 @@ def build_portfolio_sql_mcp_module(
         MCPResourceSpec(
             uri="portfolio-sql://schema",
             name="Portfolio SQL Schema",
-            description="SQLite schema for portfolio history, metrics, and audit summaries.",
+            description="Lean SQLite schema for portfolio history and audit summaries.",
         ),
-        lambda: {"schema_sql": SCHEMA_SQL, "allowed_count_tables": sorted(ALLOWED_COUNT_TABLES)},
+        lambda: {
+            "schema_version": SCHEMA_VERSION,
+            "schema_sql": SCHEMA_SQL,
+            "allowed_count_tables": sorted(ALLOWED_COUNT_TABLES),
+        },
     )
     module.add_resource(
         MCPResourceSpec(
             uri="portfolio-sql://status",
             name="Portfolio SQL Store Status",
-            description="Database path and row counts for known tables.",
+            description="Database path and row counts for known lean schema tables.",
         ),
         lambda: _store_status(store),
     )
@@ -199,7 +374,7 @@ def build_portfolio_sql_mcp_module(
 
 def _initialize(store: PortfolioSqlStore) -> dict[str, Any]:
     store.initialize()
-    return {"initialized": True, "db_path": str(store.db_path)}
+    return {"initialized": True, "db_path": str(store.db_path), "schema_version": SCHEMA_VERSION}
 
 
 def _optional_source_report(arguments: dict[str, Any]) -> OpenDFieldReport | None:
@@ -208,34 +383,12 @@ def _optional_source_report(arguments: dict[str, Any]) -> OpenDFieldReport | Non
     return OpenDFieldReport.model_validate(arguments["source_report"])
 
 
-def _store_audit_record(store: PortfolioSqlStore, arguments: dict[str, Any]) -> dict[str, Any]:
-    audit_record = AuditRecord.model_validate(arguments["audit_record"])
-    store.store_audit_record(audit_record)
-    return {"stored": True, "run_id": audit_record.run_id}
-
-
-def _latest_snapshot(store: PortfolioSqlStore, portfolio_id: str) -> dict[str, Any] | None:
-    row = store.latest_snapshot(portfolio_id)
-    if row is None:
-        return None
-    return {
-        "snapshot_id": row["snapshot_id"],
-        "portfolio_id": row["portfolio_id"],
-        "as_of": row["as_of"],
-        "base_currency": row["base_currency"],
-        "total_value_amount": row["total_value_amount"],
-        "total_value_currency": row["total_value_currency"],
-        "data_quality": json.loads(row["data_quality_json"]),
-        "snapshot": json.loads(row["raw_snapshot_json"]),
-        "last_observed_at": row["last_observed_at"],
-    }
-
-
 def _store_status(store: PortfolioSqlStore) -> dict[str, Any]:
     store.initialize()
     return {
         "db_path": str(store.db_path),
         "exists": store.db_path.exists(),
+        "schema_version": SCHEMA_VERSION,
         "row_counts": {
             table_name: store.table_count(table_name)
             for table_name in sorted(ALLOWED_COUNT_TABLES)

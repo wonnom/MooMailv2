@@ -27,7 +27,7 @@ from moomail_finance_ai.sql_store import PortfolioSqlStore  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Persist a portfolio snapshot, deterministic metrics, and audit summary."
+        description="Persist lean portfolio history rows and an audit summary."
     )
     parser.add_argument("--from-report", default=None, help="Use a saved OpenD field report.")
     parser.add_argument("--env-file", default=None, help="Optional local env file for live OpenD.")
@@ -53,20 +53,33 @@ def main() -> None:
     metrics = calculate_snapshot_metrics(snapshot, ips)
 
     store = PortfolioSqlStore(args.db)
-    stored = store.store_snapshot(snapshot, source_report=report)
-    metrics_count = store.store_metrics(stored.snapshot_id, metrics)
-    audit = _audit_for_demo(packet.snapshot.as_of, stored.snapshot_id)
-    store.store_audit_record(audit)
+    stored = store.store_portfolio_observation(snapshot, source_report=report)
+    audit = _audit_for_demo(packet.snapshot.as_of, stored.value_snapshot_id)
+    store.store_agent_run(
+        audit,
+        portfolio_id=ips.portfolio_id,
+        snapshot_refs=[stored.value_snapshot_id],
+        missing_data=packet.data_quality.warnings,
+    )
+    store.link_agent_run_sources(
+        audit.run_id,
+        [{"source_type": "portfolio_value_snapshot", "source_id": stored.value_snapshot_id}],
+    )
     history_status = store.history_status(ips.portfolio_id)
 
     summary = {
         "db": args.db,
-        "snapshot_id": stored.snapshot_id,
+        "value_snapshot_id": stored.value_snapshot_id,
         "portfolio_id": stored.portfolio_id,
         "as_of": stored.as_of.isoformat(),
-        "holdings_count": stored.holdings_count,
-        "quotes_count": stored.quotes_count,
-        "metrics_count": metrics_count,
+        "status": stored.status,
+        "position_states_inserted": stored.position_states_inserted,
+        "position_states_updated": stored.position_states_updated,
+        "position_states_marked_inactive": stored.position_states_marked_inactive,
+        "weight_rows_stored": stored.weight_rows_stored,
+        "data_quality_events_stored": stored.data_quality_events_stored,
+        "metrics_calculated": len(metrics),
+        "metrics_persisted": 0,
         "agent_runs_count": store.table_count("agent_runs"),
         "history_status": history_status.model_dump(mode="json"),
         "data_quality_warnings": packet.data_quality.warnings,
@@ -85,7 +98,7 @@ def _audit_for_demo(as_of: datetime, snapshot_id: str) -> AuditRecord:
         mode="review",
         title="Recorded Portfolio History Demo",
         as_of=as_of,
-        summary="Stored a recorded OpenD portfolio snapshot and deterministic metric set.",
+        summary="Stored lean portfolio history rows from a recorded OpenD snapshot.",
         portfolio_snapshot={},
         portfolio_analysis={},
         sentiment_analysis={},
@@ -107,7 +120,7 @@ def _audit_for_demo(as_of: datetime, snapshot_id: str) -> AuditRecord:
         timestamp=datetime.now(UTC),
         user_query="Milestone 3 recorded portfolio history demo",
         mode="review",
-        tools_called=["recorded_opend_client", "portfolio_sql_store", "finance_metrics"],
+        tools_called=["recorded_opend_client", "portfolio_sql_store_lean_history", "finance_metrics"],
         data_timestamps=[as_of.isoformat()],
         source_ids=[snapshot_id],
         assumptions=report.assumptions,

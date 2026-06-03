@@ -28,8 +28,9 @@ def test_milestone5_full_agent_runs_end_to_end_with_recorded_data(tmp_path):
     assert state.final_report.portfolio_analysis
     assert state.final_report.missing_data
     assert state.audit_record.memory_updates
-    assert agent.sql_store.table_count("portfolio_snapshots") == 1
-    assert agent.sql_store.table_count("calculated_metrics") == 5
+    assert agent.sql_store.table_count("portfolio_value_snapshots") == 1
+    assert agent.sql_store.table_count("portfolio_weight_snapshots") == 3
+    assert agent.sql_store.table_count("position_states") == 2
     assert agent.sql_store.table_count("agent_runs") == 1
 
 

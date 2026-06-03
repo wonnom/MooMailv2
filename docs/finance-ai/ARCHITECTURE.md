@@ -420,23 +420,19 @@ source_id
 created_at
 ```
 
-Prototype note: the current local SQLite implementation still stores
-`portfolio_snapshots`, `position_snapshots`, `cash_balances`, `quote_snapshots`,
-and `calculated_metrics`. Those tables are useful for proving the pipeline, but
-the next SQL refactor should migrate toward the lean schema above.
+Implementation status: the local SQLite implementation now creates the lean
+tables above for fresh databases. It no longer stores broad raw snapshot JSON,
+quote-history rows, or calculated metric input-scope rows in the active SQL MCP
+path.
 
-Open implementation clarifications before coding:
+Resolved implementation clarifications:
 
-- Decide whether `broker_accounts.account_id` is an internal stable ID or the
-  real MooMoo/OpenD account ID. Recommended: use an internal ID as the primary
-  key and store provider account metadata separately only if needed.
-- Decide how to mark a position inactive when a holding disappears. Recommended:
-  mark inactive only after a successful complete position read omits the asset,
-  not after a failed or partial OpenD run.
-- Decide whether same-day `portfolio_weight_snapshots` should be replaced when
-  the same daily value snapshot is re-observed. Recommended: replace the child
-  weight rows for that daily value snapshot so the latest same-day observation
-  is coherent.
+- `broker_accounts.account_id` is an internal stable id in V1
+  (`opend_securities_account` by default), not the raw MooMoo account number.
+- Position states are marked inactive only when a successful normalized
+  portfolio observation omits an active asset.
+- Same-day `portfolio_weight_snapshots` are replaced when the same daily value
+  snapshot is re-observed, so the latest daily allocation view is coherent.
 
 ### Neo4j GraphRAG Store
 

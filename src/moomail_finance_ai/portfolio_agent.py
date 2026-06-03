@@ -158,33 +158,94 @@ class MCPPortfolioAgent:
         )
         metrics = [MetricResult.model_validate(row) for row in metric_rows]
 
-        emit("updating_portfolio_history", "Applying idempotent daily snapshot storage policy.")
-        storage_result = self._call(
+        emit("updating_portfolio_history", "Writing lean portfolio-history rows to SQL MCP.")
+        self._call(
             PORTFOLIO_SQL_SERVER,
             self.portfolio_sql_mcp,
-            "portfolio_sql_store_daily_snapshot_if_needed",
+            "portfolio_sql_upsert_portfolio",
+            {
+                "portfolio_id": ips.portfolio_id,
+                "base_currency": self.base_currency,
+            },
+        )
+        account_result = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_upsert_broker_account",
+            {
+                "portfolio_id": ips.portfolio_id,
+                "base_currency": self.base_currency,
+            },
+        )
+        account_id = account_result["account_id"]
+        assets_result = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_upsert_assets",
+            {"snapshot": snapshot_json, "include_cash_assets": True},
+        )
+        position_state_result = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_upsert_position_states",
             {
                 "snapshot": snapshot_json,
                 "source_report": source_report.model_dump(mode="json"),
+                "account_id": account_id,
             },
         )
+        value_snapshot_result = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_store_daily_value_snapshot",
+            {
+                "snapshot": snapshot_json,
+                "source_report": source_report.model_dump(mode="json"),
+                "account_id": account_id,
+            },
+        )
+        weight_storage_result = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_store_weight_snapshots",
+            {
+                "snapshot": snapshot_json,
+                "source_report": source_report.model_dump(mode="json"),
+                "account_id": account_id,
+                "value_snapshot_id": value_snapshot_result["value_snapshot_id"],
+            },
+        )
+        data_quality_result = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_store_data_quality_events",
+            {
+                "snapshot": snapshot_json,
+                "source_report": source_report.model_dump(mode="json"),
+                "account_id": account_id,
+                "value_snapshot_id": value_snapshot_result["value_snapshot_id"],
+            },
+        )
+        storage_result = {
+            "status": value_snapshot_result["status"],
+            "portfolio_id": snapshot.portfolio_id,
+            "account_id": account_id,
+            "value_snapshot_id": value_snapshot_result["value_snapshot_id"],
+            "snapshot_date": value_snapshot_result["snapshot_date"],
+            "assets_upserted": assets_result["assets_upserted"],
+            "position_states_inserted": position_state_result["inserted"],
+            "position_states_updated": position_state_result["updated"],
+            "position_states_marked_inactive": position_state_result["marked_inactive"],
+            "weight_rows_stored": weight_storage_result["rows_stored"],
+            "data_quality_events_stored": data_quality_result["events_stored"],
+        }
         metrics_storage_result = _metrics_storage_skip_result(storage_result)
-        if storage_result.get("status") == "inserted" and storage_result.get("snapshot_id"):
-            metrics_storage_result = self._call(
-                PORTFOLIO_SQL_SERVER,
-                self.portfolio_sql_mcp,
-                "portfolio_sql_store_metrics",
-                {
-                    "snapshot_id": storage_result["snapshot_id"],
-                    "metrics": [metric.model_dump(mode="json") for metric in metrics],
-                },
-            )
 
         emit("reading_history_status", "Reading portfolio history status from SQL MCP.")
         history_status = self._call(
             PORTFOLIO_SQL_SERVER,
             self.portfolio_sql_mcp,
-            "portfolio_sql_history_status",
+            "portfolio_sql_get_history_status",
             {
                 "portfolio_id": ips.portfolio_id,
                 "now": snapshot.as_of.isoformat(),
@@ -483,12 +544,14 @@ def _strip_markdown_fence(text: str) -> str:
 
 
 def _metrics_storage_skip_result(storage_result: dict[str, Any]) -> dict[str, Any]:
-    if storage_result.get("status") == "skipped":
-        return {
-            "metrics_stored": 0,
-            "reason": "Daily snapshot already existed; metrics were not duplicated.",
-        }
-    return {"metrics_stored": 0, "reason": "Snapshot was not inserted."}
+    return {
+        "metrics_stored": 0,
+        "weight_rows_stored": storage_result.get("weight_rows_stored", 0),
+        "reason": (
+            "Deterministic metric inputs are not persisted in the lean V1 schema; "
+            "overall portfolio weights are stored in portfolio_weight_snapshots."
+        ),
+    }
 
 
 def _portfolio_packet_with_history(

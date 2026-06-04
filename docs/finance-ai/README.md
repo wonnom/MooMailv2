@@ -72,7 +72,7 @@ flowchart TD
 - No trade placement, ever.
 - Investment branch first; no main finance orchestrator needed in v1.
 - Python agent layer using LangGraph and LangChain components.
-- Local TypeScript/static chatbot frontend exists with streaming status, report panels, trace output, and a resizable/hideable chat rail.
+- Local TypeScript/static chatbot frontend exists with streaming status, structured error rendering, report panels, trace output, and a resizable/hideable chat rail.
 - MCP servers are the boundary for broker access, portfolio data, metrics, research retrieval, and memory.
 - MooMoo/OpenD is the read-only source for current portfolio data.
 - OpenD exploration drives the SQL schema and portfolio normalization.

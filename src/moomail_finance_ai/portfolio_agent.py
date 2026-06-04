@@ -49,6 +49,25 @@ class PortfolioEvaluation(StrictModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class EffectiveCashSummary(StrictModel):
+    currency: str
+    cash_value: float
+    auto_invested_fund_assets_value: float
+    cash_equivalent_value: float
+    effective_cash_value: float
+    effective_cash_weight: float
+    literal_cash_balances: list[dict[str, Any]] = Field(default_factory=list)
+    auto_invested_fund_assets: list[dict[str, Any]] = Field(default_factory=list)
+    cash_equivalent_holdings: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class PortfolioHistoryContext(StrictModel):
+    history_status: dict[str, Any]
+    latest_portfolio_state: dict[str, Any] | None = None
+    portfolio_growth: list[dict[str, Any]] = Field(default_factory=list)
+    allocation_history: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class PortfolioAgentResult(StrictModel):
     run_id: str
     portfolio_id: str
@@ -57,7 +76,9 @@ class PortfolioAgentResult(StrictModel):
     metrics: list[MetricResult]
     storage_result: dict[str, Any]
     metrics_storage_result: dict[str, Any]
+    effective_cash: EffectiveCashSummary
     history_status: dict[str, Any]
+    history_context: PortfolioHistoryContext
     evaluation: PortfolioEvaluation
     tool_calls: list[str]
     status_events: list[StatusEvent] = Field(default_factory=list)
@@ -75,6 +96,7 @@ class PortfolioEvaluator(Protocol):
         metrics: list[MetricResult],
         storage_result: dict[str, Any],
         history_status: dict[str, Any],
+        history_context: PortfolioHistoryContext | None = None,
     ) -> PortfolioEvaluation: ...
 
 
@@ -101,6 +123,7 @@ class LLMPortfolioEvaluator:
         metrics: list[MetricResult],
         storage_result: dict[str, Any],
         history_status: dict[str, Any],
+        history_context: PortfolioHistoryContext | None = None,
     ) -> PortfolioEvaluation:
         text = self.llm.generate_text(
             _evaluation_prompt(
@@ -111,6 +134,7 @@ class LLMPortfolioEvaluator:
                 metrics=metrics,
                 storage_result=storage_result,
                 history_status=history_status,
+                history_context=history_context,
             ),
             system_instruction=PORTFOLIO_EVALUATOR_SYSTEM_PROMPT,
             max_output_tokens=8192,
@@ -252,10 +276,35 @@ class MCPPortfolioAgent:
                 "min_snapshots_for_history": self.min_snapshots_for_history,
             },
         )
+        latest_portfolio_state = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_get_latest_portfolio_state",
+            {"portfolio_id": ips.portfolio_id, "account_id": account_id},
+        )
+        portfolio_growth = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_get_portfolio_growth",
+            {"portfolio_id": ips.portfolio_id, "account_id": account_id, "limit": 30},
+        )
+        allocation_history = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_get_allocation_history",
+            {"portfolio_id": ips.portfolio_id, "account_id": account_id, "limit": 100},
+        )
+        history_context = PortfolioHistoryContext(
+            history_status=history_status,
+            latest_portfolio_state=latest_portfolio_state,
+            portfolio_growth=portfolio_growth,
+            allocation_history=allocation_history,
+        )
         portfolio_packet = _portfolio_packet_with_history(
             build_portfolio_agent_packet(snapshot, ips, source_report),
             history_status,
         )
+        effective_cash = build_effective_cash_summary(snapshot)
         emit("evaluating_portfolio", "Running the LLM portfolio-only evaluator.")
         evaluation = self.evaluator.evaluate(
             query=query,
@@ -265,6 +314,7 @@ class MCPPortfolioAgent:
             metrics=metrics,
             storage_result=storage_result,
             history_status=history_status,
+            history_context=history_context,
         )
         emit("complete", "Portfolio Agent run complete.")
         return PortfolioAgentResult(
@@ -275,7 +325,9 @@ class MCPPortfolioAgent:
             metrics=metrics,
             storage_result=storage_result,
             metrics_storage_result=metrics_storage_result,
+            effective_cash=effective_cash,
             history_status=history_status,
+            history_context=history_context,
             evaluation=evaluation,
             tool_calls=list(self.tool_calls),
             status_events=status_events,
@@ -358,22 +410,9 @@ def _evaluation_prompt(
     metrics: list[MetricResult],
     storage_result: dict[str, Any],
     history_status: dict[str, Any],
+    history_context: PortfolioHistoryContext | None = None,
 ) -> str:
-    literal_cash_balances = [
-        cash for cash in snapshot.cash if cash.account_id != OPEND_FUND_ASSETS_CASH_SWEEP_ID
-    ]
-    auto_invested_fund_assets = [
-        cash for cash in snapshot.cash if cash.account_id == OPEND_FUND_ASSETS_CASH_SWEEP_ID
-    ]
-    cash_value = sum(cash.amount for cash in literal_cash_balances)
-    auto_invested_fund_assets_value = sum(cash.amount for cash in auto_invested_fund_assets)
-    cash_equivalent_holdings = [
-        holding for holding in snapshot.holdings if holding.asset_type == "cash_equivalent"
-    ]
-    cash_equivalent_value = sum(holding.market_value for holding in cash_equivalent_holdings)
-    effective_cash_value = (
-        cash_value + auto_invested_fund_assets_value + cash_equivalent_value
-    )
+    effective_cash = build_effective_cash_summary(snapshot)
     context = {
         "user_query": query,
         "investment_policy": ips.model_dump(mode="json"),
@@ -383,29 +422,7 @@ def _evaluation_prompt(
             "base_currency": snapshot.base_currency,
             "total_value": snapshot.total_value.model_dump(mode="json"),
             "cash": [cash.model_dump(mode="json") for cash in snapshot.cash],
-            "effective_cash": {
-                "cash_value": cash_value,
-                "auto_invested_fund_assets_value": auto_invested_fund_assets_value,
-                "cash_equivalent_value": cash_equivalent_value,
-                "effective_cash_value": effective_cash_value,
-                "effective_cash_weight": (
-                    0.0
-                    if snapshot.total_value.amount == 0
-                    else effective_cash_value / snapshot.total_value.amount
-                ),
-                "auto_invested_fund_assets": [
-                    cash.model_dump(mode="json") for cash in auto_invested_fund_assets
-                ],
-                "cash_equivalent_holdings": [
-                    {
-                        "ticker": holding.ticker,
-                        "name": holding.name,
-                        "market_value": holding.market_value,
-                        "portfolio_weight": holding.portfolio_weight,
-                    }
-                    for holding in cash_equivalent_holdings
-                ],
-            },
+            "effective_cash": effective_cash.model_dump(mode="json"),
             "holdings": [
                 {
                     "ticker": holding.ticker,
@@ -429,11 +446,55 @@ def _evaluation_prompt(
         ],
         "storage_result": storage_result,
         "history_status": history_status,
+        "history_context": (
+            history_context.model_dump(mode="json") if history_context is not None else None
+        ),
     }
     return (
         "Evaluate the portfolio-only evidence below. Answer user_query directly in the summary, "
         "then add concise supporting observations in the lists.\n\n"
         f"{json.dumps(context, sort_keys=True)}"
+    )
+
+
+def build_effective_cash_summary(snapshot: PortfolioSnapshot) -> EffectiveCashSummary:
+    literal_cash_balances = [
+        cash for cash in snapshot.cash if cash.account_id != OPEND_FUND_ASSETS_CASH_SWEEP_ID
+    ]
+    auto_invested_fund_assets = [
+        cash for cash in snapshot.cash if cash.account_id == OPEND_FUND_ASSETS_CASH_SWEEP_ID
+    ]
+    cash_equivalent_holdings = [
+        holding for holding in snapshot.holdings if holding.asset_type == "cash_equivalent"
+    ]
+    cash_value = sum(cash.amount for cash in literal_cash_balances)
+    auto_invested_fund_assets_value = sum(cash.amount for cash in auto_invested_fund_assets)
+    cash_equivalent_value = sum(holding.market_value for holding in cash_equivalent_holdings)
+    effective_cash_value = cash_value + auto_invested_fund_assets_value + cash_equivalent_value
+    return EffectiveCashSummary(
+        currency=snapshot.base_currency,
+        cash_value=cash_value,
+        auto_invested_fund_assets_value=auto_invested_fund_assets_value,
+        cash_equivalent_value=cash_equivalent_value,
+        effective_cash_value=effective_cash_value,
+        effective_cash_weight=(
+            0.0
+            if snapshot.total_value.amount == 0
+            else effective_cash_value / snapshot.total_value.amount
+        ),
+        literal_cash_balances=[cash.model_dump(mode="json") for cash in literal_cash_balances],
+        auto_invested_fund_assets=[
+            cash.model_dump(mode="json") for cash in auto_invested_fund_assets
+        ],
+        cash_equivalent_holdings=[
+            {
+                "ticker": holding.ticker,
+                "name": holding.name,
+                "market_value": holding.market_value,
+                "portfolio_weight": holding.portfolio_weight,
+            }
+            for holding in cash_equivalent_holdings
+        ],
     )
 
 

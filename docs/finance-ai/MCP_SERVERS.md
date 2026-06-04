@@ -83,6 +83,14 @@ This server owns lean portfolio value history, allocation weight history,
 compact position states, data-quality events, and run summaries. It stores
 summaries and structured records, not hidden model reasoning.
 
+Canonical local DB:
+
+- `data/portfolio-history.sqlite`
+
+Terminal Portfolio Agent runs, the local chat frontend, and the portfolio SQL
+MCP server share this DB by default. `--db`/`--db-path` should only point
+elsewhere for isolated tests, demos, or migrations.
+
 Implemented schema from the 2026-06-02 portfolio-history design review:
 
 - Replace broad raw snapshot persistence with lean parsed tables:

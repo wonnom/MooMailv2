@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+import traceback
 from typing import Any
 
 from moomail_finance_ai.full_agent import build_default_full_agent
@@ -18,7 +20,7 @@ class ChatService:
         self,
         *,
         from_report: str | Path | None = "reports/opend/field-report.json",
-        db_path: str | Path = "data/chat-portfolio-history.sqlite",
+        db_path: str | Path = "data/portfolio-history.sqlite",
         memory_path: str | Path = "data/chat-investment-memory.json",
         env_file: str | Path | None = "config/local.env",
         llm_provider: str | None = None,
@@ -109,9 +111,11 @@ def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
                 ],
                 "evaluation": result.evaluation.model_dump(mode="json"),
                 "metrics": [metric.model_dump(mode="json") for metric in result.metrics],
+                "effective_cash": result.effective_cash.model_dump(mode="json"),
                 "storage_result": result.storage_result,
                 "metrics_storage_result": result.metrics_storage_result,
                 "history_status": result.history_status,
+                "history_context": result.history_context.model_dump(mode="json"),
                 "tool_calls": result.tool_calls,
             },
             "sentiment_analysis": {},
@@ -137,12 +141,29 @@ def status_event_payload(event: StatusEvent) -> dict[str, Any]:
     return {"type": "status", "event": event.model_dump(mode="json")}
 
 
+def error_event_payload(exc: BaseException) -> dict[str, Any]:
+    message = str(exc) or exc.__class__.__name__
+    return {
+        "type": "error",
+        "error": {
+            "error_type": exc.__class__.__name__,
+            "message": message,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "traceback": traceback.format_exception(type(exc), exc, exc.__traceback__),
+        },
+    }
+
+
 def stream_payloads(service: ChatService, query: str, *, agent: str | None = None) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
 
     def emit(event: StatusEvent) -> None:
         payloads.append(status_event_payload(event))
 
-    state = service.run(query, agent=agent, status_callback=emit)
+    try:
+        state = service.run(query, agent=agent, status_callback=emit)
+    except Exception as exc:
+        payloads.append(error_event_payload(exc))
+        return payloads
     payloads.append({"type": "final", "state": chat_response(state)})
     return payloads

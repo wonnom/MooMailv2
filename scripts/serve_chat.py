@@ -14,7 +14,12 @@ WEB = ROOT / "web"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from moomail_finance_ai.chat_api import ChatService, chat_response, status_event_payload  # noqa: E402
+from moomail_finance_ai.chat_api import (  # noqa: E402
+    ChatService,
+    chat_response,
+    error_event_payload,
+    status_event_payload,
+)
 
 
 class ChatHandler(SimpleHTTPRequestHandler):
@@ -39,7 +44,11 @@ class ChatHandler(SimpleHTTPRequestHandler):
         query = str(payload.get("query") or "Review my portfolio")
         agent = str(payload.get("agent") or self.service.default_agent)
         if self.path == "/api/chat":
-            state = self.service.run(query, agent=agent)
+            try:
+                state = self.service.run(query, agent=agent)
+            except Exception as exc:
+                self._json(error_event_payload(exc), status=500)
+                return
             self._json(chat_response(state))
             return
         self._stream_chat(query, agent=agent)
@@ -54,7 +63,11 @@ class ChatHandler(SimpleHTTPRequestHandler):
         def emit(event):
             self._write_line(status_event_payload(event))
 
-        state = self.service.run(query, agent=agent, status_callback=emit)
+        try:
+            state = self.service.run(query, agent=agent, status_callback=emit)
+        except Exception as exc:
+            self._write_line(error_event_payload(exc))
+            return
         self._write_line({"type": "final", "state": chat_response(state)})
 
     def _read_json(self) -> dict:
@@ -64,9 +77,9 @@ class ChatHandler(SimpleHTTPRequestHandler):
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
 
-    def _json(self, payload: dict) -> None:
+    def _json(self, payload: dict, *, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -98,7 +111,11 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--from-report", default=None)
-    parser.add_argument("--db", default="data/chat-portfolio-history.sqlite")
+    parser.add_argument(
+        "--db",
+        default="data/portfolio-history.sqlite",
+        help="Portfolio-history SQLite DB path; defaults to the canonical local store.",
+    )
     parser.add_argument("--memory", default="data/chat-investment-memory.json")
     parser.add_argument("--env-file", default="config/local.env")
     parser.add_argument("--llm-provider", default=None, choices=["gemini", "openai"])

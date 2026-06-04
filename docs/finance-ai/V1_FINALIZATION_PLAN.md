@@ -15,7 +15,9 @@ Implemented and locally verified:
   `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
 - SQLite lean portfolio-history storage: portfolio/account/assets,
   position states, daily value snapshots, allocation weight snapshots,
-  data-quality events, audit summaries, and run-source links.
+  data-quality events, audit summaries, and run-source links. The canonical
+  local portfolio DB is `data/portfolio-history.sqlite` for terminal, chat, and
+  MCP paths.
 - `moomail-portfolio-sql-mcp` and `moomail-finance-metrics-mcp`.
 - MCP-backed Portfolio Agent using OpenD, SQL, metrics, and a provider-neutral
   LLM evaluator.
@@ -25,12 +27,19 @@ Implemented and locally verified:
 - Deterministic local research fixtures and Sentiment Agent placeholder.
 - Full local Investment Agent prototype.
 - Local chatbot frontend with bottom composer, Send button, streaming status
-  messages, technical trace, resizable chat rail, and hide/show controls.
+  messages, structured stream error handling, technical trace, resizable chat
+  rail, and hide/show controls.
 
 Verified deterministic suite:
 
 ```text
-74 passed, 10 skipped
+77 passed, 10 skipped
+```
+
+Verified live OpenD-only connector gate:
+
+```text
+2 passed, 1 warning
 ```
 
 ## V1 Definition
@@ -95,6 +104,11 @@ Exit criteria:
 - Add one recorded fixture that includes an OTC quote failure and
   auto-invested fund-assets handling.
 
+Status: implemented. `PortfolioAgentResult` now exposes stable
+`effective_cash` and `history_context` fields; chat responses mirror these under
+`final_report.portfolio_analysis.effective_cash` and
+`final_report.portfolio_analysis.history_context`.
+
 Exit criteria:
 
 - Frontend and terminal render the same core facts.
@@ -112,6 +126,10 @@ Exit criteria:
   `data_quality_events`.
 - Keep raw OpenD blobs and daily quote history out of V1 portfolio-history.
 
+Status: implemented. The Portfolio Agent writes through the new SQL MCP tools,
+then reads history status, latest portfolio state, portfolio growth, and
+allocation history into `history_context`.
+
 Exit criteria:
 
 - SQL MCP can answer latest state, history status, portfolio growth, and
@@ -128,10 +146,16 @@ Exit criteria:
 - Keep trace output for tool calls and storage status.
 - Add a simple loading/failure reset path if the backend request fails mid-run.
 
+Status: implemented for deterministic/frontend contract coverage. The stream
+API emits structured `error` payloads on backend failures, and the frontend
+renders those failures in the chat rail and technical trace instead of hanging.
+
 Exit criteria:
 
 - Chat review works from the Send button.
 - Streaming status events remain visible in the chat rail.
+- Backend failures reset the loading state and show error details in the trace
+  panel.
 - Resizing and hide/show controls do not break report layout.
 
 ### 4. Documentation and Runbook
@@ -145,6 +169,9 @@ Exit criteria:
   - portfolio review in web UI,
   - deterministic tests,
   - live connector tests.
+
+Status: implemented in `docs/finance-ai/README.md`, `ENVIRONMENT.md`,
+`CONNECTOR_TESTS.md`, `MCP_SERVERS.md`, milestone task maps, and this V1 plan.
 
 Exit criteria:
 

@@ -38,6 +38,15 @@ def test_milestone6_stream_endpoint_emits_status_and_final_events(tmp_path):
     assert lines[-1]["state"]["final_report"]["citations"]
 
 
+def test_milestone6_stream_endpoint_emits_error_event_when_agent_fails():
+    lines = stream_payloads(ExplodingChatService(), "Review my portfolio", agent="portfolio")
+
+    assert lines[-1]["type"] == "error"
+    assert lines[-1]["error"]["error_type"] == "RuntimeError"
+    assert lines[-1]["error"]["message"] == "synthetic stream failure"
+    assert "RuntimeError" in "".join(lines[-1]["error"]["traceback"])
+
+
 def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
@@ -54,6 +63,8 @@ def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
     assert final["final_report"]["summary"] == "Portfolio evaluator test summary."
     assert final["final_report"]["portfolio_snapshot"]["holdings"][0]["ticker"] == "AAPL"
     assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
+    assert final["final_report"]["portfolio_analysis"]["effective_cash"]["effective_cash_value"] == 100.0
+    assert final["final_report"]["portfolio_analysis"]["history_context"]["portfolio_growth"]
     assert final["final_report"]["portfolio_analysis"]["evaluation"]["risks"] == [
         "Concentration requires review."
     ]
@@ -76,6 +87,15 @@ def test_chat_service_portfolio_agent_handles_legacy_chat_db(tmp_path):
     assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
 
 
+def test_chat_defaults_use_canonical_portfolio_history_db():
+    service = ChatService()
+    serve_chat_source = (WEB.parent / "scripts" / "serve_chat.py").read_text(encoding="utf-8")
+
+    assert str(service.db_path) == "data/portfolio-history.sqlite"
+    assert 'default="data/portfolio-history.sqlite"' in serve_chat_source
+    assert "data/chat-portfolio-history.sqlite" not in serve_chat_source
+
+
 def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     ts = (WEB / "static" / "app.ts").read_text(encoding="utf-8")
@@ -93,11 +113,16 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     assert "setChatHidden" in ts
     assert "resizeChatTo" in ts
     assert "renderPortfolioSnapshot" in ts
+    assert "effective_cash" in ts
+    assert "Effective cash" in ts
     assert "sortAllocationRows" in ts
     assert "renderAllocationPie" in ts
     assert "renderPortfolioEvaluation" in ts
     assert "renderCitations" in ts
     assert "source_quality_rank" in ts
+    assert "payload.type === \"error\"" in ts
+    assert "renderStreamError" in ts
+    assert "traceback" in ts
 
 
 def _create_legacy_agent_runs_table(db_path):
@@ -201,3 +226,8 @@ class FakePortfolioEvaluator:
             risks=["Concentration requires review."],
             history_observations=["Daily snapshot policy was applied."],
         )
+
+
+class ExplodingChatService:
+    def run(self, query, *, agent=None, status_callback=None):
+        raise RuntimeError("synthetic stream failure")

@@ -57,6 +57,15 @@ type AllocationRow = {
   currency: string;
 };
 
+type EffectiveCashSummary = {
+  currency: string;
+  cash_value: number;
+  auto_invested_fund_assets_value: number;
+  cash_equivalent_value: number;
+  effective_cash_value: number;
+  effective_cash_weight: number;
+};
+
 type FinalReport = {
   title: string;
   mode: string;
@@ -77,6 +86,13 @@ type ChatState = {
   final_report: FinalReport;
   guardrail_result: { passed: boolean };
   status_events: StatusEvent[];
+};
+
+type StreamError = {
+  error_type: string;
+  message: string;
+  timestamp?: string;
+  traceback?: string[];
 };
 
 const appShell = document.querySelector<HTMLElement>("#appShell")!;
@@ -185,6 +201,10 @@ async function runChat(query: string, agent: string): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, agent }),
     });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
+    }
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Response stream unavailable");
     const decoder = new TextDecoder();
@@ -195,24 +215,23 @@ async function runChat(query: string, agent: string): Promise<void> {
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
-      for (const line of lines) handleStreamLine(line);
+      for (const line of lines) {
+        if (!handleStreamLine(line)) {
+          await reader.cancel();
+          return;
+        }
+      }
     }
     if (buffer.trim()) handleStreamLine(buffer);
   } catch (error) {
-    addStatus({
-      status: "failed",
-      message: error instanceof Error ? error.message : String(error),
-      timestamp: new Date().toISOString(),
-    });
-    guardrailBadge.textContent = "Failed";
-    guardrailBadge.className = "badge bad";
+    renderStreamError(errorPayloadFromCaughtError(error));
   } finally {
     setRunning(false);
   }
 }
 
-function handleStreamLine(line: string): void {
-  if (!line.trim()) return;
+function handleStreamLine(line: string): boolean {
+  if (!line.trim()) return true;
   const payload = JSON.parse(line);
   if (payload.type === "status") {
     addStatus(payload.event);
@@ -220,6 +239,11 @@ function handleStreamLine(line: string): void {
   if (payload.type === "final") {
     renderState(payload.state);
   }
+  if (payload.type === "error") {
+    renderStreamError(payload.error);
+    return false;
+  }
+  return true;
 }
 
 function clearRun(): void {
@@ -246,12 +270,57 @@ function addUserMessage(query: string): void {
   scrollChatToBottom();
 }
 
-function addStatus(event: StatusEvent): void {
+function addStatus(event: StatusEvent, variant: "normal" | "error" = "normal"): void {
   const item = document.createElement("li");
-  item.className = "agent-message";
+  item.className = variant === "error" ? "agent-message error" : "agent-message";
   item.textContent = `${event.status}: ${event.message}`;
   statusList.appendChild(item);
   scrollChatToBottom();
+}
+
+function renderStreamError(error: StreamError): void {
+  const message = error.message || "The backend stream failed before returning a report.";
+  addStatus(
+    {
+      status: "failed",
+      message,
+      timestamp: error.timestamp ?? new Date().toISOString(),
+    },
+    "error",
+  );
+  reportTitle.textContent = "Run failed";
+  reportMode.textContent = "error";
+  reportSummary.textContent = message;
+  guardrailBadge.textContent = "Failed";
+  guardrailBadge.className = "badge bad";
+  traceOutput.textContent = JSON.stringify(
+    {
+      status: "failed",
+      error_type: error.error_type || "Error",
+      message,
+      timestamp: error.timestamp ?? new Date().toISOString(),
+      traceback: error.traceback ?? [],
+    },
+    null,
+    2,
+  );
+}
+
+function errorPayloadFromCaughtError(error: unknown): StreamError {
+  if (error instanceof Error) {
+    return {
+      error_type: error.name || "Error",
+      message: error.message,
+      timestamp: new Date().toISOString(),
+      traceback: error.stack ? error.stack.split("\n") : [],
+    };
+  }
+  return {
+    error_type: "Error",
+    message: String(error),
+    timestamp: new Date().toISOString(),
+    traceback: [],
+  };
 }
 
 function renderState(state: ChatState): void {
@@ -274,7 +343,9 @@ function renderState(state: ChatState): void {
       agent_type: state.agent_type,
       status_events: state.status_events,
       guardrail_result: state.guardrail_result,
+      effective_cash: report.portfolio_analysis?.effective_cash ?? null,
       portfolio_storage: report.portfolio_analysis?.storage_result ?? null,
+      history_context: report.portfolio_analysis?.history_context ?? null,
       tool_calls: report.portfolio_analysis?.tool_calls ?? [],
     },
     null,
@@ -294,11 +365,23 @@ function renderPortfolioSnapshot(report: FinalReport): void {
     return;
   }
 
-  portfolioMeta.textContent = [
+  const effectiveCash = report.portfolio_analysis?.effective_cash as
+    | EffectiveCashSummary
+    | undefined;
+  const meta = [
     formatCurrency(snapshot.total_value.amount, snapshot.total_value.currency),
     `${snapshot.holdings.length} holdings`,
     `${snapshot.cash.length} cash lines`,
-  ].join(" | ");
+  ];
+  if (effectiveCash) {
+    meta.push(
+      `Effective cash ${formatCurrency(
+        effectiveCash.effective_cash_value,
+        effectiveCash.currency,
+      )} (${formatPercent(effectiveCash.effective_cash_weight)})`,
+    );
+  }
+  portfolioMeta.textContent = meta.join(" | ");
 
   const rows = [
     ...snapshot.cash.map((cash) => ({

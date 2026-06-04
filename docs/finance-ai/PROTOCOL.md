@@ -57,6 +57,33 @@ Recommended statuses:
 
 Status events must not reveal private chain-of-thought. They may reveal tool names, high-level steps, and operational progress.
 
+## Stream Payloads
+
+The local chat server streams newline-delimited JSON payloads. Each line is one
+of:
+
+- `status`: high-level operational progress.
+- `final`: completed structured agent state.
+- `error`: failed run details for the chat rail and technical trace.
+
+Example error payload:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "error_type": "OpenDConnectionError",
+    "message": "positions query failed: Network interruption",
+    "timestamp": "2026-06-03T00:00:00Z",
+    "traceback": ["Traceback lines for local debugging"]
+  }
+}
+```
+
+The frontend must stop the loading state when it receives `error`, show a failed
+chat status, and render the error details in the trace panel. Traceback lines are
+local operational diagnostics; they must not include hidden model reasoning.
+
 ## Agent State
 
 High-level state shape:
@@ -368,4 +395,3 @@ Audit records should store:
 - Proposed or completed memory updates
 
 Audit records should not store hidden model reasoning. Full final responses do not need to be stored.
-

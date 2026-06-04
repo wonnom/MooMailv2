@@ -196,5 +196,5 @@ Run:
 Latest result:
 
 ```text
-74 passed, 10 skipped
+75 passed, 10 skipped
 ```

@@ -11,6 +11,8 @@ The frontend is local and dependency-light:
 - TypeScript source checked in under `web/static/app.ts`.
 - Browser-ready JavaScript checked in under `web/static/app.js` because npm/TypeScript tooling is not required for tests.
 - Streaming status uses a newline-delimited event stream over `fetch`.
+- Stream failures are returned as structured `error` payloads and rendered in
+  the chat rail plus technical trace instead of requiring terminal inspection.
 - Chat-style input uses a bottom composer with a Send button.
 - The chat rail can be resized or hidden for full report inspection.
 - Portfolio snapshot rendering shows all returned holdings and cash lines.
@@ -60,6 +62,9 @@ A. FullInvestmentAgent from Milestone 5
 | D | Add streaming status endpoint | B | Done |
 | F/G | Add streaming client | D | Done |
 | J | Test stream emits status and final events | D | Done |
+| D1 | Add structured stream error payloads | D | Done |
+| F1 | Render backend errors in chat and trace panel | D1, F/G | Done |
+| J1 | Test stream error and frontend error contract | D1, F1 | Done |
 
 ### EC3: Citations open source snippets or metadata
 
@@ -93,13 +98,13 @@ Run:
 Latest focused tests:
 
 ```text
-tests/test_chat_app.py .... 4 passed
+tests/test_chat_app.py ....... 7 passed
 ```
 
 Latest full suite:
 
 ```text
-66 passed, 10 skipped
+77 passed, 10 skipped
 ```
 
 Local server check:
@@ -114,5 +119,6 @@ Latest streamed API summary:
 
 - Status events emitted
 - Final event emitted
+- Error event emitted on backend failure and rendered in the trace panel
 - Final report included citations
 - Guardrails passed

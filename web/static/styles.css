@@ -301,6 +301,12 @@ h2 {
   align-self: flex-start;
 }
 
+.status-list li.agent-message.error {
+  background: #fff1f1;
+  border-color: #f3b4b4;
+  color: #7f1d1d;
+}
+
 .panel {
   background: #ffffff;
   border: 1px solid #dfe5ec;

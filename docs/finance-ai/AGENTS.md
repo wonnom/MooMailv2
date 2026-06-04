@@ -124,6 +124,17 @@ The Portfolio Agent should return:
 - Data-quality warnings for unsupported OTC quote snapshots and opt-in
   auto-invested fund-assets assumptions
 
+Frozen V1 output fields:
+
+- `PortfolioAgentResult.effective_cash`
+- `PortfolioAgentResult.history_context`
+- `final_report.portfolio_analysis.effective_cash`
+- `final_report.portfolio_analysis.history_context`
+- `final_report.portfolio_analysis.storage_result`
+- `final_report.portfolio_analysis.metrics_storage_result`
+- `final_report.portfolio_analysis.history_status`
+- `final_report.portfolio_analysis.tool_calls`
+
 ### Required Metrics
 
 Required v1 metrics:

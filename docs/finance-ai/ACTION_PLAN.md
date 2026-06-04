@@ -17,8 +17,9 @@ Implemented locally:
 - MCP-backed Portfolio Agent that calls OpenD, portfolio SQL, and finance metrics MCP modules.
 - Provider-neutral portfolio-only evaluator behind a structured LLM adapter,
   currently verified with Gemini and prepared for OpenAI.
-- Local chat frontend with streaming status, report panels, trace output,
-  bottom composer, Send button, resizable chat rail, and hide/show controls.
+- Local chat frontend with streaming status, structured stream error rendering,
+  report panels, trace output, bottom composer, Send button, resizable chat
+  rail, and hide/show controls.
 - Local MCP-facing modules and stdio server scripts for OpenD, portfolio SQL, and finance metrics.
 - Focused OpenD diagnostic script for account list, funds, and position reads.
 
@@ -56,7 +57,7 @@ usable Portfolio Agent version rather than broadening integrations.
 
 See [V1_FINALIZATION_PLAN.md](V1_FINALIZATION_PLAN.md) for the release gate.
 
-Immediate sequence:
+Immediate V1 sequence:
 
 1. Harden live OpenD portfolio reads and document the exact env setup.
 2. Refactor portfolio-history toward the 2026-06-02 lean schema:
@@ -71,6 +72,10 @@ Immediate sequence:
 7. Add a recorded fixture covering OTC quote failure and cash-equivalent handling.
 8. Verify terminal and web reviews against the same live OpenD data.
 9. Run deterministic tests and live OpenD-only tests before calling v1 done.
+
+Items 1 through 7 are implemented. Item 8 and 9 are the final local release
+checks because they depend on the live OpenD session and selected LLM provider
+being available at run time.
 
 ## Deferred Connector Validation
 

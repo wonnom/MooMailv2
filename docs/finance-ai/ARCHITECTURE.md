@@ -73,6 +73,15 @@ Constraints:
 Purpose: lean portfolio history, value snapshots, allocation weights, position
 states, run records, and audit logs.
 
+Canonical local database:
+
+- `data/portfolio-history.sqlite`
+
+Terminal reviews, the chat frontend, and the portfolio SQL MCP server must all
+write to this same database unless a command explicitly passes a temporary
+`--db` path for testing. The frontend must not keep a separate
+`chat-portfolio-history.sqlite` portfolio-history store.
+
 Capabilities:
 
 - Store portfolio value snapshots

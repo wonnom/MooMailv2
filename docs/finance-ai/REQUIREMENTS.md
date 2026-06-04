@@ -320,6 +320,11 @@ The following must never fail silently:
 - Failed metric calculation
 - Missing IPS for optimization
 - Guardrail failure
+- Backend chat stream failure
+
+The local chat frontend must surface backend stream failures in the chat rail and
+technical trace so the user does not need to inspect the terminal traceback to
+understand that a run failed.
 
 ## V1 Acceptance Criteria
 

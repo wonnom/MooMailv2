@@ -157,6 +157,18 @@ without calling OpenD:
   --from-report reports/opend/field-report.json
 ```
 
+## Portfolio History DB
+
+The canonical local portfolio-history database is:
+
+```text
+data/portfolio-history.sqlite
+```
+
+Terminal reviews, `scripts/serve_chat.py`, and `scripts/mcp_portfolio_sql_server.py`
+use this same DB by default. Pass `--db <temporary-path>` only for isolated tests
+or demos.
+
 ## Portfolio Agent LLM
 
 The Portfolio Agent LLM evaluator is provider-neutral. The current default is

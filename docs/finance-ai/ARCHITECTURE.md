@@ -2,42 +2,88 @@
 
 ## Overview
 
-The system is a local-first multi-agent investment analysis platform. It uses Python for agents, tools, orchestration, analytics, memory, and retrieval. A basic local TypeScript/static chatbot frontend exists, while backend contracts remain the source of truth.
+The system is a local-first multi-agent investment analysis platform. It uses
+Python for agents, tools, orchestration, analytics, memory, and retrieval. A
+basic local TypeScript/static chatbot frontend exists, while backend contracts
+remain the source of truth.
 
-The first complete workflow is:
+V1 is complete as a Portfolio Agent proof of concept:
 
 ```text
 User query
-  -> Investment Agent
-  -> Load IPS
-  -> Retrieve long-term memory
-  -> Portfolio Agent
-      -> MooMoo/OpenD read-only data
-      -> SQL history when available
-      -> Finance metrics tools
-  -> Sentiment Agent
-      -> Neo4j GraphRAG
-      -> Vector research chunks
-  -> Investment Agent synthesis
-  -> Guardrail review
-  -> Terminal or local frontend output
-  -> Audit summary and optional memory write
+  -> Portfolio Agent workflow
+      -> OpenD/MooMoo read-only current portfolio data
+      -> canonical local SQL portfolio history
+      -> deterministic finance metrics
+      -> portfolio-only LLM evaluator
+  -> terminal or local frontend output
 ```
+
+The V2 target is the first real Investment Agent architecture:
+
+```text
+User query
+  -> Thin LangGraph Investment Agent supervisor
+      -> classify/query plan
+      -> call Portfolio Agent bounded-planning subgraph when needed
+      -> call Sentiment Agent stub when needed
+      -> synthesize answer
+      -> run guardrails
+  -> terminal or local frontend output
+```
+
+Neo4j GraphRAG, Pinecone memory, and real research retrieval remain planned
+architecture, but they are not part of the V1 implementation and should not be
+built before the V2 contracts are stable.
 
 ## Local-First Deployment
 
-V1 should run locally:
+V1 runs locally:
 
 - Python commands run through the project-local `.venv`.
 - OpenD gateway runs locally and is assumed to already be started by the user.
 - Python agent service runs locally.
 - MCP servers run locally.
 - SQL database runs locally or on a trusted private host.
-- Neo4j runs locally or in a controlled private instance.
-- Pinecone is used for long-term memory unless replaced by a local vector store later.
+- Neo4j will run locally or in a controlled private instance when GraphRAG work
+  begins.
+- Pinecone or a local vector store may be used for long-term memory after the V2
+  Investment Agent contracts are stable.
 - A basic TypeScript/static frontend runs locally; larger frontend work should follow stable backend contracts.
 
 No brokerage credentials, database credentials, or MCP secrets should be exposed to the frontend.
+
+## V2 Orchestration Shape
+
+V2 should use LangGraph for the Investment Agent supervisor. The supervisor is
+thin: it owns state, routing, subagent calls, synthesis, guardrails, and
+streaming status. It should not reimplement OpenD, SQL, metrics, or GraphRAG
+logic directly.
+
+Recommended V2 graph:
+
+```text
+InvestmentAgentGraph
+  -> receive_user_query
+  -> classify_query
+  -> load_investment_policy
+  -> plan_subagent_calls
+  -> portfolio_agent_subgraph when portfolio context is needed
+  -> sentiment_agent_stub when research context is needed
+  -> synthesize_answer
+  -> guardrail_review
+  -> emit_final_output
+```
+
+The Portfolio Agent should become a bounded-planning subgraph. It may decide
+which portfolio tools it needs, such as current OpenD, SQL history, or metric
+groups. It should not call the Sentiment Agent. It can return candidate
+sentiment scope such as important tickers, large contributors, or concerning
+allocation changes.
+
+The Investment Agent decides whether sentiment is needed and calls the Sentiment
+Agent. In V2, the Sentiment Agent is a structured stub so the project can lock
+the task and response contracts before building Neo4j ingestion and retrieval.
 
 ## MCP Server Boundaries
 
@@ -146,10 +192,12 @@ Capabilities:
 
 Constraints:
 
-- V1 uses manually populated corpus only.
-- No external web/news ingestion in v1.
-- Retrieval scope starts with portfolio holdings only.
-- User-authored notes are not included in Neo4j v1.
+- V2 uses a Sentiment Agent stub only; real retrieval is deferred.
+- The first real GraphRAG implementation should use a manually populated corpus.
+- No external web/news ingestion is required for the first GraphRAG build.
+- Retrieval scope starts with portfolio holdings selected by the Investment
+  Agent.
+- User-authored notes are not included in the first Neo4j GraphRAG build.
 
 ### `memory-mcp`
 
@@ -178,7 +226,8 @@ Constraints:
 Role: live/current read-only source for securities-account holdings, balances,
 cash, and quotes.
 
-Current limitation: historical portfolio data may not be extractable from OpenD. The system should explore OpenD first and persist useful snapshots into SQL.
+Current limitation: historical portfolio data is not assumed to be extractable
+from OpenD. V1 persists useful observations into SQL when portfolio reviews run.
 
 Current OpenD behavior:
 
@@ -218,7 +267,7 @@ Design review decision, 2026-06-02:
 - Store quote failures and other missing-data problems as data-quality events,
   not as a raw source-observation table.
 
-Recommended V1 tables:
+Implemented V1 tables:
 
 ```text
 portfolios
@@ -499,24 +548,26 @@ Some memories should expire or be superseded. Durable policy preferences should 
 
 ## Orchestration
 
-Use LangGraph for the Investment Agent state machine, with LangChain components where useful.
+Use LangGraph for the V2 Investment Agent state machine, with LangChain
+components inside nodes where useful.
 
-Suggested nodes:
+V2 nodes:
 
-1. Classify query
-2. Load IPS
-3. Retrieve memory
-4. Get portfolio context
-5. Decide sentiment scope
-6. Call Portfolio Agent
-7. Call Sentiment Agent when needed
+1. Receive user query
+2. Classify query
+3. Load IPS
+4. Plan subagent calls
+5. Call Portfolio Agent subgraph when portfolio context is needed
+6. Decide whether sentiment is needed from user intent and portfolio packet
+7. Call Sentiment Agent stub when needed
 8. Synthesize response
 9. Guardrail review
 10. Emit final structured output
 11. Store audit summary
-12. Propose or write memory update
 
-Portfolio Agent and Sentiment Agent can begin as callable chains, but their interfaces should be designed as subgraphs so they can evolve cleanly.
+Portfolio Agent should evolve from the current deterministic workflow into a
+bounded-planning subgraph. Sentiment Agent should begin as a stub with the same
+contract the future Neo4j GraphRAG implementation will satisfy.
 
 ## Frontend Direction
 

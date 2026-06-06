@@ -24,9 +24,9 @@ The system must adapt to the user's query and select suitable analysis modes, to
 
 ### PR-6: Portfolio Review Workflow
 
-The first complete workflow must be `review my portfolio`.
+The completed V1 workflow is a portfolio-only `review my portfolio` path.
 
-It must include:
+It includes:
 
 - Current holdings
 - Cash
@@ -34,10 +34,15 @@ It must include:
 - Concentration
 - Risk diagnostics
 - Performance analysis where history exists
-- Sentiment/research review for relevant holdings
-- Optimization recommendations
 - Missing data
-- Sources and citations
+- Portfolio-data source context
+
+The V2 Investment Agent workflow should add:
+
+- Query-aware routing
+- Portfolio Agent subgraph calls
+- Sentiment Agent stub calls when research context would be useful
+- Investment Agent synthesis
 - Guardrail review
 
 ### PR-7: Investment Policy Statement
@@ -46,7 +51,7 @@ Optimization recommendations require an IPS. Factual portfolio queries may proce
 
 ### PR-8: No Chat-Based IPS Edits
 
-The IPS must not be directly edited through chat in v1.
+The IPS must not be directly edited through chat.
 
 ### PR-9: No Confidence Scores
 
@@ -86,15 +91,20 @@ The Portfolio Agent must return structured portfolio diagnostics and performance
 
 ### FR-6: Sentiment Agent
 
-The Sentiment Agent must retrieve and summarize source-backed research for relevant portfolio holdings.
+V2 must include a Sentiment Agent stub with the same task and response shape
+expected from the future GraphRAG-backed Sentiment Agent. It must not fabricate
+research.
 
 ### FR-7: Curated Research Corpus
 
-V1 research retrieval must use manually populated documents only. Daily checks and event-triggered ingestion are future features.
+The first real research retrieval implementation must use manually populated
+documents only. Daily checks and event-triggered ingestion are future features.
 
 ### FR-8: GraphRAG
 
-The research system must use Neo4j for entity and relationship metadata, plus vector retrieval for semantic document chunks.
+The future research system must use Neo4j for entity and relationship metadata,
+plus vector retrieval for semantic document chunks. Neo4j GraphRAG is deferred
+until after the V2 Investment Agent and Sentiment Agent contracts are stable.
 
 ### FR-9: Separate Memory and Research Stores
 
@@ -102,7 +112,9 @@ Pinecone long-term memory must remain separate from Neo4j GraphRAG research retr
 
 ### FR-10: Long-Term Memory
 
-The Investment Agent must use long-term memory for durable context such as preferences, theses, prior recommendations, review summaries, risk concerns, and agent observations.
+The future Investment Agent must use long-term memory for durable context such
+as preferences, theses, prior recommendations, review summaries, risk concerns,
+and agent observations. V2 may keep local/file-backed memory placeholders.
 
 ### FR-11: Memory Scope
 
@@ -129,13 +141,25 @@ position row is available, are non-critical warnings.
 
 ### FR-16: Guardrail Node
 
-The Investment Agent must run a final guardrail/review node before producing the final response.
+The V2 Investment Agent must run a final guardrail/review node before producing
+the final response.
+
+### FR-17: V2 Investment Agent Routing
+
+The V2 Investment Agent must decide whether to call Portfolio Agent, Sentiment
+Agent stub, or both. Portfolio Agent must not directly call Sentiment Agent.
+
+### FR-18: V2 Bounded Portfolio Planning
+
+The V2 Portfolio Agent must produce a bounded context plan before executing
+portfolio tools. Execution of OpenD, SQL, and metric tools remains deterministic
+after the plan is selected.
 
 ## Non-Functional Requirements
 
 ### NFR-1: Local-First
 
-Development and v1 execution should be local-first.
+Development and local execution should be local-first.
 
 Python execution must use the project-local `.venv` to avoid interpreter and package drift.
 
@@ -195,7 +219,8 @@ The guardrail node must flag exact share-count or executable trade-style recomme
 
 ### SG-7: Scope Control
 
-V1 research scope is held portfolio stocks only, unless a later requirement expands the scope.
+The first real research scope is held portfolio stocks and Investment
+Agent-selected tickers/themes, unless a later requirement expands the scope.
 
 ## Data Requirements
 
@@ -328,7 +353,7 @@ understand that a run failed.
 
 ## V1 Acceptance Criteria
 
-The first usable V1 is complete when the system can run a local portfolio-only
+V1 is complete when the system can run a local portfolio-only
 review that uses:
 
 - Live read-only MooMoo/OpenD securities account data
@@ -343,10 +368,25 @@ review that uses:
 - Clear missing-data warnings
 - Terminal output and the local TypeScript/static chatbot frontend
 
-V1 intentionally does not require Pinecone, Neo4j GraphRAG, real research
-document ingestion, crypto account ingestion, scheduled checks, or OTC quote
-fallback. Those remain part of the planned architecture and v1.1+ backlog once
-the Portfolio Agent output contract is stable.
+V1 intentionally does not require a LangGraph Investment Agent, Pinecone, Neo4j
+GraphRAG, real research document ingestion, crypto account ingestion, scheduled
+checks, or OTC quote fallback.
 
-See [V1_FINALIZATION_PLAN.md](V1_FINALIZATION_PLAN.md) for the operational
-release gate.
+See [V1_FINALIZATION_PLAN.md](V1_TASKS/V1_FINALIZATION_PLAN.md) for the V1 closeout.
+
+## V2 Acceptance Criteria
+
+V2 is complete when the system can run a local Investment Agent flow that:
+
+- Uses a thin LangGraph supervisor.
+- Routes portfolio-only questions to Portfolio Agent.
+- Routes full review or research-sensitive questions to Portfolio Agent plus
+  Sentiment Agent stub.
+- Converts Portfolio Agent from a fixed pipeline into a bounded-planning
+  subgraph while preserving V1 behavior as the broad-review default.
+- Synthesizes Portfolio Agent output and Sentiment Agent stub output without
+  fabricating research.
+- Runs guardrails before final output.
+- Streams high-level graph status and errors to the local frontend.
+- Keeps deterministic tests passing without live OpenD, Neo4j, Pinecone, or
+  hosted LLM calls.

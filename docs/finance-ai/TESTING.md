@@ -49,6 +49,11 @@ test when that backend exists.
 | `tests/test_chat_app.py` | Local HTTP/chat API and static frontend expectations |
 | `tests/test_prototype.py` | Milestone 1 static Investment Agent prototype contracts |
 
+The current Investment Agent/prototype tests are historical contract coverage
+from the V1 build. V2 should add new LangGraph routing, bounded Portfolio Agent
+planning, Sentiment Agent stub, and guardrail tests before retiring older
+prototype-only coverage.
+
 ## When To Delete A Test
 
 Delete or merge a test only when both are true:

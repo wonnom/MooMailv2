@@ -1,27 +1,27 @@
 # Personal Finance AI Design
 
-This folder describes the planned personal multi-agent finance AI, with v1 focused on the Investment Agent branch.
+This repository documents and implements a personal multi-agent finance AI. V1
+is complete as a Portfolio Agent proof of concept with OpenD and local SQL
+portfolio history. V2 is focused on turning that base into a thin LangGraph
+Investment Agent with a bounded-planning Portfolio Agent subgraph and a
+Sentiment Agent stub.
 
 The system is designed for one user's portfolio first. It should analyze actual holdings, current market data, portfolio history, curated research, and long-term investment memory. It must produce source-backed portfolio reviews and investment reasoning without ever placing trades.
 
 ## Documents
 
-- [AGENTS.md](AGENTS.md): agent hierarchy, responsibilities, boundaries, and agent-to-agent contracts.
-- [ARCHITECTURE.md](ARCHITECTURE.md): system architecture, data stores, MCP servers, orchestration, and deployment shape.
-- [ACTION_PLAN.md](ACTION_PLAN.md): implementation milestones and sequencing.
-- [PROTOCOL.md](PROTOCOL.md): runtime protocol, state flow, structured events, schemas, and audit records.
-- [REQUIREMENTS.md](REQUIREMENTS.md): product, engineering, security, data, and acceptance requirements.
-- [ENVIRONMENT.md](ENVIRONMENT.md): project venv, dependency installation, and command conventions.
-- [CONNECTOR_TESTS.md](CONNECTOR_TESTS.md): live connector test setup for LLM, MCP, OpenD, SQL, Pinecone, vector retrieval, and Neo4j.
-- [MCP_SERVERS.md](MCP_SERVERS.md): local MCP server boundaries, tool/resource lists, agent allowlists, and run commands.
-- [TESTING.md](TESTING.md): test responsibility map and why similarly named OpenD, SQL, and MCP tests are not redundant.
-- [V1_FINALIZATION_PLAN.md](V1_FINALIZATION_PLAN.md): current first-version finish line, release gate, and v1.1 backlog.
-- [MILESTONE_1_TASKS.md](MILESTONE_TASKS/MILESTONE_1_TASKS.md): static prototype task graph.
-- [MILESTONE_2_TASKS.md](MILESTONE_TASKS/MILESTONE_2_TASKS.md): OpenD exploration and read-only portfolio pipeline task graph.
-- [MILESTONE_3_TASKS.md](MILESTONE_TASKS/MILESTONE_3_TASKS.md): portfolio history and deterministic metrics task graph.
-- [MILESTONE_4_TASKS.md](MILESTONE_TASKS/MILESTONE_4_TASKS.md): research retrieval and Sentiment Agent task graph.
-- [MILESTONE_5_TASKS.md](MILESTONE_TASKS/MILESTONE_5_TASKS.md): full Investment Agent task graph.
-- [MILESTONE_6_TASKS.md](MILESTONE_TASKS/MILESTONE_6_TASKS.md): chat frontend task graph.
+- [AGENTS.md](docs/finance-ai/AGENTS.md): agent hierarchy, responsibilities, boundaries, and agent-to-agent contracts.
+- [ARCHITECTURE.md](docs/finance-ai/ARCHITECTURE.md): system architecture, data stores, MCP servers, orchestration, and deployment shape.
+- [ACTION_PLAN.md](docs/finance-ai/ACTION_PLAN.md): active V2 plan and current project truth.
+- [PROTOCOL.md](docs/finance-ai/PROTOCOL.md): runtime protocol, state flow, structured events, schemas, and audit records.
+- [REQUIREMENTS.md](docs/finance-ai/REQUIREMENTS.md): product, engineering, security, data, and acceptance requirements.
+- [ENVIRONMENT.md](docs/finance-ai/ENVIRONMENT.md): project venv, dependency installation, and command conventions.
+- [CONNECTOR_TESTS.md](docs/finance-ai/CONNECTOR_TESTS.md): live connector test setup for LLM, MCP, OpenD, SQL, Pinecone, vector retrieval, and Neo4j.
+- [MCP_SERVERS.md](docs/finance-ai/MCP_SERVERS.md): local MCP server boundaries, tool/resource lists, agent allowlists, and run commands.
+- [TESTING.md](docs/finance-ai/TESTING.md): test responsibility map and why similarly named OpenD, SQL, and MCP tests are not redundant.
+- [DECISION_LOG.md](docs/finance-ai/DECISION_LOG.md): project history, design decisions, implementation reality, lessons learned, and future update template.
+- [V1_FINALIZATION_PLAN.md](docs/finance-ai/V1_TASKS/V1_FINALIZATION_PLAN.md): V1 closeout record and release gate summary.
+- [V1_TASKS/](docs/finance-ai/V1_TASKS/): historical implementation tracking from the V1 build.
 
 ## Scope
 
@@ -36,13 +36,14 @@ The target system centers on the Investment Agent branch:
 - Pinecone-backed long-term investment memory
 - Guardrail and audit protocol
 
-The current first usable version is narrower: a live OpenD portfolio review
-through the Portfolio Agent path, with SQLite persistence, deterministic
-metrics, provider-backed portfolio evaluation, guardrails, and the local chat
+The current complete version is narrower than the target system: a live OpenD
+portfolio review through the Portfolio Agent path, with SQLite persistence,
+deterministic metrics, provider-backed portfolio evaluation, and the local chat
 frontend. Pinecone memory, Neo4j GraphRAG, crypto ingestion, and OTC quote
-fallback are deferred until the portfolio output contract is stable.
+fallback are deferred until after the V2 agent contracts are stable.
 
-The future Budgeting, Expenses, and Savings Agent is acknowledged as part of the long-term product, but it is not part of the v1 implementation.
+The future Budgeting, Expenses, and Savings Agent is acknowledged as part of the
+long-term product, but it is not part of V2.
 
 ## Architecture Diagram
 
@@ -70,7 +71,7 @@ flowchart TD
 ## Core Decisions
 
 - No trade placement, ever.
-- Investment branch first; no main finance orchestrator needed in v1.
+- Investment branch first; no main finance orchestrator needed in V2.
 - Python agent layer using LangGraph and LangChain components.
 - Local TypeScript/static chatbot frontend exists with streaming status, structured error rendering, report panels, trace output, and a resizable/hideable chat rail.
 - MCP servers are the boundary for broker access, portfolio data, metrics, research retrieval, and memory.
@@ -82,10 +83,11 @@ flowchart TD
   states, allocation weight snapshots, data-quality events, audit logs, and run
   summaries.
 - SQL does not store broad raw OpenD blobs, full quote history, hidden
-  reasoning, or full final responses in v1.
+  reasoning, or full final responses.
 - Pinecone stores Investment Agent long-term memory, not source-of-truth financial records.
 - Neo4j GraphRAG is separate from Pinecone memory.
-- Sentiment retrieval starts with portfolio holdings only.
+- V2 Sentiment Agent is a stub; future real sentiment retrieval starts with
+  portfolio holdings and Investment Agent-selected scope.
 - Outputs must be source-backed, truthful, and clear about missing data.
 - No confidence scores. Use explicit uncertainty and limitations instead.
 
@@ -107,4 +109,4 @@ Or call it directly:
 .venv/bin/python scripts/opend_health_report.py --env-file config/local.env --expected-holdings-count <N>
 ```
 
-See [ENVIRONMENT.md](ENVIRONMENT.md) for the full setup and verification workflow.
+See [ENVIRONMENT.md](docs/finance-ai/ENVIRONMENT.md) for the full setup and verification workflow.

@@ -2,23 +2,26 @@
 
 ## Runtime Flow
 
-The Investment Agent should run as a LangGraph state machine. Each run receives a user query and produces a structured final report.
+V2 Investment Agent should run as a thin LangGraph state machine. Each run
+receives a user query and produces a structured final report.
 
 ```text
 1. receive_user_query
 2. classify_query
 3. load_investment_policy
-4. retrieve_memory
-5. retrieve_portfolio_context
-6. decide_sentiment_scope
-7. run_portfolio_agent
-8. run_sentiment_agent when needed
-9. synthesize_report
-10. run_guardrail_review
-11. emit_final_output
-12. write_audit_summary
-13. handle_memory_updates
+4. plan_subagent_calls
+5. run_portfolio_agent when needed
+6. decide_sentiment_scope from user intent and portfolio packet
+7. run_sentiment_agent_stub when needed
+8. synthesize_report
+9. run_guardrail_review
+10. emit_final_output
+11. write_audit_summary
 ```
+
+Memory retrieval and writes remain part of the long-term design, but V2 may keep
+memory as a local placeholder while the orchestration and subagent contracts are
+stabilized.
 
 ## Status Events
 
@@ -41,13 +44,15 @@ Recommended statuses:
 - `classifying_query`
 - `loading_policy`
 - `retrieving_memory`
+- `planning_subagent_calls`
 - `checking_opend_connection`
 - `retrieving_portfolio`
 - `retrieving_quotes`
+- `planning_portfolio_context`
 - `analyzing_allocation`
 - `calculating_risk`
 - `selecting_research_scope`
-- `retrieving_research`
+- `calling_sentiment_stub`
 - `checking_contradictions`
 - `synthesizing_report`
 - `checking_guardrails`
@@ -106,6 +111,48 @@ High-level state shape:
   "audit": {}
 }
 ```
+
+## V2 Query Plan
+
+The Investment Agent should route from a compact structured plan:
+
+```json
+{
+  "mode": "review",
+  "needs_portfolio_agent": true,
+  "needs_sentiment_agent": true,
+  "portfolio_task": {
+    "task_type": "full_review",
+    "tickers": [],
+    "history_window": "30d"
+  },
+  "sentiment_task": {
+    "tickers": [],
+    "themes": [],
+    "questions": []
+  }
+}
+```
+
+The Investment Agent owns this plan. Portfolio Agent may suggest sentiment
+candidates in its response, but it must not call Sentiment Agent directly.
+
+## V2 Portfolio Context Plan
+
+Portfolio Agent should produce a bounded context plan before executing tools:
+
+```json
+{
+  "needs_current_snapshot": true,
+  "needs_sql_history": true,
+  "history_queries": ["portfolio_growth", "allocation_history"],
+  "tickers": ["GOOG", "ASML"],
+  "metric_groups": ["allocation", "concentration", "effective_cash"],
+  "persist_observation": true
+}
+```
+
+Tool execution remains deterministic after this plan is selected.
 
 ## Portfolio Snapshot Schema
 
@@ -204,6 +251,7 @@ Severity labels are operational triage, not confidence scores.
 
 ```json
 {
+  "retrieval_status": "not_implemented",
   "scope": [
     {
       "ticker": "AAPL",
@@ -240,6 +288,10 @@ Severity labels are operational triage, not confidence scores.
 ```
 
 Sentiment stance is qualitative: `positive`, `mixed`, `negative`, or `unclear`.
+
+In V2, Sentiment Agent returns this shape as a stub. It should use
+`retrieval_status: "not_implemented"` or `retrieval_status: "missing_corpus"`
+and must not invent research claims, citations, or sentiment.
 
 ## Citation Schema
 

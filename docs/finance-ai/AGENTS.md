@@ -4,7 +4,7 @@
 
 ```text
 Future Main Finance Orchestrator
-└── Investment Agent [v1 focus]
+└── Investment Agent [v2 focus]
     ├── Portfolio Agent
     └── Sentiment Agent
 
@@ -12,7 +12,11 @@ Future branch:
 └── Budgeting / Expenses / Savings Agent
 ```
 
-The v1 system implements only the Investment Agent branch. The future Main Finance Orchestrator can route between investment and budgeting domains later, but it is not required for the first build.
+V1 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
+history. V2 focuses on making the Investment Agent a thin LangGraph supervisor
+over the Portfolio Agent and a Sentiment Agent stub. The future Main Finance
+Orchestrator can route between investment and budgeting domains later, but it is
+not required for V2.
 
 ## Investment Agent
 
@@ -31,7 +35,27 @@ Responsibilities:
 - Propose memory writes when durable investment context should be preserved.
 - Store audit records and simple output summaries.
 
-The Investment Agent owns the Portfolio Agent and Sentiment Agent from an orchestration perspective. The subagents should not freely message each other in v1. The Investment Agent coordinates them through structured inputs and outputs.
+The Investment Agent owns the Portfolio Agent and Sentiment Agent from an
+orchestration perspective. The subagents should not freely message each other.
+The Investment Agent coordinates them through structured inputs and outputs.
+
+### V2 Investment Agent Target
+
+V2 should implement the Investment Agent as a thin LangGraph supervisor:
+
+- classify the user query
+- load the IPS
+- decide whether portfolio context is required
+- decide whether sentiment/research context is required
+- call Portfolio Agent when needed
+- call Sentiment Agent stub when needed
+- synthesize the answer
+- run guardrails
+- emit structured terminal/frontend output
+
+The Investment Agent, not the Portfolio Agent, decides whether sentiment is
+needed. The Portfolio Agent may return candidate sentiment scope, but it should
+not invoke the Sentiment Agent directly.
 
 ### Supported Modes
 
@@ -45,7 +69,8 @@ The chatbot can infer or suggest these modes through conversation:
 - `buy_or_hold`: reasoned position assessment without executable trade instructions
 - `compare`: compare assets, holdings, sectors, or scenarios
 
-Modes are not required as rigid UI controls in v1. Terminal output is acceptable while backend formats mature.
+Modes are not required as rigid UI controls in V2. Terminal output remains
+acceptable while backend formats mature.
 
 ## Portfolio Agent
 
@@ -68,7 +93,7 @@ Responsibilities:
 
 The Portfolio Agent does not generate final user-facing recommendations. It provides evidence, metrics, and portfolio performance analysis for the Investment Agent to synthesize.
 
-Current implementation:
+Current V1 implementation:
 
 - Deterministic pipeline: `opend_get_portfolio_context`,
   `calculate_snapshot_metrics`, lean SQL identity upserts,
@@ -100,6 +125,24 @@ Implemented persistence policy after the 2026-06-02 portfolio-history refactor:
 
 The Portfolio Agent LLM may interpret portfolio-only facts. It must not decide
 whether to write SQL rows, invent market sentiment, or issue trade instructions.
+
+### V2 Portfolio Agent Target
+
+V2 should convert the Portfolio Agent into a bounded-planning subgraph. The
+planner may decide which portfolio context is needed for the assigned task:
+
+- current OpenD snapshot
+- SQL history status
+- latest portfolio state
+- portfolio growth
+- allocation history
+- relevant tickers/assets
+- required metric groups
+- persistence for review-style runs
+
+Execution remains deterministic once the plan is produced. The Portfolio Agent
+returns structured portfolio evidence and candidate sentiment scope, not final
+investment advice.
 
 ### Portfolio Agent Output
 
@@ -181,13 +224,24 @@ Responsibilities:
 - Search for disconfirming evidence for major thesis claims.
 - Return citations and source metadata.
 
-The Sentiment Agent normally participates in investment analysis, including personal portfolio reviews, because portfolio judgment should include market and research context. It may be skipped only for purely mechanical questions, such as cash balance or allocation-by-ticker queries.
+The Investment Agent decides when the Sentiment Agent participates. For full
+portfolio reviews, the Investment Agent will usually request sentiment context
+for major holdings, large contributors, large weight changes, or named tickers.
+For mechanical portfolio questions, such as cash balance or allocation-by-ticker
+queries, sentiment can be skipped.
+
+V2 uses a Sentiment Agent stub only. It should accept the future GraphRAG task
+shape and return explicit missing-research fields without fabricating sentiment.
 
 ### Sentiment Agent Scope
 
-V1 retrieval scope is limited to stocks currently in the portfolio. Watchlist and broader market research can be added later.
+V2 stub scope is limited to stocks currently in the portfolio or explicitly
+requested by the Investment Agent. Watchlist and broader market research can be
+added later.
 
-The initial research corpus is manually populated by the user during testing. No automatic web/news ingestion is required in v1.
+The future research corpus will be manually populated by the user during
+testing. No automatic web/news ingestion is required for the first GraphRAG
+implementation.
 
 ### Sentiment Agent Output
 
@@ -225,7 +279,10 @@ The IPS should contain:
 - Benchmark preference
 - Personal investment beliefs
 
-The IPS is not editable through chat in v1. It should live as canonical structured local configuration or local storage. Summaries can be embedded into Pinecone for retrieval, but Pinecone memory must never override the canonical IPS.
+The IPS is not editable through chat in V2. It should live as canonical
+structured local configuration or local storage. Summaries can eventually be
+embedded into Pinecone for retrieval, but Pinecone memory must never override
+the canonical IPS.
 
 ## Agent Boundaries
 

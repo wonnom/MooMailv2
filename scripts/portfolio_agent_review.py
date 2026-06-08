@@ -61,7 +61,7 @@ def portfolio_agent_terminal_summary_lines(result: PortfolioAgentResult) -> list
             f"value_snapshot_id={result.storage_result.get('value_snapshot_id')}"
         ),
         (
-            "History: "
+            "History before this run: "
             f"{history_status.get('snapshot_count', 0)} value snapshot(s), "
             f"freshness={history_status.get('data_quality', {}).get('freshness_status', 'unknown')}"
         ),

@@ -1,0 +1,11 @@
+{
+  "needs_current_snapshot": true,
+  "needs_sql_history": false,
+  "history_queries": ["none"],
+  "tickers": [],
+  "metric_groups": ["effective_cash"],
+  "persist_observation": false,
+  "history_window": null,
+  "row_limit": 30,
+  "warnings": []
+}

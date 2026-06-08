@@ -117,6 +117,8 @@ Detailed dependency maps for each work-plan item live under
 
 ### 1. Define V2 Contracts
 
+Status: complete as of 2026-06-08.
+
 Create stable Pydantic models for:
 
 - `InvestmentAgentState`
@@ -138,6 +140,8 @@ Exit criteria:
   fill.
 
 ### 2. Build Thin LangGraph Investment Agent
+
+Status: complete as of 2026-06-08.
 
 Implement a small LangGraph supervisor with nodes for:
 

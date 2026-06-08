@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Personal multi-agent finance AI prototype."
 requires-python = ">=3.12"
 dependencies = [
+  "langchain>=0.3,<1",
+  "langgraph>=0.2,<1",
   "pydantic>=2.8,<3",
 ]
 

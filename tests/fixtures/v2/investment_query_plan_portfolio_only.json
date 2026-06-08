@@ -1,0 +1,19 @@
+{
+  "mode": "portfolio_fact",
+  "needs_portfolio_agent": true,
+  "needs_sentiment_agent": false,
+  "portfolio_task": {
+    "task_type": "portfolio_fact",
+    "source_query": "How much effective cash do I have?",
+    "requested_tickers": [],
+    "history_window": null,
+    "required_outputs": ["effective_cash"],
+    "persistence_mode": "skip",
+    "focus_areas": ["cash"],
+    "warnings": []
+  },
+  "sentiment_task": null,
+  "missing_data": [],
+  "plan_warnings": [],
+  "route_reason": "Mechanical portfolio fact query; sentiment is not required."
+}

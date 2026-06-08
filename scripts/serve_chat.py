@@ -119,7 +119,11 @@ def main() -> None:
     parser.add_argument("--memory", default="data/chat-investment-memory.json")
     parser.add_argument("--env-file", default="config/local.env")
     parser.add_argument("--llm-provider", default=None, choices=["gemini", "openai"])
-    parser.add_argument("--default-agent", default="portfolio", choices=["portfolio", "investment"])
+    parser.add_argument(
+        "--default-agent",
+        default="portfolio",
+        choices=["portfolio", "investment", "investment_v2"],
+    )
     args = parser.parse_args()
 
     ChatHandler.service = ChatService(

@@ -1,0 +1,11 @@
+{
+  "needs_current_snapshot": true,
+  "needs_sql_history": true,
+  "history_queries": ["history_status", "latest_state", "portfolio_growth", "allocation_history"],
+  "tickers": ["GOOG", "ASML"],
+  "metric_groups": ["allocation", "concentration", "effective_cash", "performance"],
+  "persist_observation": true,
+  "history_window": "90d",
+  "row_limit": 90,
+  "warnings": []
+}

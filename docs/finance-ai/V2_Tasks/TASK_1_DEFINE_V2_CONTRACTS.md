@@ -10,6 +10,21 @@ These contracts are the foundation for the rest of V2. They should be small,
 JSON-compatible, and strict enough that the Investment Agent can route using
 structured fields instead of parsing prose.
 
+## Status
+
+Complete as of 2026-06-08.
+
+Implemented in:
+
+- `src/moomail_finance_ai/v2_schemas.py`
+- `tests/test_v2_schemas.py`
+- `tests/fixtures/v2/`
+
+Verification:
+
+- `python3 -m pytest tests/test_v2_schemas.py -q`
+- `PYTHONPATH=src python3 -m pytest tests --ignore=tests/live -q`
+
 ## Exit Criteria
 
 1. Investment Agent can route using structured fields rather than parsing prose.

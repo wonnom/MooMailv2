@@ -8,6 +8,33 @@ guardrails, and emit structured terminal/frontend responses.
 
 It should not implement GraphRAG, Pinecone memory, or a rich frontend.
 
+## Status
+
+Complete as of 2026-06-08.
+
+Implemented in:
+
+- `src/moomail_finance_ai/v2_investment_agent.py`
+- `src/moomail_finance_ai/chat_api.py`
+- `scripts/investment_agent_v2_review.py`
+- `tests/test_v2_investment_agent.py`
+- `tests/test_chat_app.py`
+
+Dependency strategy:
+
+- `langgraph` and `langchain` are declared as project dependencies and installed
+  into the project `.venv`.
+- `V2InvestmentAgent._build_graph` builds and compiles a real LangGraph
+  `StateGraph`.
+- The graph is intentionally linear for Task 2 so node boundaries, routing,
+  contracts, streaming, subagent calls, synthesis, and guardrails are cemented
+  before Task 3 adds bounded Portfolio Agent planning.
+
+Verification:
+
+- `.venv/bin/python -m pytest tests/test_v2_investment_agent.py tests/test_chat_app.py -q`
+- `.venv/bin/python -m pytest tests --ignore=tests/live -q`
+
 ## Exit Criteria
 
 1. Portfolio-only queries call only Portfolio Agent.

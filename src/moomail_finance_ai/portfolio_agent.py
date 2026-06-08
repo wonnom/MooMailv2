@@ -154,11 +154,20 @@ class MCPPortfolioAgent:
     min_snapshots_for_history: int = 2
     tool_calls: list[str] = field(default_factory=list)
 
-    def run(self, query: str, ips: InvestmentPolicy, *, status_callback=None) -> PortfolioAgentResult:
+    def run(
+        self,
+        query: str,
+        ips: InvestmentPolicy,
+        *,
+        status_callback=None,
+    ) -> PortfolioAgentResult:
         run_id = f"portfolio_run_{uuid4().hex[:12]}"
         self.tool_calls = []
         status_events: list[StatusEvent] = []
-        emit = lambda status, message: _emit(status_events, run_id, status, message, status_callback)
+
+        def emit(status: str, message: str) -> None:
+            _emit(status_events, run_id, status, message, status_callback)
+
         emit("initializing_portfolio_agent", "Preparing MCP modules for portfolio analysis.")
         self._call(PORTFOLIO_SQL_SERVER, self.portfolio_sql_mcp, "portfolio_sql_initialize", {})
         emit("retrieving_opend_portfolio", "Reading current portfolio context from OpenD MCP.")
@@ -181,6 +190,67 @@ class MCPPortfolioAgent:
             {"snapshot": snapshot_json, "ips": ips_json},
         )
         metrics = [MetricResult.model_validate(row) for row in metric_rows]
+
+        emit(
+            "reading_history_status",
+            "Reading existing portfolio history from SQL MCP before storing this run.",
+        )
+        history_status = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_get_history_status",
+            {
+                "portfolio_id": ips.portfolio_id,
+                "now": snapshot.as_of.isoformat(),
+                "min_snapshots_for_history": self.min_snapshots_for_history,
+            },
+        )
+        latest_portfolio_state = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_get_latest_portfolio_state",
+            {"portfolio_id": ips.portfolio_id},
+        )
+        portfolio_growth = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_get_portfolio_growth",
+            {"portfolio_id": ips.portfolio_id, "limit": 30},
+        )
+        allocation_history = self._call(
+            PORTFOLIO_SQL_SERVER,
+            self.portfolio_sql_mcp,
+            "portfolio_sql_get_allocation_history",
+            {"portfolio_id": ips.portfolio_id, "limit": 100},
+        )
+        history_context = PortfolioHistoryContext(
+            history_status=history_status,
+            latest_portfolio_state=latest_portfolio_state,
+            portfolio_growth=portfolio_growth,
+            allocation_history=allocation_history,
+        )
+        portfolio_packet = _portfolio_packet_with_history(
+            build_portfolio_agent_packet(snapshot, ips, source_report),
+            history_status,
+        )
+        effective_cash = build_effective_cash_summary(snapshot)
+        pending_storage_result = _pending_storage_result(snapshot)
+
+        emit("evaluating_portfolio", "Running the LLM portfolio-only evaluator.")
+        evaluation = self.evaluator.evaluate(
+            query=query,
+            ips=ips,
+            snapshot=snapshot,
+            portfolio_packet=portfolio_packet,
+            metrics=metrics,
+            storage_result=pending_storage_result,
+            history_status=history_status,
+            history_context=history_context,
+        )
+        emit(
+            "portfolio_evaluation_ready",
+            "Portfolio evaluation complete; storing the current OpenD observation next.",
+        )
 
         emit("updating_portfolio_history", "Writing lean portfolio-history rows to SQL MCP.")
         self._call(
@@ -265,57 +335,6 @@ class MCPPortfolioAgent:
         }
         metrics_storage_result = _metrics_storage_skip_result(storage_result)
 
-        emit("reading_history_status", "Reading portfolio history status from SQL MCP.")
-        history_status = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_history_status",
-            {
-                "portfolio_id": ips.portfolio_id,
-                "now": snapshot.as_of.isoformat(),
-                "min_snapshots_for_history": self.min_snapshots_for_history,
-            },
-        )
-        latest_portfolio_state = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_latest_portfolio_state",
-            {"portfolio_id": ips.portfolio_id, "account_id": account_id},
-        )
-        portfolio_growth = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_portfolio_growth",
-            {"portfolio_id": ips.portfolio_id, "account_id": account_id, "limit": 30},
-        )
-        allocation_history = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_allocation_history",
-            {"portfolio_id": ips.portfolio_id, "account_id": account_id, "limit": 100},
-        )
-        history_context = PortfolioHistoryContext(
-            history_status=history_status,
-            latest_portfolio_state=latest_portfolio_state,
-            portfolio_growth=portfolio_growth,
-            allocation_history=allocation_history,
-        )
-        portfolio_packet = _portfolio_packet_with_history(
-            build_portfolio_agent_packet(snapshot, ips, source_report),
-            history_status,
-        )
-        effective_cash = build_effective_cash_summary(snapshot)
-        emit("evaluating_portfolio", "Running the LLM portfolio-only evaluator.")
-        evaluation = self.evaluator.evaluate(
-            query=query,
-            ips=ips,
-            snapshot=snapshot,
-            portfolio_packet=portfolio_packet,
-            metrics=metrics,
-            storage_result=storage_result,
-            history_status=history_status,
-            history_context=history_context,
-        )
         emit("complete", "Portfolio Agent run complete.")
         return PortfolioAgentResult(
             run_id=run_id,
@@ -611,6 +630,18 @@ def _metrics_storage_skip_result(storage_result: dict[str, Any]) -> dict[str, An
         "reason": (
             "Deterministic metric inputs are not persisted in the lean V1 schema; "
             "overall portfolio weights are stored in portfolio_weight_snapshots."
+        ),
+    }
+
+
+def _pending_storage_result(snapshot: PortfolioSnapshot) -> dict[str, Any]:
+    return {
+        "status": "pending",
+        "portfolio_id": snapshot.portfolio_id,
+        "snapshot_date": snapshot.as_of.date().isoformat(),
+        "reason": (
+            "The current OpenD observation is stored after portfolio evaluation so the LLM "
+            "uses history that existed before this run."
         ),
     }
 

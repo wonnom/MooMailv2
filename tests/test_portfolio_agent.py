@@ -50,14 +50,16 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
     assert result.metrics_storage_result["weight_rows_stored"] == 2
     assert result.effective_cash.effective_cash_value == 100.0
     assert result.effective_cash.effective_cash_weight == 0.1
-    assert result.history_context.history_status["snapshot_count"] == 1
-    assert len(result.history_context.portfolio_growth) == 1
-    assert len(result.history_context.allocation_history) == 2
+    assert result.history_context.history_status["snapshot_count"] == 0
+    assert result.history_context.portfolio_growth == []
+    assert result.history_context.allocation_history == []
     assert result.evaluation.summary == "Portfolio-only evaluation complete."
+    assert evaluator.context["storage_result"]["status"] == "pending"
+    assert evaluator.context["history_status"]["snapshot_count"] == 0
     terminal_summary = "\n".join(portfolio_agent_terminal_summary_lines(result))
     assert "Effective cash: USD 100.00 (10.00%)" in terminal_summary
     assert "SQL storage: inserted value_snapshot_id=" in terminal_summary
-    assert "History: 1 value snapshot(s)" in terminal_summary
+    assert "History before this run: 0 value snapshot(s)" in terminal_summary
     assert evaluator.calls == 1
     assert store.table_count("portfolio_value_snapshots") == 1
     assert store.table_count("portfolio_weight_snapshots") == 2
@@ -72,6 +74,25 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
     )
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_portfolio_growth" in result.tool_calls
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_allocation_history" in result.tool_calls
+    assert result.tool_calls.index(
+        "moomail-portfolio-sql-mcp:portfolio_sql_get_portfolio_growth"
+    ) < result.tool_calls.index(
+        "moomail-portfolio-sql-mcp:portfolio_sql_store_daily_value_snapshot"
+    )
+    assert [
+        event.status
+        for event in result.status_events
+        if event.status
+        in {
+            "evaluating_portfolio",
+            "portfolio_evaluation_ready",
+            "updating_portfolio_history",
+        }
+    ] == [
+        "evaluating_portfolio",
+        "portfolio_evaluation_ready",
+        "updating_portfolio_history",
+    ]
 
 
 def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(tmp_path):
@@ -115,7 +136,10 @@ def test_portfolio_agent_daily_storage_is_idempotent(tmp_path, recorded_opend_cl
     second = agent.run("Review my portfolio again", ips)
 
     assert first.storage_result["status"] == "inserted"
+    assert first.history_context.history_status["snapshot_count"] == 0
     assert second.storage_result["status"] == "updated"
+    assert second.history_context.history_status["snapshot_count"] == 1
+    assert len(second.history_context.portfolio_growth) == 1
     assert second.storage_result["value_snapshot_id"] == first.storage_result["value_snapshot_id"]
     assert second.metrics_storage_result["metrics_stored"] == 0
     assert store.table_count("portfolio_value_snapshots") == 1

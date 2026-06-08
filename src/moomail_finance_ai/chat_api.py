@@ -13,6 +13,9 @@ from moomail_finance_ai.portfolio_agent import (
     build_default_portfolio_agent,
 )
 from moomail_finance_ai.schemas import AgentState, StatusEvent
+from moomail_finance_ai.v2_investment_agent import V2InvestmentAgent
+from moomail_finance_ai.v2_investment_agent import build_default_v2_investment_agent
+from moomail_finance_ai.v2_schemas import InvestmentAgentState as V2InvestmentAgentState
 
 
 class ChatService:
@@ -25,6 +28,7 @@ class ChatService:
         env_file: str | Path | None = "config/local.env",
         llm_provider: str | None = None,
         portfolio_evaluator: PortfolioEvaluator | None = None,
+        v2_investment_agent: V2InvestmentAgent | None = None,
         default_agent: str = "investment",
     ):
         self.from_report = from_report
@@ -33,6 +37,7 @@ class ChatService:
         self.env_file = env_file
         self.llm_provider = llm_provider
         self.portfolio_evaluator = portfolio_evaluator
+        self.v2_investment_agent = v2_investment_agent
         self.default_agent = default_agent
 
     def run(
@@ -41,7 +46,7 @@ class ChatService:
         *,
         status_callback=None,
         agent: str | None = None,
-    ) -> AgentState | PortfolioAgentResult:
+    ) -> AgentState | PortfolioAgentResult | V2InvestmentAgentState:
         selected_agent = agent or self.default_agent
         if selected_agent == "portfolio":
             portfolio_agent = build_default_portfolio_agent(
@@ -56,6 +61,15 @@ class ChatService:
                 mock_investment_policy(),
                 status_callback=status_callback,
             )
+        if selected_agent in {"investment_v2", "v2_investment"}:
+            v2_agent = self.v2_investment_agent or build_default_v2_investment_agent(
+                env_file=self.env_file,
+                from_report=self.from_report,
+                db_path=self.db_path,
+                llm_provider=self.llm_provider,
+                portfolio_evaluator=self.portfolio_evaluator,
+            )
+            return v2_agent.run(query, status_callback=status_callback)
         if selected_agent != "investment":
             raise ValueError(f"Unsupported chat agent: {selected_agent}")
         agent = build_default_full_agent(
@@ -66,10 +80,36 @@ class ChatService:
         return agent.run(query, status_callback=status_callback)
 
 
-def chat_response(state: AgentState | PortfolioAgentResult) -> dict[str, Any]:
+def chat_response(
+    state: AgentState | PortfolioAgentResult | V2InvestmentAgentState,
+) -> dict[str, Any]:
+    if isinstance(state, V2InvestmentAgentState):
+        return v2_state_response(state)
     if isinstance(state, PortfolioAgentResult):
         return portfolio_agent_response(state)
     return state_response(state)
+
+
+def v2_state_response(state: V2InvestmentAgentState) -> dict[str, Any]:
+    return {
+        "agent_type": "investment_agent_v2",
+        "run_id": state.run_id,
+        "mode": state.mode,
+        "status_events": [event.model_dump(mode="json") for event in state.status_events],
+        "query_plan": state.query_plan.model_dump(mode="json") if state.query_plan else None,
+        "portfolio_packet": (
+            state.portfolio_packet.model_dump(mode="json") if state.portfolio_packet else None
+        ),
+        "sentiment_packet": (
+            state.sentiment_packet.model_dump(mode="json") if state.sentiment_packet else None
+        ),
+        "synthesis": state.synthesis.model_dump(mode="json") if state.synthesis else None,
+        "final_report": state.final_report.model_dump(mode="json") if state.final_report else None,
+        "guardrail_result": (
+            state.guardrail_review.model_dump(mode="json") if state.guardrail_review else None
+        ),
+        "audit_record": None,
+    }
 
 
 def state_response(state: AgentState) -> dict[str, Any]:
@@ -107,7 +147,8 @@ def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
                 "performance": result.portfolio_packet.performance.model_dump(mode="json"),
                 "risk": result.portfolio_packet.risk.model_dump(mode="json"),
                 "candidate_issues": [
-                    issue.model_dump(mode="json") for issue in result.portfolio_packet.candidate_issues
+                    issue.model_dump(mode="json")
+                    for issue in result.portfolio_packet.candidate_issues
                 ],
                 "evaluation": result.evaluation.model_dump(mode="json"),
                 "metrics": [metric.model_dump(mode="json") for metric in result.metrics],
@@ -137,7 +178,7 @@ def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
     }
 
 
-def status_event_payload(event: StatusEvent) -> dict[str, Any]:
+def status_event_payload(event: StatusEvent | Any) -> dict[str, Any]:
     return {"type": "status", "event": event.model_dump(mode="json")}
 
 
@@ -154,7 +195,12 @@ def error_event_payload(exc: BaseException) -> dict[str, Any]:
     }
 
 
-def stream_payloads(service: ChatService, query: str, *, agent: str | None = None) -> list[dict[str, Any]]:
+def stream_payloads(
+    service: ChatService,
+    query: str,
+    *,
+    agent: str | None = None,
+) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
 
     def emit(event: StatusEvent) -> None:

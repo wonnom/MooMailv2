@@ -63,8 +63,16 @@ def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
     assert final["final_report"]["summary"] == "Portfolio evaluator test summary."
     assert final["final_report"]["portfolio_snapshot"]["holdings"][0]["ticker"] == "AAPL"
     assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
-    assert final["final_report"]["portfolio_analysis"]["effective_cash"]["effective_cash_value"] == 100.0
-    assert final["final_report"]["portfolio_analysis"]["history_context"]["portfolio_growth"]
+    assert (
+        final["final_report"]["portfolio_analysis"]["effective_cash"]["effective_cash_value"]
+        == 100.0
+    )
+    assert (
+        final["final_report"]["portfolio_analysis"]["history_context"]["history_status"][
+            "snapshot_count"
+        ]
+        == 0
+    )
     assert final["final_report"]["portfolio_analysis"]["evaluation"]["risks"] == [
         "Concentration requires review."
     ]
@@ -87,12 +95,35 @@ def test_chat_service_portfolio_agent_handles_legacy_chat_db(tmp_path):
     assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
 
 
+def test_chat_service_can_call_v2_investment_agent_with_recorded_portfolio(tmp_path):
+    report_path = _write_recorded_report(tmp_path)
+    service = ChatService(
+        from_report=report_path,
+        db_path=tmp_path / "investment-v2-chat.sqlite",
+        portfolio_evaluator=FakePortfolioEvaluator(),
+        default_agent="investment_v2",
+    )
+
+    lines = stream_payloads(service, "Review my portfolio.", agent="investment_v2")
+    final = lines[-1]["state"]
+
+    assert any(line["type"] == "status" for line in lines)
+    assert final["agent_type"] == "investment_agent_v2"
+    assert final["query_plan"]["needs_sentiment_agent"] is True
+    assert final["sentiment_packet"]["retrieval_status"] == "not_implemented"
+    assert "Sentiment Agent GraphRAG retrieval is not implemented in V2." in (
+        final["final_report"]["missing_data"]
+    )
+    assert final["guardrail_result"]["passed"] is True
+
+
 def test_chat_defaults_use_canonical_portfolio_history_db():
     service = ChatService()
     serve_chat_source = (WEB.parent / "scripts" / "serve_chat.py").read_text(encoding="utf-8")
 
     assert str(service.db_path) == "data/portfolio-history.sqlite"
     assert 'default="data/portfolio-history.sqlite"' in serve_chat_source
+    assert "investment_v2" in serve_chat_source
     assert "data/chat-portfolio-history.sqlite" not in serve_chat_source
 
 

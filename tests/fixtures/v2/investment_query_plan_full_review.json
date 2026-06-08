@@ -1,0 +1,47 @@
+{
+  "mode": "review",
+  "needs_portfolio_agent": true,
+  "needs_sentiment_agent": true,
+  "portfolio_task": {
+    "task_type": "full_review",
+    "source_query": "Review my portfolio and market sentiment.",
+    "requested_tickers": [],
+    "history_window": "30d",
+    "required_outputs": [
+      "snapshot",
+      "allocation",
+      "performance",
+      "risk",
+      "effective_cash",
+      "candidate_issues",
+      "sentiment_candidates",
+      "history_context"
+    ],
+    "persistence_mode": "auto",
+    "focus_areas": ["portfolio_review"],
+    "warnings": []
+  },
+  "sentiment_task": {
+    "tickers": ["GOOG", "ASML"],
+    "companies_entities": [],
+    "themes": ["mega-cap technology", "semiconductor equipment"],
+    "time_window": "1y",
+    "requested_evidence_types": [
+      "filing",
+      "earnings_transcript",
+      "shareholder_letter",
+      "annual_report",
+      "quarterly_report"
+    ],
+    "key_questions": [
+      "What recent company-specific evidence may affect the portfolio thesis?",
+      "What risks or catalysts should be surfaced for material holdings?"
+    ],
+    "reason": "Full portfolio review should include market sentiment for material holdings.",
+    "candidate_refs": [],
+    "warnings": []
+  },
+  "missing_data": [],
+  "plan_warnings": [],
+  "route_reason": "Broad review needs both portfolio evidence and research/sentiment context."
+}

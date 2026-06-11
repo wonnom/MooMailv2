@@ -28,12 +28,14 @@
         </details>
 
         <form id="chatForm" class="chat-form">
-          <select id="agentSelect" name="agent" aria-label="Agent">
-            <option value="portfolio" selected>Portfolio</option>
-            <option value="investment">Investment</option>
-          </select>
-          <textarea id="queryInput" name="query" rows="1" autocomplete="off">Review my portfolio</textarea>
-          <button id="sendButton" type="submit">Send</button>
+          <textarea id="queryInput" name="query" rows="4" autocomplete="off" placeholder="Ask about your portfolio">Review my portfolio</textarea>
+          <div class="chat-controls">
+            <select id="agentSelect" name="agent" aria-label="Agent">
+              <option value="portfolio" selected>Portfolio</option>
+              <option value="investment_v2">Investment</option>
+            </select>
+            <button id="sendButton" type="submit">Send</button>
+          </div>
         </form>
         <div id="chatResizeHandle" class="chat-resize-handle" role="separator" aria-label="Resize chat" aria-orientation="vertical" tabindex="0"></div>
       </aside>

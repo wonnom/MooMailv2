@@ -24,7 +24,7 @@ mcp = [
 finance-ai-prototype = "moomail_finance_ai.cli:main"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 markers = [
   "live_connector: tests that call live/local connectors and are skipped unless MOOMAIL_RUN_LIVE_CONNECTOR_TESTS=1",

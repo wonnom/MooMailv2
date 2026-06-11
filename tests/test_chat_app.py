@@ -111,6 +111,8 @@ def test_chat_service_can_call_v2_investment_agent_with_recorded_portfolio(tmp_p
     assert final["agent_type"] == "investment_agent_v2"
     assert final["query_plan"]["needs_sentiment_agent"] is True
     assert final["sentiment_packet"]["retrieval_status"] == "not_implemented"
+    assert final["final_report"]["portfolio_analysis"]["allocation"]["by_asset"]
+    assert final["final_report"]["portfolio_analysis"]["risk"]
     assert "Sentiment Agent GraphRAG retrieval is not implemented in V2." in (
         final["final_report"]["missing_data"]
     )
@@ -129,10 +131,27 @@ def test_chat_defaults_use_canonical_portfolio_history_db():
 
 def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     html = (WEB / "index.html").read_text(encoding="utf-8")
-    ts = (WEB / "static" / "app.ts").read_text(encoding="utf-8")
+    static_dir = WEB / "static"
+    frontend_source = "\n".join(
+        (static_dir / name).read_text(encoding="utf-8")
+        for name in [
+            "app.ts",
+            "chat_panel.ts",
+            "dom.ts",
+            "format.ts",
+            "layout.ts",
+            "report_components.ts",
+            "stream_client.ts",
+            "types.ts",
+        ]
+    )
 
     assert "/static/app.js" in html
     assert "agentSelect" in html
+    assert 'value="investment_v2">Investment<' in html
+    assert "Investment Legacy" not in html
+    assert "chat-controls" in html
+    assert 'rows="4"' in html
     assert "sendButton" in html
     assert "hideChatButton" in html
     assert "showChatButton" in html
@@ -140,20 +159,27 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     assert "portfolioPositions" in html
     assert "allocationSort" in html
     assert "data-allocation-view=\"pie\"" in html
-    assert "/api/chat/stream" in ts
-    assert "setChatHidden" in ts
-    assert "resizeChatTo" in ts
-    assert "renderPortfolioSnapshot" in ts
-    assert "effective_cash" in ts
-    assert "Effective cash" in ts
-    assert "sortAllocationRows" in ts
-    assert "renderAllocationPie" in ts
-    assert "renderPortfolioEvaluation" in ts
-    assert "renderCitations" in ts
-    assert "source_quality_rank" in ts
-    assert "payload.type === \"error\"" in ts
-    assert "renderStreamError" in ts
-    assert "traceback" in ts
+    assert "from \"./report_components.js\"" in frontend_source
+    assert "from \"./stream_client.js\"" in frontend_source
+    assert "/api/chat/stream" in frontend_source
+    assert "isPortfolioSnapshot" in frontend_source
+    assert "addReasoningSummary" in frontend_source
+    assert "route_reason" in frontend_source
+    assert "portfolio_packet" in frontend_source
+    assert "Sentiment retrieval" in frontend_source
+    assert "setChatHidden" in frontend_source
+    assert "resizeChatTo" in frontend_source
+    assert "renderPortfolioSnapshot" in frontend_source
+    assert "effective_cash" in frontend_source
+    assert "Effective cash" in frontend_source
+    assert "sortAllocationRows" in frontend_source
+    assert "renderAllocationPie" in frontend_source
+    assert "renderPortfolioEvaluation" in frontend_source
+    assert "renderCitations" in frontend_source
+    assert "source_quality_rank" in frontend_source
+    assert "payload.type === \"error\"" in frontend_source
+    assert "renderStreamError" in frontend_source
+    assert "traceback" in frontend_source
 
 
 def _create_legacy_agent_runs_table(db_path):

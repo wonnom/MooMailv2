@@ -622,7 +622,7 @@ def _portfolio_snapshot_payload(state: InvestmentAgentState) -> dict:
 def _portfolio_analysis_payload(state: InvestmentAgentState) -> dict:
     if not state.portfolio_packet:
         return {}
-    return {
+    payload = {
         "context_plan": state.portfolio_packet.context_plan.model_dump(mode="json"),
         "history_context": state.portfolio_packet.history_context,
         "effective_cash": state.portfolio_packet.effective_cash,
@@ -636,6 +636,24 @@ def _portfolio_analysis_payload(state: InvestmentAgentState) -> dict:
             else None
         ),
     }
+    if state.portfolio_packet.base_packet:
+        base_packet = state.portfolio_packet.base_packet
+        payload.update(
+            {
+                "allocation": {
+                    key: [item.model_dump(mode="json") for item in values]
+                    for key, values in base_packet.allocation.items()
+                },
+                "performance": base_packet.performance.model_dump(mode="json"),
+                "risk": base_packet.risk.model_dump(mode="json"),
+                "candidate_issues": [
+                    issue.model_dump(mode="json")
+                    for issue in base_packet.candidate_issues
+                ],
+                "data_quality": base_packet.data_quality.model_dump(mode="json"),
+            }
+        )
+    return payload
 
 
 def _report_as_of(state: InvestmentAgentState) -> datetime:

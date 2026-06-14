@@ -198,7 +198,7 @@ pulling live account data while testing agent orchestration.
 
 ## Portfolio Agent
 
-The V1 MCP-backed Portfolio Agent calls:
+The MCP-backed Portfolio Agent calls:
 
 - `moomail-opend-mcp` for the current OpenD portfolio context.
 - `moomail-finance-metrics-mcp` for deterministic metric calculations.
@@ -209,10 +209,10 @@ The V1 MCP-backed Portfolio Agent calls:
   deterministic tools finish. Gemini and OpenAI adapters are supported; Gemini is
   the current default.
 
-In V1, this is a deterministic workflow. The LLM evaluator receives the
-collected portfolio packet but does not decide which MCP tools to call.
+The LLM evaluator receives the collected portfolio packet but does not decide
+which MCP tools to call.
 
-V2 should convert this into a bounded-planning subgraph:
+V2 converts this into a bounded-planning deterministic subgraph:
 
 1. Interpret the portfolio task assigned by the Investment Agent.
 2. Produce a structured context plan.
@@ -224,6 +224,18 @@ V2 should convert this into a bounded-planning subgraph:
 
 Portfolio Agent must not call Sentiment Agent. It may suggest sentiment
 candidates; Investment Agent decides whether to invoke the Sentiment Agent.
+
+Current planner behavior:
+
+- Full review and deep-dive tasks select current OpenD, snapshot metrics,
+  history status, latest state, portfolio growth, allocation history, and SQL
+  persistence.
+- Cash/allocation/holding fact tasks select current OpenD and relevant metrics,
+  and skip broad SQL history/persistence by default.
+- What-changed tasks select current OpenD, snapshot metrics, history status,
+  latest state, portfolio growth, allocation history, and persistence.
+- `PortfolioAgentResult.tool_calls` records planned, actual, and skipped tool
+  entries so traces show why a tool did or did not run.
 
 V1 Portfolio Agent sequence:
 

@@ -117,9 +117,13 @@ def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(
     assert result.effective_cash.effective_cash_weight == 0.253
     assert any("US.TCEHY" in warning for warning in result.warnings)
     assert any("auto-invested money-market" in warning for warning in result.warnings)
-    assert store.table_count("portfolio_value_snapshots") == 1
-    assert store.table_count("portfolio_weight_snapshots") == 4
-    assert store.table_count("data_quality_events") >= 3
+    assert result.storage_result["status"] == "skipped"
+    assert result.context_plan is not None
+    assert result.context_plan.needs_sql_history is False
+    assert result.context_plan.persist_observation is False
+    assert store.table_count("portfolio_value_snapshots") == 0
+    assert store.table_count("portfolio_weight_snapshots") == 0
+    assert store.table_count("data_quality_events") == 0
 
 
 def test_portfolio_agent_daily_storage_is_idempotent(tmp_path, recorded_opend_client):

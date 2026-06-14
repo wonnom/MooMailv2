@@ -193,6 +193,7 @@ class V2PortfolioAgentPacket(StrictModel):
     history_context: dict[str, Any] = Field(default_factory=dict)
     effective_cash: dict[str, Any] = Field(default_factory=dict)
     sentiment_candidates: list[SentimentCandidate] = Field(default_factory=list)
+    tool_calls: list[str] = Field(default_factory=list)
     data_quality: DataQuality = Field(default_factory=DataQuality)
     warnings: list[str] = Field(default_factory=list)
 

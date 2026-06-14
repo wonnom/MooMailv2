@@ -20,7 +20,7 @@ V1 Portfolio Agent POC
 | --- | --- | --- |
 | 1 | [TASK_1_DEFINE_V2_CONTRACTS.md](TASK_1_DEFINE_V2_CONTRACTS.md) | Complete. Create Pydantic contracts for Investment Agent state, query plans, Portfolio Agent tasks/plans, Sentiment Agent stub tasks, synthesis, and guardrails. |
 | 2 | [TASK_2_THIN_LANGGRAPH_INVESTMENT_AGENT.md](TASK_2_THIN_LANGGRAPH_INVESTMENT_AGENT.md) | Complete. Build the thin Investment Agent supervisor as a real LangGraph `StateGraph`. |
-| 3 | [TASK_3_PORTFOLIO_AGENT_BOUNDED_PLANNING.md](TASK_3_PORTFOLIO_AGENT_BOUNDED_PLANNING.md) | Convert the current deterministic Portfolio Agent into a bounded-planning subgraph while preserving V1 behavior as the broad-review default. |
+| 3 | [TASK_3_PORTFOLIO_AGENT_BOUNDED_PLANNING.md](TASK_3_PORTFOLIO_AGENT_BOUNDED_PLANNING.md) | Complete. Convert the current deterministic Portfolio Agent into a bounded-planning subgraph while preserving V1 behavior as the broad-review default. |
 | 4 | [TASK_4_SENTIMENT_AGENT_STUB.md](TASK_4_SENTIMENT_AGENT_STUB.md) | Add a structured Sentiment Agent stub that cements the future GraphRAG task and response contracts. |
 | 5 | [TASK_5_GUARDRAILS_AND_TRACE.md](TASK_5_GUARDRAILS_AND_TRACE.md) | Move guardrails and trace into the V2 Investment Agent path. |
 | 6 | [TASK_6_DOCUMENTATION_AND_TESTS.md](TASK_6_DOCUMENTATION_AND_TESTS.md) | Add the test strategy and documentation updates needed to close V2. |

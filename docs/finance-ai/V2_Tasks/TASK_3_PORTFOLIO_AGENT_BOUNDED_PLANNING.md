@@ -1,5 +1,7 @@
 # Task 3: Convert Portfolio Agent To Bounded Planning Subgraph
 
+Status: complete as of 2026-06-13.
+
 ## Goal
 
 Refactor the current deterministic `MCPPortfolioAgent.run()` workflow into a
@@ -12,6 +14,23 @@ portfolio task -> structured context plan -> deterministic tool execution
 ```
 
 V1 broad-review behavior must remain available as the safe default.
+
+Implemented shape:
+
+- `interpret_portfolio_task(query)` maps direct Portfolio Agent queries into a
+  bounded `PortfolioTask`.
+- `plan_portfolio_context(task)` maps that task into a schema-validated
+  `PortfolioContextPlan`.
+- `MCPPortfolioAgent.run(..., portfolio_task=...)` can now accept the
+  Investment Agent's planned task or interpret a direct query itself.
+- Full review and deep-dive tasks preserve broad V1 context: OpenD snapshot,
+  deterministic metrics, SQL history status, latest state, growth history,
+  allocation history, and persistence.
+- Narrow portfolio-fact tasks such as cash-weight/effective-cash questions use
+  current OpenD plus selected metrics and skip broad SQL history/persistence by
+  default.
+- `PortfolioAgentResult.tool_calls` now includes planned, actual, and skipped
+  tool entries. The V2 portfolio packet also carries this trace.
 
 ## Exit Criteria
 

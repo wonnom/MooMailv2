@@ -86,6 +86,7 @@ class PortfolioAgentProtocol(Protocol):
         ips: InvestmentPolicy,
         *,
         status_callback=None,
+        portfolio_task: PortfolioTask | None = None,
     ) -> PortfolioAgentResult: ...
 
 
@@ -211,6 +212,7 @@ class V2InvestmentAgent:
         result = self.portfolio_agent.run(
             state.query_plan.portfolio_task.source_query,
             state.ips,
+            portfolio_task=state.query_plan.portfolio_task,
         )
         state.portfolio_packet = adapt_portfolio_result_to_v2(result, state.ips)
         return state
@@ -373,27 +375,29 @@ def adapt_portfolio_result_to_v2(
     ips: InvestmentPolicy,
 ) -> V2PortfolioAgentPacket:
     sentiment_candidates = _sentiment_candidates_from_portfolio(result, ips)
+    context_plan = result.context_plan or PortfolioContextPlan(
+        needs_current_snapshot=True,
+        needs_sql_history=True,
+        history_queries=[
+            "history_status",
+            "latest_state",
+            "portfolio_growth",
+            "allocation_history",
+        ],
+        tickers=[candidate.ticker for candidate in sentiment_candidates if candidate.ticker],
+        metric_groups=["allocation", "concentration", "effective_cash", "performance"],
+        persist_observation=True,
+        history_window="30d",
+        row_limit=100,
+    )
     return V2PortfolioAgentPacket(
         portfolio_id=result.portfolio_id,
-        context_plan=PortfolioContextPlan(
-            needs_current_snapshot=True,
-            needs_sql_history=True,
-            history_queries=[
-                "history_status",
-                "latest_state",
-                "portfolio_growth",
-                "allocation_history",
-            ],
-            tickers=[candidate.ticker for candidate in sentiment_candidates if candidate.ticker],
-            metric_groups=["allocation", "concentration", "effective_cash", "performance"],
-            persist_observation=True,
-            history_window="30d",
-            row_limit=100,
-        ),
+        context_plan=context_plan,
         base_packet=result.portfolio_packet,
         history_context=result.history_context.model_dump(mode="json"),
         effective_cash=result.effective_cash.model_dump(mode="json"),
         sentiment_candidates=sentiment_candidates,
+        tool_calls=list(result.tool_calls),
         data_quality=result.portfolio_packet.data_quality,
         warnings=list(result.warnings),
     )
@@ -630,6 +634,7 @@ def _portfolio_analysis_payload(state: InvestmentAgentState) -> dict:
             candidate.model_dump(mode="json")
             for candidate in state.portfolio_packet.sentiment_candidates
         ],
+        "tool_calls": list(state.portfolio_packet.tool_calls),
         "base_packet": (
             state.portfolio_packet.base_packet.model_dump(mode="json")
             if state.portfolio_packet.base_packet

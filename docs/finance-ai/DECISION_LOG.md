@@ -31,15 +31,15 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-06
+Date: 2026-06-13
 
 Current status:
 
 - V1 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
   portfolio history.
-- V2 is the active direction: a thin LangGraph Investment Agent supervisor, a
-  bounded-planning Portfolio Agent subgraph, and a Sentiment Agent stub to
-  cement future GraphRAG contracts.
+- V2 is in progress: the thin LangGraph Investment Agent supervisor and
+  bounded-planning Portfolio Agent are implemented; Sentiment Agent remains a
+  structured stub target to cement future GraphRAG contracts.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1 task tracking lives under `docs/finance-ai/V1_TASKS/`.
@@ -53,7 +53,7 @@ Current status:
 | --- | --- | --- |
 | Concept / V0 | Complete | Architecture interview, requirements, agent boundaries, and tool-store choices. |
 | V1 | Complete | Portfolio Agent POC with OpenD, canonical local SQL history, deterministic metrics, MCP boundaries, terminal path, and local chat frontend. |
-| V2 | Planned | LangGraph Investment Agent supervisor, bounded-planning Portfolio Agent subgraph, Sentiment Agent stub, contracts, synthesis, and guardrails. |
+| V2 | In progress | LangGraph Investment Agent supervisor, bounded-planning Portfolio Agent subgraph, Sentiment Agent stub, contracts, synthesis, and guardrails. |
 
 ## Timeline
 
@@ -681,6 +681,45 @@ Important current files and areas:
 
 - `data/portfolio-history.sqlite`
   - Canonical local portfolio-history database.
+
+## V2 Task 3 Closeout / 2026-06-13
+
+Goal:
+
+- Convert the Portfolio Agent from a fixed broad workflow into a bounded
+  planner that can minimize tool usage for narrow questions while keeping
+  broad-review behavior available.
+
+Actual implementation:
+
+- Added `interpret_portfolio_task(query)` for direct Portfolio Agent calls.
+- Added `plan_portfolio_context(task)` for schema-validated
+  `PortfolioContextPlan` generation.
+- Updated `MCPPortfolioAgent.run()` to accept an optional `PortfolioTask` from
+  the Investment Agent and execute deterministic helper nodes from the plan.
+- Preserved broad context and SQL persistence for full review and deep-dive
+  tasks.
+- Let cash/allocation/holding fact tasks skip broad SQL history and persistence
+  by default.
+- Let what-changed tasks request history status, latest state, portfolio
+  growth, and allocation history.
+- Added planned, actual, and skipped tool trace entries to
+  `PortfolioAgentResult.tool_calls` and carried them into the V2 portfolio
+  packet.
+
+Tradeoffs accepted:
+
+- Metric execution still uses the existing broad `calculate_snapshot_metrics`
+  MCP tool. The trace records the requested metric groups and that broad
+  snapshot metrics were used until granular metric MCP tools exist.
+- The Portfolio Agent planner is deterministic keyword/task based rather than
+  LLM-planned. This keeps autonomy bounded and testable.
+
+Verification:
+
+- Added `tests/test_v2_portfolio_planner.py`.
+- Updated Portfolio Agent, V2 Investment Agent, and chat tests.
+- Full deterministic suite passed with live tests excluded.
 
 ## Interview And Presentation Talking Points
 

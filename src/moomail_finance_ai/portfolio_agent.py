@@ -36,6 +36,15 @@ from moomail_finance_ai.schemas import (
     StrictModel,
     StatusEvent,
 )
+from moomail_finance_ai.v2_schemas import PortfolioContextPlan, PortfolioTask
+
+
+PORTFOLIO_REVIEW_TERMS = ("review", "analyze", "analyse", "breakdown", "overview")
+PORTFOLIO_CASH_TERMS = ("cash", "effective cash", "buying power", "purchase power")
+PORTFOLIO_ALLOCATION_TERMS = ("allocation", "allocations", "weight", "weights")
+PORTFOLIO_POSITION_TERMS = ("holding", "holdings", "position", "positions", "value")
+PORTFOLIO_HISTORY_TERMS = ("what changed", "changed", "history", "growth", "performance")
+PORTFOLIO_RISK_TERMS = ("risk", "concentration", "downside", "drawdown")
 
 
 class PortfolioEvaluation(StrictModel):
@@ -71,6 +80,7 @@ class PortfolioHistoryContext(StrictModel):
 class PortfolioAgentResult(StrictModel):
     run_id: str
     portfolio_id: str
+    context_plan: PortfolioContextPlan | None = None
     snapshot: PortfolioSnapshot
     portfolio_packet: PortfolioAgentPacket
     metrics: list[MetricResult]
@@ -160,6 +170,7 @@ class MCPPortfolioAgent:
         ips: InvestmentPolicy,
         *,
         status_callback=None,
+        portfolio_task: PortfolioTask | None = None,
     ) -> PortfolioAgentResult:
         run_id = f"portfolio_run_{uuid4().hex[:12]}"
         self.tool_calls = []
@@ -168,67 +179,22 @@ class MCPPortfolioAgent:
         def emit(status: str, message: str) -> None:
             _emit(status_events, run_id, status, message, status_callback)
 
-        emit("initializing_portfolio_agent", "Preparing MCP modules for portfolio analysis.")
-        self._call(PORTFOLIO_SQL_SERVER, self.portfolio_sql_mcp, "portfolio_sql_initialize", {})
-        emit("retrieving_opend_portfolio", "Reading current portfolio context from OpenD MCP.")
-        context = self._call(
-            OPEND_SERVER,
-            self.opend_mcp,
-            "opend_get_portfolio_context",
-            {"portfolio_id": ips.portfolio_id, "base_currency": self.base_currency},
+        task = portfolio_task or interpret_portfolio_task(query)
+        plan = plan_portfolio_context(task)
+        emit(
+            "planning_portfolio_context",
+            f"Planned bounded portfolio context for {task.task_type}.",
         )
-        snapshot = PortfolioSnapshot.model_validate(context["snapshot"])
-        source_report = OpenDFieldReport.model_validate(context["source_report"])
+        self._record_planned_tools(plan)
+
+        self._initialize_sql_if_needed(plan, emit)
+        snapshot, source_report = self._read_current_context(ips, plan, emit)
         snapshot_json = snapshot.model_dump(mode="json")
         ips_json = ips.model_dump(mode="json")
 
-        emit("calculating_metrics", "Calculating deterministic portfolio metrics through MCP.")
-        metric_rows = self._call(
-            FINANCE_METRICS_SERVER,
-            self.finance_metrics_mcp,
-            "calculate_snapshot_metrics",
-            {"snapshot": snapshot_json, "ips": ips_json},
-        )
-        metrics = [MetricResult.model_validate(row) for row in metric_rows]
-
-        emit(
-            "reading_history_status",
-            "Reading existing portfolio history from SQL MCP before storing this run.",
-        )
-        history_status = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_history_status",
-            {
-                "portfolio_id": ips.portfolio_id,
-                "now": snapshot.as_of.isoformat(),
-                "min_snapshots_for_history": self.min_snapshots_for_history,
-            },
-        )
-        latest_portfolio_state = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_latest_portfolio_state",
-            {"portfolio_id": ips.portfolio_id},
-        )
-        portfolio_growth = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_portfolio_growth",
-            {"portfolio_id": ips.portfolio_id, "limit": 30},
-        )
-        allocation_history = self._call(
-            PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
-            "portfolio_sql_get_allocation_history",
-            {"portfolio_id": ips.portfolio_id, "limit": 100},
-        )
-        history_context = PortfolioHistoryContext(
-            history_status=history_status,
-            latest_portfolio_state=latest_portfolio_state,
-            portfolio_growth=portfolio_growth,
-            allocation_history=allocation_history,
-        )
+        metrics = self._calculate_metrics(snapshot_json, ips_json, plan, emit)
+        history_context = self._read_history_context(ips, snapshot, plan, emit)
+        history_status = history_context.history_status
         portfolio_packet = _portfolio_packet_with_history(
             build_portfolio_agent_packet(snapshot, ips, source_report),
             history_status,
@@ -249,8 +215,176 @@ class MCPPortfolioAgent:
         )
         emit(
             "portfolio_evaluation_ready",
-            "Portfolio evaluation complete; storing the current OpenD observation next.",
+            (
+                "Portfolio evaluation complete; storing the current OpenD observation next."
+                if plan.persist_observation
+                else "Portfolio evaluation complete; SQL persistence is skipped by plan."
+            ),
         )
+
+        storage_result = self._write_portfolio_history(
+            snapshot,
+            snapshot_json,
+            source_report,
+            plan,
+            ips,
+            emit,
+        )
+        metrics_storage_result = _metrics_storage_skip_result(storage_result)
+
+        emit("complete", "Portfolio Agent run complete.")
+        return PortfolioAgentResult(
+            run_id=run_id,
+            portfolio_id=snapshot.portfolio_id,
+            context_plan=plan,
+            snapshot=snapshot,
+            portfolio_packet=portfolio_packet,
+            metrics=metrics,
+            storage_result=storage_result,
+            metrics_storage_result=metrics_storage_result,
+            effective_cash=effective_cash,
+            history_status=history_status,
+            history_context=history_context,
+            evaluation=evaluation,
+            tool_calls=list(self.tool_calls),
+            status_events=status_events,
+            warnings=_result_warnings(portfolio_packet, history_status, evaluation),
+        )
+
+    def _initialize_sql_if_needed(self, plan: PortfolioContextPlan, emit) -> None:
+        if not (plan.needs_sql_history or plan.persist_observation):
+            emit("skipping_sql_initialize", "SQL MCP initialization skipped by context plan.")
+            return
+        emit("initializing_portfolio_agent", "Preparing MCP modules for portfolio analysis.")
+        self._call(PORTFOLIO_SQL_SERVER, self.portfolio_sql_mcp, "portfolio_sql_initialize", {})
+
+    def _read_current_context(
+        self,
+        ips: InvestmentPolicy,
+        plan: PortfolioContextPlan,
+        emit,
+    ) -> tuple[PortfolioSnapshot, OpenDFieldReport]:
+        if not plan.needs_current_snapshot:
+            raise ValueError("Portfolio Agent currently requires a current snapshot.")
+        emit("retrieving_opend_portfolio", "Reading current portfolio context from OpenD MCP.")
+        context = self._call(
+            OPEND_SERVER,
+            self.opend_mcp,
+            "opend_get_portfolio_context",
+            {"portfolio_id": ips.portfolio_id, "base_currency": self.base_currency},
+        )
+        return (
+            PortfolioSnapshot.model_validate(context["snapshot"]),
+            OpenDFieldReport.model_validate(context["source_report"]),
+        )
+
+    def _calculate_metrics(
+        self,
+        snapshot_json: dict[str, Any],
+        ips_json: dict[str, Any],
+        plan: PortfolioContextPlan,
+        emit,
+    ) -> list[MetricResult]:
+        if not plan.metric_groups:
+            emit("skipping_metrics", "Metric calculation skipped by context plan.")
+            return []
+        emit(
+            "calculating_metrics",
+            "Calculating deterministic portfolio metrics through MCP.",
+        )
+        metric_rows = self._call(
+            FINANCE_METRICS_SERVER,
+            self.finance_metrics_mcp,
+            "calculate_snapshot_metrics",
+            {"snapshot": snapshot_json, "ips": ips_json},
+        )
+        self.tool_calls.append(
+            "actual_detail:"
+            f"{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
+            f"requested_metric_groups={','.join(plan.metric_groups)} "
+            "broad_snapshot_metrics_used=true"
+        )
+        return [MetricResult.model_validate(row) for row in metric_rows]
+
+    def _read_history_context(
+        self,
+        ips: InvestmentPolicy,
+        snapshot: PortfolioSnapshot,
+        plan: PortfolioContextPlan,
+        emit,
+    ) -> PortfolioHistoryContext:
+        if not plan.needs_sql_history:
+            emit("skipping_history_reads", "SQL history reads skipped by context plan.")
+            return PortfolioHistoryContext(
+                history_status=_skipped_history_status(snapshot, "not_needed_for_plan"),
+                latest_portfolio_state=None,
+                portfolio_growth=[],
+                allocation_history=[],
+            )
+
+        emit(
+            "reading_history_status",
+            "Reading planned portfolio history from SQL MCP before storing this run.",
+        )
+        history_status: dict[str, Any] = _skipped_history_status(
+            snapshot,
+            "history_status_not_requested",
+        )
+        latest_portfolio_state = None
+        portfolio_growth: list[dict[str, Any]] = []
+        allocation_history: list[dict[str, Any]] = []
+
+        if "history_status" in plan.history_queries:
+            history_status = self._call(
+                PORTFOLIO_SQL_SERVER,
+                self.portfolio_sql_mcp,
+                "portfolio_sql_get_history_status",
+                {
+                    "portfolio_id": ips.portfolio_id,
+                    "now": snapshot.as_of.isoformat(),
+                    "min_snapshots_for_history": self.min_snapshots_for_history,
+                },
+            )
+        if "latest_state" in plan.history_queries:
+            latest_portfolio_state = self._call(
+                PORTFOLIO_SQL_SERVER,
+                self.portfolio_sql_mcp,
+                "portfolio_sql_get_latest_portfolio_state",
+                {"portfolio_id": ips.portfolio_id},
+            )
+        if "portfolio_growth" in plan.history_queries:
+            portfolio_growth = self._call(
+                PORTFOLIO_SQL_SERVER,
+                self.portfolio_sql_mcp,
+                "portfolio_sql_get_portfolio_growth",
+                {"portfolio_id": ips.portfolio_id, "limit": plan.row_limit},
+            )
+        if "allocation_history" in plan.history_queries:
+            allocation_history = self._call(
+                PORTFOLIO_SQL_SERVER,
+                self.portfolio_sql_mcp,
+                "portfolio_sql_get_allocation_history",
+                {"portfolio_id": ips.portfolio_id, "limit": plan.row_limit},
+            )
+        return PortfolioHistoryContext(
+            history_status=history_status,
+            latest_portfolio_state=latest_portfolio_state,
+            portfolio_growth=portfolio_growth,
+            allocation_history=allocation_history,
+        )
+
+    def _write_portfolio_history(
+        self,
+        snapshot: PortfolioSnapshot,
+        snapshot_json: dict[str, Any],
+        source_report: OpenDFieldReport,
+        plan: PortfolioContextPlan,
+        ips: InvestmentPolicy,
+        emit,
+    ) -> dict[str, Any]:
+        if not plan.persist_observation:
+            emit("skipping_portfolio_history_update", "SQL persistence skipped by context plan.")
+            return _skipped_storage_result(snapshot, plan)
 
         emit("updating_portfolio_history", "Writing lean portfolio-history rows to SQL MCP.")
         self._call(
@@ -320,7 +454,7 @@ class MCPPortfolioAgent:
                 "value_snapshot_id": value_snapshot_result["value_snapshot_id"],
             },
         )
-        storage_result = {
+        return {
             "status": value_snapshot_result["status"],
             "portfolio_id": snapshot.portfolio_id,
             "account_id": account_id,
@@ -333,25 +467,68 @@ class MCPPortfolioAgent:
             "weight_rows_stored": weight_storage_result["rows_stored"],
             "data_quality_events_stored": data_quality_result["events_stored"],
         }
-        metrics_storage_result = _metrics_storage_skip_result(storage_result)
 
-        emit("complete", "Portfolio Agent run complete.")
-        return PortfolioAgentResult(
-            run_id=run_id,
-            portfolio_id=snapshot.portfolio_id,
-            snapshot=snapshot,
-            portfolio_packet=portfolio_packet,
-            metrics=metrics,
-            storage_result=storage_result,
-            metrics_storage_result=metrics_storage_result,
-            effective_cash=effective_cash,
-            history_status=history_status,
-            history_context=history_context,
-            evaluation=evaluation,
-            tool_calls=list(self.tool_calls),
-            status_events=status_events,
-            warnings=_result_warnings(portfolio_packet, history_status, evaluation),
-        )
+    def _record_planned_tools(self, plan: PortfolioContextPlan) -> None:
+        if plan.needs_sql_history or plan.persist_observation:
+            self.tool_calls.append(f"planned:{PORTFOLIO_SQL_SERVER}:portfolio_sql_initialize")
+        else:
+            self.tool_calls.append(
+                f"skipped:{PORTFOLIO_SQL_SERVER}:portfolio_sql_initialize "
+                "reason=no_sql_history_or_persistence"
+            )
+        if plan.needs_current_snapshot:
+            self.tool_calls.append(f"planned:{OPEND_SERVER}:opend_get_portfolio_context")
+        if plan.metric_groups:
+            self.tool_calls.append(
+                f"planned:{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
+                f"metric_groups={','.join(plan.metric_groups)}"
+            )
+        else:
+            self.tool_calls.append(
+                f"skipped:{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
+                "reason=no_metric_groups_requested"
+            )
+        self._record_planned_history_tools(plan)
+        self._record_planned_persistence_tools(plan)
+
+    def _record_planned_history_tools(self, plan: PortfolioContextPlan) -> None:
+        history_tools = {
+            "history_status": "portfolio_sql_get_history_status",
+            "latest_state": "portfolio_sql_get_latest_portfolio_state",
+            "portfolio_growth": "portfolio_sql_get_portfolio_growth",
+            "allocation_history": "portfolio_sql_get_allocation_history",
+        }
+        if not plan.needs_sql_history:
+            reason = _history_skip_reason(plan)
+            for tool_name in history_tools.values():
+                self.tool_calls.append(
+                    f"skipped:{PORTFOLIO_SQL_SERVER}:{tool_name} reason={reason}"
+                )
+            return
+        requested = set(plan.history_queries)
+        for query_name, tool_name in history_tools.items():
+            prefix = "planned" if query_name in requested else "skipped"
+            suffix = "" if query_name in requested else " reason=not_requested_by_context_plan"
+            self.tool_calls.append(f"{prefix}:{PORTFOLIO_SQL_SERVER}:{tool_name}{suffix}")
+
+    def _record_planned_persistence_tools(self, plan: PortfolioContextPlan) -> None:
+        persistence_tools = [
+            "portfolio_sql_upsert_portfolio",
+            "portfolio_sql_upsert_broker_account",
+            "portfolio_sql_upsert_assets",
+            "portfolio_sql_upsert_position_states",
+            "portfolio_sql_store_daily_value_snapshot",
+            "portfolio_sql_store_weight_snapshots",
+            "portfolio_sql_store_data_quality_events",
+        ]
+        for tool_name in persistence_tools:
+            if plan.persist_observation:
+                self.tool_calls.append(f"planned:{PORTFOLIO_SQL_SERVER}:{tool_name}")
+            else:
+                self.tool_calls.append(
+                    f"skipped:{PORTFOLIO_SQL_SERVER}:{tool_name} "
+                    "reason=persist_observation_false"
+                )
 
     def _call(
         self,
@@ -402,6 +579,108 @@ def build_default_portfolio_agent_with_mock_policy(
             evaluator=evaluator,
         ),
         mock_investment_policy(),
+    )
+
+
+def interpret_portfolio_task(query: str) -> PortfolioTask:
+    lowered = query.lower()
+    if _contains_any(lowered, PORTFOLIO_REVIEW_TERMS):
+        task_type = "full_review"
+    elif _contains_any(lowered, PORTFOLIO_HISTORY_TERMS):
+        task_type = "what_changed"
+    elif _contains_any(lowered, PORTFOLIO_RISK_TERMS):
+        task_type = "risk_check"
+    elif _contains_any(
+        lowered,
+        (*PORTFOLIO_CASH_TERMS, *PORTFOLIO_ALLOCATION_TERMS, *PORTFOLIO_POSITION_TERMS),
+    ):
+        task_type = "portfolio_fact"
+    else:
+        task_type = "full_review"
+
+    return PortfolioTask(
+        task_type=task_type,
+        source_query=query,
+        requested_tickers=_extract_tickers(query),
+        history_window="90d" if task_type == "what_changed" else "30d",
+        required_outputs=_portfolio_required_outputs(task_type, lowered),
+        persistence_mode="auto",
+        focus_areas=_portfolio_focus_areas(task_type, lowered),
+    )
+
+
+def plan_portfolio_context(task: PortfolioTask) -> PortfolioContextPlan:
+    if task.persistence_mode == "persist":
+        persist_observation = True
+    elif task.persistence_mode == "skip":
+        persist_observation = False
+    else:
+        persist_observation = task.task_type in {
+            "full_review",
+            "what_changed",
+            "deep_dive",
+            "compare",
+        }
+
+    if task.task_type in {"full_review", "deep_dive", "compare"}:
+        return PortfolioContextPlan(
+            needs_current_snapshot=True,
+            needs_sql_history=True,
+            history_queries=[
+                "history_status",
+                "latest_state",
+                "portfolio_growth",
+                "allocation_history",
+            ],
+            tickers=task.requested_tickers,
+            metric_groups=[
+                "allocation",
+                "concentration",
+                "effective_cash",
+                "risk",
+                "performance",
+            ],
+            persist_observation=persist_observation,
+            history_window=task.history_window,
+            row_limit=100,
+        )
+    if task.task_type == "what_changed":
+        return PortfolioContextPlan(
+            needs_current_snapshot=True,
+            needs_sql_history=True,
+            history_queries=[
+                "history_status",
+                "latest_state",
+                "portfolio_growth",
+                "allocation_history",
+            ],
+            tickers=task.requested_tickers,
+            metric_groups=["allocation", "effective_cash", "performance"],
+            persist_observation=persist_observation,
+            history_window=task.history_window or "90d",
+            row_limit=100,
+        )
+    if task.task_type == "risk_check":
+        return PortfolioContextPlan(
+            needs_current_snapshot=True,
+            needs_sql_history=False,
+            history_queries=["none"],
+            tickers=task.requested_tickers,
+            metric_groups=["allocation", "concentration", "effective_cash", "risk"],
+            persist_observation=persist_observation,
+            history_window=task.history_window,
+            row_limit=30,
+        )
+    metric_groups = _metric_groups_for_portfolio_fact(task)
+    return PortfolioContextPlan(
+        needs_current_snapshot=True,
+        needs_sql_history=False,
+        history_queries=["none"],
+        tickers=task.requested_tickers,
+        metric_groups=metric_groups,
+        persist_observation=persist_observation,
+        history_window=task.history_window,
+        row_limit=30,
     )
 
 
@@ -646,6 +925,29 @@ def _pending_storage_result(snapshot: PortfolioSnapshot) -> dict[str, Any]:
     }
 
 
+def _skipped_storage_result(snapshot: PortfolioSnapshot, plan: PortfolioContextPlan) -> dict[str, Any]:
+    return {
+        "status": "skipped",
+        "portfolio_id": snapshot.portfolio_id,
+        "snapshot_date": snapshot.as_of.date().isoformat(),
+        "reason": "persist_observation_false",
+        "context_plan": plan.model_dump(mode="json"),
+        "weight_rows_stored": 0,
+    }
+
+
+def _skipped_history_status(snapshot: PortfolioSnapshot, reason: str) -> dict[str, Any]:
+    return {
+        "snapshot_count": 0,
+        "latest_snapshot_at": None,
+        "freshness_status": "unknown",
+        "as_of": snapshot.as_of.isoformat(),
+        "skipped": True,
+        "reason": reason,
+        "data_quality": {"warnings": []},
+    }
+
+
 def _portfolio_packet_with_history(
     packet: PortfolioAgentPacket,
     history_status: dict[str, Any],
@@ -675,6 +977,79 @@ def _dedupe(values: list[str]) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term in text for term in terms)
+
+
+def _extract_tickers(query: str) -> list[str]:
+    tickers = re.findall(r"\b(?:US\.)?[A-Z]{1,5}\b", query)
+    stopwords = {"I", "A", "US", "USD", "ETF", "LLM", "AI"}
+    normalized = []
+    for ticker in tickers:
+        ticker = ticker.removeprefix("US.").upper()
+        if ticker not in stopwords:
+            normalized.append(ticker)
+    return _dedupe(normalized)
+
+
+def _portfolio_required_outputs(task_type: str, lowered_query: str) -> list[str]:
+    if task_type == "what_changed":
+        return ["snapshot", "performance", "history_context", "sentiment_candidates"]
+    if task_type == "risk_check":
+        return ["snapshot", "allocation", "risk", "candidate_issues", "sentiment_candidates"]
+    if task_type == "portfolio_fact":
+        outputs = ["snapshot"]
+        if _contains_any(lowered_query, PORTFOLIO_ALLOCATION_TERMS):
+            outputs.append("allocation")
+        if _contains_any(lowered_query, PORTFOLIO_CASH_TERMS):
+            outputs.append("effective_cash")
+        if _contains_any(lowered_query, PORTFOLIO_POSITION_TERMS):
+            outputs.append("allocation")
+        return _dedupe(outputs or ["snapshot"])
+    return [
+        "snapshot",
+        "allocation",
+        "performance",
+        "risk",
+        "effective_cash",
+        "candidate_issues",
+        "sentiment_candidates",
+        "history_context",
+    ]
+
+
+def _portfolio_focus_areas(task_type: str, lowered_query: str) -> list[str]:
+    focus = [task_type]
+    if _contains_any(lowered_query, PORTFOLIO_CASH_TERMS):
+        focus.append("cash")
+    if _contains_any(lowered_query, PORTFOLIO_ALLOCATION_TERMS):
+        focus.append("allocation")
+    if _contains_any(lowered_query, PORTFOLIO_RISK_TERMS):
+        focus.append("risk")
+    return _dedupe(focus)
+
+
+def _metric_groups_for_portfolio_fact(task: PortfolioTask) -> list[str]:
+    outputs = set(task.required_outputs)
+    metric_groups = []
+    if "allocation" in outputs:
+        metric_groups.append("allocation")
+    if "effective_cash" in outputs:
+        metric_groups.append("effective_cash")
+    if "risk" in outputs or "candidate_issues" in outputs:
+        metric_groups.extend(["allocation", "concentration", "risk"])
+    if not metric_groups:
+        metric_groups.append("allocation")
+    return _dedupe(metric_groups)
+
+
+def _history_skip_reason(plan: PortfolioContextPlan) -> str:
+    groups = set(plan.metric_groups)
+    if groups <= {"allocation", "effective_cash"}:
+        return "not_needed_for_cash_query"
+    return "not_needed_for_context_plan"
 
 
 def _emit(

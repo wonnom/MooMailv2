@@ -31,8 +31,9 @@ Implemented and useful today:
 - `moomail-opend-mcp`: local read-only OpenD tool surface.
 - `moomail-portfolio-sql-mcp`: local SQLite portfolio-history tool surface.
 - `moomail-finance-metrics-mcp`: deterministic calculation tool surface.
-- `MCPPortfolioAgent`: deterministic Python workflow that calls the three MCP
-  modules in a fixed order, then asks an LLM evaluator to answer portfolio-only
+- `MCPPortfolioAgent`: bounded-planning Python Portfolio Agent that interprets
+  a portfolio task, produces a `PortfolioContextPlan`, executes selected MCP
+  tools deterministically, then asks an LLM evaluator to answer portfolio-only
   questions from the collected packet.
 - `scripts/portfolio_agent_review.py`: terminal Portfolio Agent review.
 - `scripts/serve_chat.py`: local chat frontend server.
@@ -41,8 +42,8 @@ Implemented and useful today:
 
 Important limitations:
 
-- The Portfolio Agent is MCP-backed but not yet MCP-autonomous. It does not let
-  the LLM decide which OpenD, SQL, or metrics tools to call.
+- The Portfolio Agent is MCP-backed with a deterministic bounded planner. It
+  does not let the LLM decide which OpenD, SQL, or metrics tools to call.
 - The current Investment Agent is a prototype, not the target LangGraph
   supervisor.
 - The Sentiment Agent and Neo4j GraphRAG path are not implemented for real V1
@@ -166,6 +167,8 @@ Exit criteria:
 
 ### 3. Convert Portfolio Agent To Bounded Planning Subgraph
 
+Status: complete as of 2026-06-13.
+
 Refactor the current deterministic Portfolio Agent into graph nodes while
 preserving V1 behavior as the safe default.
 
@@ -182,10 +185,10 @@ Execution remains deterministic once the plan is produced.
 
 Exit criteria:
 
-- A cash-weight query can avoid unnecessary broad history reads.
-- A “what changed” query can request portfolio growth/allocation history.
-- A full review can preserve the existing V1 broad context behavior.
-- Tool calls are visible in trace output.
+- A cash-weight query avoids unnecessary broad history reads and persistence.
+- A “what changed” query requests portfolio growth/allocation history.
+- A full review preserves the existing V1 broad context behavior.
+- Tool calls are visible as planned, actual, and skipped trace entries.
 
 ### 4. Add Sentiment Agent Stub
 

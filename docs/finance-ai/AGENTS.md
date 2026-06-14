@@ -126,10 +126,10 @@ Implemented persistence policy after the 2026-06-02 portfolio-history refactor:
 The Portfolio Agent LLM may interpret portfolio-only facts. It must not decide
 whether to write SQL rows, invent market sentiment, or issue trade instructions.
 
-### V2 Portfolio Agent Target
+### V2 Portfolio Agent
 
-V2 should convert the Portfolio Agent into a bounded-planning subgraph. The
-planner may decide which portfolio context is needed for the assigned task:
+V2 converts the Portfolio Agent into a bounded-planning subgraph. The planner
+decides which portfolio context is needed for the assigned task:
 
 - current OpenD snapshot
 - SQL history status
@@ -143,6 +143,15 @@ planner may decide which portfolio context is needed for the assigned task:
 Execution remains deterministic once the plan is produced. The Portfolio Agent
 returns structured portfolio evidence and candidate sentiment scope, not final
 investment advice.
+
+Current V2 behavior:
+
+- Full review and deep-dive tasks preserve broad V1 context and persistence.
+- Cash/allocation/holding fact tasks avoid broad SQL history reads by default.
+- What-changed tasks request history status, latest state, portfolio growth,
+  and allocation history.
+- Each run returns planned, actual, and skipped tool entries in
+  `PortfolioAgentResult.tool_calls`.
 
 ### Portfolio Agent Output
 

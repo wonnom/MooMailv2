@@ -11,13 +11,14 @@ from moomail_finance_ai.portfolio_agent import (
     PortfolioEvaluation,
     PortfolioHistoryContext,
     build_effective_cash_summary,
+    plan_portfolio_context,
 )
 from moomail_finance_ai.v2_investment_agent import (
     V2InvestmentAgent,
     V2SentimentAgentStub,
     classify_investment_query,
 )
-from moomail_finance_ai.v2_schemas import SentimentPacket, SentimentTask
+from moomail_finance_ai.v2_schemas import PortfolioTask, SentimentPacket, SentimentTask
 
 
 def test_v2_dependency_strategy_uses_real_langgraph_runtime():
@@ -54,6 +55,8 @@ def test_v2_routing_portfolio_only_skips_sentiment():
     state = agent.run("How much effective cash do I have?")
 
     assert portfolio_agent.calls == 1
+    assert portfolio_agent.last_task is not None
+    assert portfolio_agent.last_task.task_type == "portfolio_fact"
     assert sentiment_agent.calls == 0
     assert state.query_plan is not None
     assert state.query_plan.mode == "portfolio_fact"
@@ -75,10 +78,14 @@ def test_v2_full_review_routes_portfolio_then_sentiment_stub():
     state = agent.run("Review my portfolio and market sentiment.")
 
     assert portfolio_agent.calls == 1
+    assert portfolio_agent.last_task is not None
+    assert portfolio_agent.last_task.task_type == "deep_dive"
     assert sentiment_agent.calls == 1
     assert sentiment_agent.last_task is not None
     assert sentiment_agent.last_task.tickers == ["MSFT", "AAPL"]
     assert state.portfolio_packet is not None
+    assert state.portfolio_packet.context_plan.persist_observation is True
+    assert "fake_portfolio_agent" in state.portfolio_packet.tool_calls
     assert [candidate.ticker for candidate in state.portfolio_packet.sentiment_candidates] == [
         "MSFT",
         "AAPL",
@@ -146,12 +153,21 @@ class FakePortfolioAgent:
     def __init__(self, *, candidate_weights: bool = True):
         self.calls = 0
         self.queries: list[str] = []
+        self.last_task: PortfolioTask | None = None
         self.candidate_weights = candidate_weights
 
-    def run(self, query: str, ips, *, status_callback=None) -> PortfolioAgentResult:
+    def run(
+        self,
+        query: str,
+        ips,
+        *,
+        status_callback=None,
+        portfolio_task: PortfolioTask | None = None,
+    ) -> PortfolioAgentResult:
         del status_callback
         self.calls += 1
         self.queries.append(query)
+        self.last_task = portfolio_task
         packet = mock_portfolio_packet()
         if not self.candidate_weights:
             holdings = [
@@ -171,6 +187,10 @@ class FakePortfolioAgent:
         return PortfolioAgentResult(
             run_id=f"fake_portfolio_{self.calls}",
             portfolio_id=packet.portfolio_id,
+            context_plan=plan_portfolio_context(
+                portfolio_task
+                or PortfolioTask(task_type="full_review", source_query=query)
+            ),
             snapshot=packet.snapshot,
             portfolio_packet=packet,
             metrics=metrics,
@@ -180,7 +200,7 @@ class FakePortfolioAgent:
             history_status=history_context.history_status,
             history_context=history_context,
             evaluation=PortfolioEvaluation(summary="Fake portfolio evaluation complete."),
-            tool_calls=["fake_portfolio_agent"],
+            tool_calls=["planned:fake_portfolio_agent", "fake_portfolio_agent"],
             status_events=[],
             warnings=[],
         )

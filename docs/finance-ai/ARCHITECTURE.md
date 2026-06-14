@@ -75,11 +75,13 @@ InvestmentAgentGraph
   -> emit_final_output
 ```
 
-The Portfolio Agent should become a bounded-planning subgraph. It may decide
-which portfolio tools it needs, such as current OpenD, SQL history, or metric
-groups. It should not call the Sentiment Agent. It can return candidate
-sentiment scope such as important tickers, large contributors, or concerning
-allocation changes.
+The Portfolio Agent is now a bounded-planning subgraph. It interprets a
+`PortfolioTask`, produces a `PortfolioContextPlan`, then executes selected MCP
+tools deterministically. Full review and deep-dive tasks keep broad V1 context;
+cash/allocation fact tasks can skip broad SQL history and persistence; and
+what-changed tasks request portfolio growth plus allocation history. It should
+not call the Sentiment Agent. It can return candidate sentiment scope such as
+important tickers, large contributors, or concerning allocation changes.
 
 The Investment Agent decides whether sentiment is needed and calls the Sentiment
 Agent. In V2, the Sentiment Agent is a structured stub so the project can lock
@@ -565,9 +567,9 @@ V2 nodes:
 10. Emit final structured output
 11. Store audit summary
 
-Portfolio Agent should evolve from the current deterministic workflow into a
-bounded-planning subgraph. Sentiment Agent should begin as a stub with the same
-contract the future Neo4j GraphRAG implementation will satisfy.
+Portfolio Agent has evolved from the fixed deterministic workflow into a
+bounded-planning deterministic subgraph. Sentiment Agent should begin as a stub
+with the same contract the future Neo4j GraphRAG implementation will satisfy.
 
 ## Frontend Direction
 

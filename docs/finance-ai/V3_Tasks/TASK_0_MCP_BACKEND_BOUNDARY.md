@@ -1,6 +1,6 @@
 # Task V3.0: MCP Backend Boundary
 
-Status: planned.
+Status: complete as of 2026-06-17.
 
 ## Goal
 
@@ -45,6 +45,28 @@ owns MCP server lifecycle, permissions, timeouts, traces, and errors.
 5. The old "MCP is mainly an agent tool surface" wording is removed or marked as
    historical.
 
+## Completion Notes
+
+V3.0 is a design-boundary task. It does not implement FastMCP, the official MCP
+client, backend dashboard APIs, or gateway runtime code. Those belong to V3.1,
+V3.2, V3.3, and V3.4.
+
+Completed decisions:
+
+- OpenD MCP is a shared backend data boundary for deterministic app features
+  and agentic analysis.
+- The frontend calls backend APIs only; it never calls MCP directly.
+- The backend owns MCP host/client runtime, server lifecycle, permissions,
+  timeouts, traces, and sanitized errors.
+- The deterministic portfolio data lane is separate from the agentic analysis
+  lane.
+- Backend contract shapes are defined for connection status, dashboard
+  snapshot, manual refresh result, `last_updated_at`, and freshness metadata.
+- Gateway consumer permission profiles are defined for `dashboard_refresh`,
+  `portfolio_agent`, `investment_agent`, and `sentiment_agent`.
+- V2's in-process `RegisteredMCPModule` runtime remains current reality, but it
+  is not the V3 target runtime.
+
 ## Dependency Graph
 
 ```text
@@ -64,53 +86,53 @@ A. Audit current app and agent consumers
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| A | Audit `chat_api.py`, `portfolio_agent.py`, `v2_investment_agent.py`, and frontend dashboard assumptions for current portfolio data access. | None | Notes in this task doc or `ARCHITECTURE.md`. |
-| A1 | Identify which current calls are infrastructure refresh calls rather than analytical agent calls. | A | Review checklist. |
-| B | Define "deterministic portfolio data lane" in `ARCHITECTURE.md` and V3 docs. | A1 | Docs mention page load, manual refresh, OpenD status, snapshot, metrics, SQL update. |
-| B1 | Define "agentic analysis lane" in `ARCHITECTURE.md` and V3 docs. | A1 | Docs state Investment Agent owns analysis routing. |
-| B2 | State that OpenD MCP serves both lanes. | B, B1 | Docs check. |
+| A | Audit `chat_api.py`, `portfolio_agent.py`, `v2_investment_agent.py`, and frontend dashboard assumptions for current portfolio data access. | None | Done: current app path is agent/chat oriented; V3 dashboard data lane is documented as a backend service. |
+| A1 | Identify which current calls are infrastructure refresh calls rather than analytical agent calls. | A | Done: connection checks, funds/positions/context retrieval, normalization, metrics, SQL update, and dashboard display are deterministic app infrastructure. |
+| B | Define "deterministic portfolio data lane" in `ARCHITECTURE.md` and V3 docs. | A1 | Done. |
+| B1 | Define "agentic analysis lane" in `ARCHITECTURE.md` and V3 docs. | A1 | Done. |
+| B2 | State that OpenD MCP serves both lanes. | B, B1 | Done. |
 
 ### EC2: Backend API contracts are defined
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| C | Define a backend endpoint or service method for connection status. Suggested shape: `PortfolioConnectionStatus`. | B | Contract/schema test once implemented. |
-| C1 | Include OpenD reachable status, configured host/port summary, selected account metadata, and sanitized error. | C | Unit test with fake gateway connection failure. |
-| C2 | Ensure no credentials or account secrets leak to frontend. | C1 | Security assertion in response tests. |
-| D | Define a backend endpoint or service method for dashboard snapshot. Suggested shape: `PortfolioDashboardSnapshot`. | B | Contract/schema test once implemented. |
-| D1 | Include `as_of`, `last_updated_at`, `freshness_status`, funds/balances, holdings, cash-equivalent handling, metrics, and warnings. | D | Snapshot fixture test. |
-| D2 | Include unsupported quote warnings and cash sweep assumptions as displayable warnings. | D1 | Fixture test with OTC and fund-assets assumptions. |
-| E | Define manual refresh semantics. | C, D | Refresh service test once implemented. |
-| E1 | Refresh should check OpenD, retrieve latest funds/positions/context, calculate metrics, update SQL, and return dashboard snapshot. | E | Fake gateway verifies tool sequence. |
-| E2 | Failed refresh should return structured error and preserve last-known dashboard state if available. | E | Fake gateway failure test. |
+| C | Define a backend endpoint or service method for connection status. Suggested shape: `PortfolioConnectionStatus`. | B | Done: contract documented in `ARCHITECTURE.md`. |
+| C1 | Include OpenD reachable status, configured host/port summary, selected account metadata, and sanitized error. | C | Done: documented. Test to add in V3.2/V3.3 implementation. |
+| C2 | Ensure no credentials or account secrets leak to frontend. | C1 | Done: documented as contract requirement. Test to add when response model exists. |
+| D | Define a backend endpoint or service method for dashboard snapshot. Suggested shape: `PortfolioDashboardSnapshot`. | B | Done: contract documented in `ARCHITECTURE.md`. |
+| D1 | Include `as_of`, `last_updated_at`, `freshness_status`, funds/balances, holdings, cash-equivalent handling, metrics, and warnings. | D | Done: documented. |
+| D2 | Include unsupported quote warnings and cash sweep assumptions as displayable warnings. | D1 | Done: documented. |
+| E | Define manual refresh semantics. | C, D | Done: contract documented as `PortfolioRefreshResult`. |
+| E1 | Refresh should check OpenD, retrieve latest funds/positions/context, calculate metrics, update SQL, and return dashboard snapshot. | E | Done: documented in `ARCHITECTURE.md` and `MCP_SERVERS.md`. |
+| E2 | Failed refresh should return structured error and preserve last-known dashboard state if available. | E | Done: documented. Test to add when service exists. |
 
 ### EC3: Backend owns MCP gateway lifecycle
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| F | Define the backend as the MCP host/client owner. | B | Architecture docs. |
-| F1 | Define startup behavior: create gateway, launch or connect to MCP servers, validate capabilities. | F | Gateway lifecycle test in V3.2. |
-| F2 | Define shutdown behavior: close MCP sessions/processes cleanly. | F | Gateway lifecycle test in V3.2. |
-| F3 | Define per-request behavior: reuse existing sessions and emit trace/status events. | F | Gateway call trace test in V3.2. |
-| F4 | State that frontend talks only to backend APIs. | F | Docs check and frontend code review. |
+| F | Define the backend as the MCP host/client owner. | B | Done: architecture and MCP docs. |
+| F1 | Define startup behavior: create gateway, launch or connect to MCP servers, validate capabilities. | F | Done as design; lifecycle test to add in V3.2. |
+| F2 | Define shutdown behavior: close MCP sessions/processes cleanly. | F | Done as design; lifecycle test to add in V3.2. |
+| F3 | Define per-request behavior: reuse existing sessions and emit trace/status events. | F | Done as design; trace test to add in V3.2. |
+| F4 | State that frontend talks only to backend APIs. | F | Done. |
 
 ### EC4: Permission profiles exist
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| G | Define gateway consumer identities. Suggested identities: `dashboard_refresh`, `portfolio_agent`, `investment_agent`, `sentiment_agent`. | F | Permission config test in V3.2. |
-| G1 | `dashboard_refresh` can call OpenD status/context, metrics snapshot, and SQL update tools. | G | Deny/allow test. |
-| G2 | `portfolio_agent` can call OpenD, metrics, and SQL tools needed for analysis. | G | Deny/allow test. |
-| G3 | `investment_agent` should not directly call OpenD unless explicitly approved later; it should call Portfolio Agent for portfolio retrieval. | G | Deny test. |
-| G4 | `sentiment_agent` keeps finance metrics only until research MCP exists. | G | Deny test. |
+| G | Define gateway consumer identities. Suggested identities: `dashboard_refresh`, `portfolio_agent`, `investment_agent`, `sentiment_agent`. | F | Done. Permission config test to add in V3.2. |
+| G1 | `dashboard_refresh` can call OpenD status/context, metrics snapshot, and SQL update tools. | G | Done as design. |
+| G2 | `portfolio_agent` can call OpenD, metrics, and SQL tools needed for analysis. | G | Done as design. |
+| G3 | `investment_agent` should not directly call OpenD unless explicitly approved later; it should call Portfolio Agent for portfolio retrieval. | G | Done as design. |
+| G4 | `sentiment_agent` keeps finance metrics only until research MCP exists. | G | Done as design. |
 
 ### EC5: Old wording is corrected
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| H | Update `ACTION_PLAN.md`, `ARCHITECTURE.md`, and `MCP_SERVERS.md` to describe MCP as backend infrastructure. | B through G | Documentation review. |
-| H1 | Mark V2's in-process module runtime as historical/current reality, not target V3 architecture. | H | Documentation review. |
-| H2 | Add docs regression checks if the project keeps using doc tests. | H | New or updated docs test. |
+| H | Update `ACTION_PLAN.md`, `ARCHITECTURE.md`, and `MCP_SERVERS.md` to describe MCP as backend infrastructure. | B through G | Done. |
+| H1 | Mark V2's in-process module runtime as historical/current reality, not target V3 architecture. | H | Done. |
+| H2 | Add docs regression checks if the project keeps using doc tests. | H | Done: `tests/test_v3_planning_docs.py`. |
 
 ## Tests To Add During Implementation
 

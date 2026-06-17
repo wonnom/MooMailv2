@@ -331,15 +331,34 @@ V3 tasks:
 
 | Task | Status | Purpose |
 | --- | --- | --- |
-| V3.0 | planned | Define MCP as backend infrastructure boundary for deterministic app flows and agentic flows. |
+| V3.0 | complete as of 2026-06-17 | Define MCP as backend infrastructure boundary for deterministic app flows and agentic flows. |
 | V3.1 | planned | Preserve business logic, replace custom `JsonRpcMCPServer` with FastMCP servers, and define the gateway contract. |
 | V3.2 | planned | Implement `DirectToolGateway` for parity tests and `StdioMCPToolGateway` for production-ish local runtime. |
-| V3.3 | planned | Move Portfolio Agent and V2 Investment Agent to the gateway, then update docs and retirement decisions. |
+| V3.3 | planned | Implement the deterministic backend/frontend portfolio data lane for dashboard status, latest snapshot, manual refresh, SQL update, and no-agent refresh behavior. |
+| V3.4 | planned | Move Portfolio Agent and V2 Investment Agent to the gateway, then update docs and retirement decisions. |
+
+V3.0 decisions now accepted:
+
+- OpenD MCP is a shared backend data boundary for deterministic dashboard
+  refresh/status flows and agentic analysis flows.
+- The frontend calls backend APIs only and never calls MCP directly.
+- Backend API contracts are defined for portfolio connection status, dashboard
+  snapshot, manual refresh result, and last-updated/freshness metadata.
+- The backend owns MCP host/client lifecycle, gateway permissions, timeouts,
+  traces, and sanitized errors.
+- Gateway consumers are `dashboard_refresh`, `portfolio_agent`,
+  `investment_agent`, and `sentiment_agent`, each with distinct allowed MCP
+  access.
 
 V3 explicitly plans to retire or narrow the custom V2 MCP-shaped runtime only
 after parity tests pass. Candidate replacements include `mcp/stdio.py`, custom
 server script behavior, direct `RegisteredMCPModule` injection into agents, and
 custom stdio test helpers.
+
+The deterministic portfolio data lane is its own implementation step in V3.3.
+It must update the backend and frontend so page load/manual refresh can show
+connection status, current balances, holdings, metrics, warnings, and
+last-updated metadata without invoking Portfolio Agent or Investment Agent.
 
 ## Next Work Options
 

@@ -1,6 +1,7 @@
 # V3 Task Maps
 
-Status: planned, not implemented.
+Status: planned iteration. V3.0 design boundary is complete as of 2026-06-17;
+V3.1 through V3.4 are not implemented.
 
 V3 turns the V2 MCP-shaped runtime into a real backend MCP runtime. The main
 change is conceptual as much as technical: MCP becomes shared backend
@@ -63,10 +64,11 @@ Chat or CLI analytical query
 
 | Task | File | Purpose |
 | --- | --- | --- |
-| V3.0 | [TASK_0_MCP_BACKEND_BOUNDARY.md](TASK_0_MCP_BACKEND_BOUNDARY.md) | Define MCP as backend infrastructure for deterministic app flows and agentic flows. |
+| V3.0 | [TASK_0_MCP_BACKEND_BOUNDARY.md](TASK_0_MCP_BACKEND_BOUNDARY.md) | Complete. Define MCP as backend infrastructure for deterministic app flows and agentic flows. |
 | V3.1 | [TASK_1_FASTMCP_SERVER_MIGRATION.md](TASK_1_FASTMCP_SERVER_MIGRATION.md) | Preserve business logic, replace the custom stdio server with FastMCP servers, and define the gateway contract. |
 | V3.2 | [TASK_2_GATEWAY_MODES.md](TASK_2_GATEWAY_MODES.md) | Implement DirectToolGateway for parity tests and StdioMCPToolGateway for production-ish local runtime. |
-| V3.3 | [TASK_3_AGENT_GATEWAY_MIGRATION.md](TASK_3_AGENT_GATEWAY_MIGRATION.md) | Move Portfolio Agent and V2 Investment Agent to the gateway and update docs/tests. |
+| V3.3 | [TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md](TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md) | Implement the deterministic backend and frontend portfolio data lane without invoking agents. |
+| V3.4 | [TASK_4_AGENT_GATEWAY_MIGRATION.md](TASK_4_AGENT_GATEWAY_MIGRATION.md) | Move Portfolio Agent and V2 Investment Agent to the gateway and update docs/tests. |
 
 ## Cross-Task Dependency Map
 
@@ -74,13 +76,19 @@ Chat or CLI analytical query
 V3.0. MCP backend boundary
   ├── V3.1. FastMCP server migration and gateway contract
   │   ├── V3.2. Gateway modes
-  │   │   ├── deterministic portfolio data lane runtime support
-  │   │   └── V3.3. Agent gateway migration
+  │   │   ├── V3.3. Deterministic portfolio data lane implementation
+  │   │   └── V3.4. Agent gateway migration
   │   └── FastMCP parity tests
   └── backend API contract for dashboard refresh/status/snapshot
 
-V3.3. Agent gateway migration
+V3.3. Deterministic portfolio data lane
   ├── depends on V3.2 StdioMCPToolGateway
+  ├── adds PortfolioDataService/API/frontend refresh flow
+  └── proves dashboard refresh does not invoke agents or LLMs
+
+V3.4. Agent gateway migration
+  ├── depends on V3.2 StdioMCPToolGateway
+  ├── depends on V3.3 dashboard data lane remaining separate
   ├── depends on DirectToolGateway parity tests
   └── closes old in-process MCP runtime usage
 ```
@@ -141,4 +149,6 @@ These can start immediately:
   custom runtime code.
 - V3.1-A: Audit current OpenD, SQL, and metrics business logic boundaries.
 
-Do not start V3.3 until V3.2 has a working gateway with parity coverage.
+Do not start V3.3 until V3.2 has a working gateway with parity coverage. Do not
+start V3.4 until V3.3 proves dashboard refresh is deterministic and independent
+from agent runs.

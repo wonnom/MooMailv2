@@ -60,7 +60,8 @@ V3.1. FastMCP server migration and gateway contract
   │       └── F. Trace/error handling
   └── G. Gateway tests
       ├── H. Deterministic portfolio data lane can use gateway
-      └── V3.3. Agents can move to gateway
+      ├── V3.3. Deterministic portfolio data lane can be implemented
+      └── V3.4. Agents can move to gateway
 ```
 
 ## Task Breakdown By Exit Criteria
@@ -112,8 +113,8 @@ V3.1. FastMCP server migration and gateway contract
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
 | E | Add `GatewayManager` or backend factory that owns gateway startup/shutdown. | D | Lifecycle test. |
-| E1 | Support chat backend startup with StdioMCPToolGateway. | E | `ChatService` factory test in V3.3. |
-| E2 | Support CLI script startup with StdioMCPToolGateway. | E | CLI smoke test in V3.3. |
+| E1 | Support chat/backend startup with StdioMCPToolGateway. | E | Backend factory tests in V3.3 and V3.4. |
+| E2 | Support CLI script startup with StdioMCPToolGateway. | E | CLI smoke test in V3.4. |
 | E3 | Support deterministic dashboard refresh service with the same gateway. | E | Data lane test. |
 | F | Standardize gateway trace/error events. | A3, E | Trace tests. |
 | F1 | Sanitize errors before returning to frontend. | F | Error response test. |
@@ -139,7 +140,7 @@ V3.1. FastMCP server migration and gateway contract
 
 ## Deletion Candidates After This Task
 
-These become real deletion candidates only after V3.2 and V3.3 are green:
+These become real deletion candidates only after V3.2, V3.3, and V3.4 are green:
 
 - `_MCPStdioClient` helper classes in deterministic and live tests
 - `src/moomail_finance_ai/mcp/stdio.py`

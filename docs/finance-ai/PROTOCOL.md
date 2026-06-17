@@ -98,6 +98,92 @@ The frontend must stop the loading state when it receives `error`, show a failed
 chat status, and render the error details in the trace panel. Traceback lines are
 local operational diagnostics; they must not include hidden model reasoning.
 
+## V3 Portfolio Data Lane Protocol
+
+V3 adds a deterministic portfolio data lane for dashboard status, page load, and
+manual refresh. This lane is not an agent query and must not call an LLM.
+
+The frontend calls backend APIs only. The backend calls MCP through the future
+gateway.
+
+Recommended backend contracts:
+
+### `PortfolioConnectionStatus`
+
+Purpose: show whether OpenD and the backend data lane are ready.
+
+Required fields:
+
+- `status`: `connected`, `degraded`, or `disconnected`
+- `checked_at`
+- `opend.reachable`
+- `opend.host`
+- `opend.port`
+- `opend.server_name`
+- `opend.selected_account_configured`
+- `opend.selected_account_label`
+- `last_successful_refresh_at`
+- `can_refresh`
+- `warnings`
+- `error`
+
+The response must be frontend-safe: no API keys, passwords, raw account secrets,
+broker login material, or hidden backend config.
+
+### `PortfolioDashboardSnapshot`
+
+Purpose: render current portfolio state without asking an agent to decide
+whether current OpenD data is needed.
+
+Required fields:
+
+- `portfolio_id`
+- `as_of`
+- `last_updated_at`
+- `freshness_status`
+- `connection_status`
+- `balances`
+- `holdings`
+- `allocation`
+- `metrics`
+- `warnings`
+- `data_quality_events`
+- `source_summary`
+
+Balances should make configured cash sweep treatment explicit. Unsupported
+quotes, stale data, missing data, and cash-sweep assumptions should be surfaced
+as displayable warnings or data-quality events.
+
+### `PortfolioRefreshResult`
+
+Purpose: represent a manual or backend-triggered refresh.
+
+Required fields:
+
+- `refresh_id`
+- `started_at`
+- `completed_at`
+- `status`: `succeeded`, `partial`, or `failed`
+- `dashboard_snapshot`
+- `history_update`
+- `warnings`
+- `error`
+- `trace`
+
+Refresh sequence:
+
+```text
+1. Check OpenD connection.
+2. Retrieve latest funds, positions, and normalized portfolio context.
+3. Calculate finance metrics.
+4. Update SQL portfolio history.
+5. Return a dashboard snapshot and refresh metadata.
+```
+
+If refresh fails, return a structured sanitized error and the last-known
+dashboard snapshot when one exists. Mark that snapshot stale rather than hiding
+the failure.
+
 ## Agent State
 
 High-level state shape:

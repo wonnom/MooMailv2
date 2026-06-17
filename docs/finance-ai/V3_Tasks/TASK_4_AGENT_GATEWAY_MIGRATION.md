@@ -1,4 +1,4 @@
-# Task V3.3: Agent Gateway Migration
+# Task V3.4: Agent Gateway Migration
 
 Status: planned.
 
@@ -25,8 +25,9 @@ V2 Investment Agent
   -> Investment Agent does not directly call OpenD by default
 ```
 
-The deterministic dashboard portfolio data lane should also use the gateway,
-but it is owned by backend services rather than agents.
+The deterministic dashboard portfolio data lane should already be implemented
+in V3.3. This task moves analytical agents onto the same gateway without
+turning dashboard refresh into an agent call.
 
 ## Exit Criteria
 
@@ -35,15 +36,14 @@ but it is owned by backend services rather than agents.
 2. V2 Investment Agent default builder builds or receives a gateway-backed
    Portfolio Agent.
 3. Chat backend and terminal scripts can run through the gateway path.
-4. Deterministic dashboard refresh/status service can use the same gateway path
-   without invoking an agent.
+4. Agent migration does not disturb the V3.3 deterministic dashboard data lane.
 5. Tests and docs are updated, and old in-process MCP runtime usage is either
    removed or marked as test-only migration support.
 
 ## Dependency Graph
 
 ```text
-V3.2. Gateway modes
+V3.3. Deterministic portfolio data lane
   ├── A. Portfolio Agent gateway refactor
   │   ├── B. Portfolio Agent tests with fake gateway
   │   ├── C. Portfolio Agent tests with StdioMCPToolGateway
@@ -51,8 +51,6 @@ V3.2. Gateway modes
   ├── E. V2 Investment Agent builder migration
   │   ├── F. Chat backend migration
   │   └── G. Terminal script migration
-  ├── H. Deterministic portfolio data service
-  │   └── I. Dashboard API tests
   └── J. Docs, retirement, and closeout checks
 ```
 
@@ -62,7 +60,7 @@ V3.2. Gateway modes
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| A | Replace `opend_mcp`, `finance_metrics_mcp`, and `portfolio_sql_mcp` fields with a gateway dependency. | V3.2 | Type/unit tests. |
+| A | Replace `opend_mcp`, `finance_metrics_mcp`, and `portfolio_sql_mcp` fields with a gateway dependency. | V3.2, V3.3 | Type/unit tests. |
 | A1 | Update `_call` helper to use `gateway.call_tool(server, tool, args, consumer="portfolio_agent")`. | A | Fake gateway test verifies server/tool names. |
 | A2 | Preserve `PortfolioAgentResult.tool_calls` planned/actual/skipped trace semantics. | A1 | Existing planner trace tests updated. |
 | A3 | Preserve V2 optimization where SQL history is read before LLM evaluation and persistence happens after evaluation when appropriate. | A1 | Existing Portfolio Agent tests updated. |
@@ -88,16 +86,14 @@ V3.2. Gateway modes
 | G | Update `scripts/portfolio_agent_review.py` and `scripts/investment_agent_v2_review.py` to use gateway-backed builders. | E | CLI smoke tests with recorded OpenD. |
 | G1 | Keep command-line flags for `--env-file`, `--from-report`, `--db-path`, and `--llm-provider`. | G | CLI argument tests. |
 
-### EC4: Deterministic dashboard lane uses gateway
+### EC4: Deterministic dashboard lane remains separate
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| H | Add backend `PortfolioDataService` or equivalent deterministic refresh/status service. | V3.0, V3.2 | Service tests with fake gateway. |
-| H1 | Implement connection status flow: OpenD check plus sanitized config/status. | H | Status test. |
-| H2 | Implement dashboard refresh flow: OpenD context, metrics calculation, SQL history update, response. | H | Refresh success test. |
-| H3 | Implement last-known state or graceful error behavior when refresh fails after prior data exists. | H | Failure/stale data test. |
-| H4 | Ensure this service does not call LLMs or agents. | H | Fake LLM not needed in tests. |
-| H5 | Wire backend API route if the frontend needs immediate dashboard support in V3. | H | HTTP test. |
+| H | Confirm V3.3 `PortfolioDataService` still owns page-load/status/refresh behavior after agent migration. | V3.3, A through G | Dashboard service tests still pass. |
+| H1 | Confirm frontend manual refresh still calls dashboard refresh API, not Portfolio Agent or Investment Agent chat endpoints. | H | Frontend test. |
+| H2 | Confirm agent migration does not change dashboard response models. | H | Contract/schema tests. |
+| H3 | Confirm gateway permission profiles still distinguish `dashboard_refresh` from `portfolio_agent`. | H | Permission tests. |
 
 ### EC5: Tests/docs updated and old runtime retired or quarantined
 
@@ -125,7 +121,7 @@ V3.2. Gateway modes
 - Update `tests/test_chat_app.py`
   - chat agent paths use gateway-backed backend
   - gateway errors stream to trace/error output
-- Add `tests/test_dashboard_portfolio_data_lane.py`
+- Keep V3.3 dashboard tests passing
   - status success/failure
   - refresh success
   - stale last-known data after failure
@@ -136,7 +132,7 @@ V3.2. Gateway modes
 
 ## Deletion Candidates After This Task
 
-These can be deleted or rewritten once V3.3 is green:
+These can be deleted or rewritten once V3.4 is green:
 
 - direct MCP module fields on `MCPPortfolioAgent`
 - `build_default_portfolio_agent` logic that constructs in-process MCP modules

@@ -8,7 +8,8 @@ Preserve OpenD, SQL, and metrics business logic as plain Python code while
 replacing the custom `JsonRpcMCPServer` runtime with real FastMCP servers.
 
 This task creates the server side of the V3 runtime. It should not move agents
-yet. Agents move in V3.3 after gateway modes are ready.
+or build frontend refresh behavior yet. V3.3 implements the deterministic
+portfolio data lane after gateway modes are ready; agents move in V3.4.
 
 ## Target Shape
 

@@ -1,11 +1,18 @@
 # MCP Servers
 
-This project now has local MCP-facing modules for the first three Investment
-Agent tool surfaces:
+This project now has local MCP-facing modules for the first three finance tool
+surfaces:
 
 - `moomail-opend-mcp`: read-only OpenD/MooMoo data access.
 - `moomail-portfolio-sql-mcp`: local SQLite portfolio history and audit store.
 - `moomail-finance-metrics-mcp`: deterministic finance metric calculations.
+
+V3 decision:
+
+MCP is backend infrastructure, not only an LLM-agent tool surface. OpenD MCP is
+the standardized backend boundary for MooMoo/OpenD data access. Deterministic
+portfolio dashboard refresh/status flows and agentic analysis flows should use
+the same read-only MCP boundary through a backend-owned gateway.
 
 The implementation is split into two layers:
 
@@ -18,6 +25,70 @@ The implementation is split into two layers:
 This keeps the business logic independent from the transport. The optional
 `mcp` Python SDK dependency can be added when the project is ready to use the
 official FastMCP server runtime directly.
+
+V2 implementation reality:
+
+- Agents still call in-process `RegisteredMCPModule` objects.
+- The custom stdio wrappers are tested, but they are not the runtime path used
+  by the app.
+
+V3 target:
+
+- Replace custom stdio wrappers with FastMCP servers.
+- Add a backend MCP client/gateway.
+- Use the gateway for deterministic backend portfolio data flows and for
+  Portfolio Agent/V2 Investment Agent tool calls.
+- Keep business logic in plain Python services/functions underneath the MCP
+  transport.
+
+## Backend Consumers
+
+The same MCP servers will serve two lanes.
+
+### Deterministic Portfolio Data Lane
+
+Triggered by app startup, page load, or a manual refresh button.
+
+Expected backend sequence:
+
+1. Check OpenD connection through `moomail-opend-mcp`.
+2. Retrieve latest funds, positions, and normalized portfolio context.
+3. Calculate current metrics through `moomail-finance-metrics-mcp`.
+4. Update portfolio history through `moomail-portfolio-sql-mcp`.
+5. Return a frontend-safe dashboard snapshot with `last_updated_at`,
+   freshness, warnings, metrics, balances, holdings, and data-quality events.
+
+This lane must not call an LLM or wait for an agent planner.
+
+### Agentic Analysis Lane
+
+Triggered by analytical chat or CLI queries.
+
+Expected backend sequence:
+
+1. Investment Agent decides which subagents are needed.
+2. Portfolio Agent requests current/historical portfolio context through the MCP
+   gateway.
+3. Sentiment Agent stub or future research tools are invoked when relevant.
+4. Guardrails review final output before it is returned.
+
+Portfolio Agent may suggest sentiment candidates, but it must not call
+Sentiment Agent directly.
+
+## Gateway Permission Profiles
+
+V3 gateway permissions should include these consumer identities:
+
+| Consumer | Allowed MCP servers | Notes |
+| --- | --- | --- |
+| `dashboard_refresh` | OpenD, finance metrics, portfolio SQL | Deterministic backend service for status/refresh/dashboard state. |
+| `portfolio_agent` | OpenD, finance metrics, portfolio SQL | Agentic portfolio analysis. |
+| `investment_agent` | Portfolio SQL, finance metrics by default | No direct OpenD by default; live portfolio access goes through Portfolio Agent. |
+| `sentiment_agent` | Finance metrics for now | Future research MCP will be added separately. |
+
+All profiles remain read-only or analysis-only. No MCP server may expose trade
+placement, trade unlock, order modification, cancellation, withdrawal, transfer,
+or executable order-preparation tools.
 
 ## Server Boundaries
 

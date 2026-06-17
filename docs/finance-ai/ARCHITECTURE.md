@@ -97,9 +97,146 @@ Current V2 non-goals:
 - no rich LLM synthesis at the Investment Agent layer
 - no trade execution or executable order-preparation path
 
+## V3 MCP Backend Boundary
+
+V3 reframes MCP as backend infrastructure, not only as an LLM-agent tool
+surface. OpenD MCP is the standardized backend boundary for MooMoo/OpenD data
+access, and both deterministic app services and agents must use that same
+read-only, permissioned, tested interface.
+
+The frontend must not call MCP directly. It calls backend APIs. The backend owns
+the MCP host/client runtime, server lifecycle, permissions, timeouts, retries,
+traces, and sanitized errors.
+
+V3 has two portfolio data lanes:
+
+```text
+Deterministic portfolio data lane
+  -> app startup, page load, or manual refresh
+  -> backend PortfolioDataService
+  -> MCP gateway
+  -> OpenD status/current portfolio context
+  -> finance metrics calculation
+  -> portfolio SQL history update
+  -> dashboard response with last-updated metadata
+
+Agentic analysis lane
+  -> user asks analytical query
+  -> V2 Investment Agent plans subagent calls
+  -> Portfolio Agent requests current or historical context through gateway
+  -> Sentiment Agent stub/future research tools are invoked when relevant
+  -> final analysis, guardrails, and trace
+```
+
+This split is important: dashboard freshness is an application responsibility,
+while analytical reasoning is an agent responsibility. The dashboard should not
+wait for an LLM or agent planner to decide that OpenD data is needed.
+
+### V3 Backend API Contracts
+
+These are design contracts for V3.0. Implementation belongs to later V3 tasks.
+
+`PortfolioConnectionStatus` should be returned by a backend status endpoint or
+service method:
+
+```json
+{
+  "status": "connected",
+  "checked_at": "2026-06-17T00:00:00Z",
+  "opend": {
+    "reachable": true,
+    "host": "127.0.0.1",
+    "port": 11111,
+    "server_name": "moomail-opend-mcp",
+    "selected_account_configured": true,
+    "selected_account_label": "securities_account"
+  },
+  "last_successful_refresh_at": "2026-06-17T00:00:00Z",
+  "can_refresh": true,
+  "warnings": [],
+  "error": null
+}
+```
+
+The response must never expose API keys, login credentials, raw account secrets,
+or hidden backend configuration.
+
+`PortfolioDashboardSnapshot` should be returned by a backend dashboard endpoint
+or service method:
+
+```json
+{
+  "portfolio_id": "portfolio_default",
+  "as_of": "2026-06-17T00:00:00Z",
+  "last_updated_at": "2026-06-17T00:00:00Z",
+  "freshness_status": "fresh",
+  "connection_status": {},
+  "balances": {
+    "currency": "USD",
+    "total_assets": 47891.07,
+    "cash": 3.07,
+    "fund_assets": 1200.0,
+    "cash_sweep_treated_as_cash": true
+  },
+  "holdings": [],
+  "allocation": {
+    "by_asset": [],
+    "by_asset_type": [],
+    "by_sector": []
+  },
+  "metrics": [],
+  "warnings": [],
+  "data_quality_events": [],
+  "source_summary": {
+    "opend_snapshot": "fresh",
+    "sql_history_updated": true
+  }
+}
+```
+
+`PortfolioRefreshResult` should be returned by a backend manual-refresh action:
+
+```json
+{
+  "refresh_id": "refresh_123",
+  "started_at": "2026-06-17T00:00:00Z",
+  "completed_at": "2026-06-17T00:00:02Z",
+  "status": "succeeded",
+  "dashboard_snapshot": {},
+  "history_update": {
+    "daily_value_snapshot_status": "inserted_or_updated",
+    "weight_rows_stored": 0,
+    "data_quality_events_stored": 0
+  },
+  "warnings": [],
+  "error": null,
+  "trace": []
+}
+```
+
+If refresh fails, the backend should return a structured sanitized error and,
+when available, the last-known dashboard snapshot with a stale freshness status.
+
+### V3 Gateway Consumers
+
+The MCP gateway must enforce consumer-specific permissions:
+
+| Consumer | Allowed MCP access | Notes |
+| --- | --- | --- |
+| `dashboard_refresh` | OpenD status/context, finance metrics, portfolio SQL history update/read needed for dashboard state | Deterministic, no LLM, no agent planner. |
+| `portfolio_agent` | OpenD, finance metrics, and portfolio SQL tools needed for portfolio analysis | Agentic lane; still read-only/analysis-only. |
+| `investment_agent` | Portfolio SQL and finance metrics by default; no direct OpenD by default | Should call Portfolio Agent for live portfolio retrieval unless this is deliberately changed later. |
+| `sentiment_agent` | Finance metrics only until research MCP exists | Future GraphRAG/research MCP will have its own permission profile. |
+
+No consumer may access trade placement, order modification, order cancellation,
+trade unlock, withdrawal, transfer, or executable order-preparation tools.
+
 ## MCP Server Boundaries
 
-MCP servers are the tool boundary. Agents call tools through MCP rather than directly integrating with every external service.
+MCP servers are the backend tool boundary. In V2, agents call in-process
+MCP-shaped modules. In V3, deterministic backend services and agents should call
+FastMCP servers through the backend-owned MCP gateway rather than directly
+integrating with every external service.
 
 ### `moomail-opend-mcp`
 

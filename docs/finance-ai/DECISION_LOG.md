@@ -181,9 +181,17 @@ reason about.
 
 MCP design intent:
 
-Use MCP as the boundary between agents and tools/resources. MCP servers expose
-read-only broker access, portfolio history, finance metric calculators, future
-research retrieval, and future memory tools.
+Use MCP as the backend boundary between application services, agents, and
+tools/resources. MCP servers expose read-only broker access, portfolio history,
+finance metric calculators, future research retrieval, and future memory tools.
+
+V3.0 clarification:
+
+MCP is backend infrastructure, not only an LLM-agent tool surface. OpenD MCP is
+the standardized backend data boundary for both deterministic dashboard
+refresh/status flows and agentic portfolio analysis flows. The frontend calls
+backend APIs only; the backend owns MCP client/host lifecycle, gateway
+permissions, timeouts, traces, and sanitized errors.
 
 Implemented V1 MCP surfaces:
 
@@ -220,6 +228,13 @@ Learning note:
 Having MCP servers is not the same thing as having an autonomous tool-calling
 agent. A deterministic Python workflow can call MCP tools, but an LLM only
 "chooses" tools if the runtime gives it a planning/tool-calling loop.
+
+V3 learning note:
+
+Having MCP servers is also not the same thing as saying only agents can use MCP.
+Some OpenD calls are application infrastructure: connection checks, current
+funds/positions retrieval, portfolio normalization, metrics calculation, SQL
+history updates, and dashboard freshness should be deterministic backend flows.
 
 ### 5. OpenD Exploration And Hardening
 
@@ -809,6 +824,106 @@ Verification:
 - Updated Portfolio Agent, V2 Investment Agent, and chat tests.
 - Full deterministic suite passed with live tests excluded.
 
+## V3.0 MCP Backend Boundary / 2026-06-17
+
+Goal:
+
+- Define MCP as backend infrastructure before migrating the custom MCP-shaped
+  runtime to FastMCP and an official MCP client/gateway.
+
+Design intent:
+
+- OpenD MCP should be the standardized backend boundary for MooMoo/OpenD data
+  access.
+- Deterministic dashboard/status/refresh flows and agentic analysis flows
+  should share the same read-only, permissioned, tested MCP interface.
+- The frontend should never call MCP directly. It should call backend APIs, and
+  the backend should own MCP client/host lifecycle, gateway permissions,
+  timeouts, traces, and sanitized errors.
+
+Decisions made:
+
+- Add a deterministic portfolio data lane for app startup, page load, and manual
+  refresh.
+- Keep the agentic analysis lane separate: Investment Agent plans subagent
+  calls, Portfolio Agent uses the gateway for portfolio context, and Sentiment
+  Agent/future research tools are invoked when relevant.
+- Define backend contract shapes for `PortfolioConnectionStatus`,
+  `PortfolioDashboardSnapshot`, and `PortfolioRefreshResult`.
+- Define gateway consumers: `dashboard_refresh`, `portfolio_agent`,
+  `investment_agent`, and `sentiment_agent`.
+- Deny direct OpenD access to `investment_agent` by default; live portfolio
+  retrieval remains owned by Portfolio Agent unless deliberately changed later.
+- Keep all gateway profiles read-only or analysis-only. No trade placement,
+  trade unlock, order modification, cancellation, withdrawal, transfer, or
+  executable order-preparation tools are allowed.
+
+Designed versus actual:
+
+- Designed target: backend-owned MCP client/gateway shared by deterministic
+  services and agents.
+- Current actual: V2 still uses in-process `RegisteredMCPModule` objects and
+  custom stdio JSON-RPC wrappers. FastMCP servers, official MCP client sessions,
+  and dashboard refresh APIs are not implemented yet.
+
+Verification:
+
+- Updated `ACTION_PLAN.md`, `ARCHITECTURE.md`, `MCP_SERVERS.md`, and V3 task
+  maps.
+- Updated docs regression coverage in `tests/test_v3_planning_docs.py`.
+
+Lessons learned:
+
+- MCP should be treated as a permissioned backend data boundary, not as a thing
+  that only LLM agents call.
+- Dashboard freshness should not wait for LLM planning. It is application
+  infrastructure.
+- Defining deterministic backend consumers before the FastMCP migration reduces
+  the risk of building an agent-only runtime that later has to be reworked for
+  the web dashboard.
+
+Open questions:
+
+- Should the first concrete dashboard API be implemented in the existing
+  lightweight chat server or in a new backend service module before a richer
+  React frontend exists?
+- Should the gateway configuration live in code, local config, or both during
+  the early V3 implementation?
+
+## V3 Planning Adjustment / 2026-06-17
+
+Goal:
+
+- Promote the deterministic portfolio data lane from a design concern into its
+  own implementation task.
+
+Decision made:
+
+- Insert V3.3 as `Deterministic Portfolio Data Lane`.
+- Shift `Agent Gateway Migration` to V3.4.
+- V3.3 must implement backend and frontend refresh/status/dashboard behavior
+  without invoking Portfolio Agent, Investment Agent, a sentiment agent, or an
+  LLM.
+
+Reason:
+
+- Dashboard freshness is application infrastructure. Page load and manual
+  refresh should always be able to retrieve connection status, balances,
+  holdings, metrics, warnings, SQL update state, and last-updated metadata
+  through backend APIs.
+- Agent migration should happen after this lane exists, so the project can prove
+  deterministic app consumers and agentic consumers share the gateway while
+  staying separate.
+
+Implementation implications:
+
+- Add a backend `PortfolioDataService` or equivalent.
+- Add status, latest dashboard snapshot, and manual refresh API routes.
+- Update the frontend so refresh uses these APIs rather than submitting an
+  agent query.
+- Preserve stale last-known dashboard data when refresh fails.
+- Add tests proving no agent or LLM is invoked by the deterministic lane.
+
 ## Interview And Presentation Talking Points
 
 - The project began as a broad multi-agent finance system, then narrowed
@@ -828,6 +943,8 @@ Verification:
   bounded Portfolio Agent planner.
 - The Sentiment Agent is stubbed before Neo4j GraphRAG so the retrieval system
   can be designed against stable contracts.
+- V3 clarifies that MCP is shared backend infrastructure for deterministic
+  portfolio data flows and agentic analysis flows.
 - Safety is designed at the tool boundary, orchestration layer, and final
   guardrail layer.
 
@@ -835,8 +952,9 @@ Verification:
 
 - Should the next phase build Neo4j GraphRAG first, or first add a
   structured-output LLM planner/synthesizer to the Investment Agent?
-- When should the V2 runtime move from in-process MCP modules to an official
-  MCP client/host path?
+- During V3, should the first concrete dashboard API live in the existing
+  lightweight chat server or in a new backend service module?
+- During V3, should gateway configuration live in code, local config, or both?
 - What is the first useful Neo4j graph schema for research documents,
   companies, events, risks, and management commentary?
 - When should Pinecone memory be introduced: before or after real GraphRAG?

@@ -212,7 +212,8 @@ The MCP-backed Portfolio Agent calls:
 The LLM evaluator receives the collected portfolio packet but does not decide
 which MCP tools to call.
 
-V2 converts this into a bounded-planning deterministic subgraph:
+V2 converts this into a bounded-planning deterministic path inside the
+Portfolio Agent:
 
 1. Interpret the portfolio task assigned by the Investment Agent.
 2. Produce a structured context plan.

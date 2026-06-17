@@ -37,10 +37,10 @@ It includes:
 - Missing data
 - Portfolio-data source context
 
-The V2 Investment Agent workflow should add:
+The V2 Investment Agent workflow adds:
 
 - Query-aware routing
-- Portfolio Agent subgraph calls
+- Portfolio Agent bounded-planning calls
 - Sentiment Agent stub calls when research context would be useful
 - Investment Agent synthesis
 - Guardrail review
@@ -382,8 +382,8 @@ V2 is complete when the system can run a local Investment Agent flow that:
 - Routes portfolio-only questions to Portfolio Agent.
 - Routes full review or research-sensitive questions to Portfolio Agent plus
   Sentiment Agent stub.
-- Converts Portfolio Agent from a fixed pipeline into a bounded-planning
-  subgraph while preserving V1 behavior as the broad-review default.
+- Converts Portfolio Agent from a fixed pipeline into a bounded-planning path
+  while preserving V1 behavior as the broad-review default.
 - Synthesizes Portfolio Agent output and Sentiment Agent stub output without
   fabricating research.
 - Runs guardrails before final output.

@@ -19,13 +19,13 @@ User query
   -> terminal or local frontend output
 ```
 
-The V2 target is the first real Investment Agent architecture:
+The V2 skeleton is the first real Investment Agent architecture:
 
 ```text
 User query
   -> Thin LangGraph Investment Agent supervisor
       -> classify/query plan
-      -> call Portfolio Agent bounded-planning subgraph when needed
+      -> call Portfolio Agent bounded-planning path when needed
       -> call Sentiment Agent stub when needed
       -> synthesize answer
       -> run guardrails
@@ -33,8 +33,8 @@ User query
 ```
 
 Neo4j GraphRAG, Pinecone memory, and real research retrieval remain planned
-architecture, but they are not part of the V1 implementation and should not be
-built before the V2 contracts are stable.
+architecture, but they are not part of the V1 or V2 skeleton implementation.
+They should be built against the V2 contracts rather than ahead of them.
 
 ## Local-First Deployment
 
@@ -55,12 +55,12 @@ No brokerage credentials, database credentials, or MCP secrets should be exposed
 
 ## V2 Orchestration Shape
 
-V2 should use LangGraph for the Investment Agent supervisor. The supervisor is
-thin: it owns state, routing, subagent calls, synthesis, guardrails, and
-streaming status. It should not reimplement OpenD, SQL, metrics, or GraphRAG
-logic directly.
+V2 uses LangGraph for the Investment Agent supervisor. The supervisor is thin:
+it owns state, routing, subagent calls, deterministic/template synthesis,
+guardrails, and streaming status. It does not reimplement OpenD, SQL, metrics,
+or GraphRAG logic directly.
 
-Recommended V2 graph:
+Implemented V2 graph:
 
 ```text
 InvestmentAgentGraph
@@ -68,24 +68,34 @@ InvestmentAgentGraph
   -> classify_query
   -> load_investment_policy
   -> plan_subagent_calls
-  -> portfolio_agent_subgraph when portfolio context is needed
+  -> portfolio_agent_bounded_path when portfolio context is needed
   -> sentiment_agent_stub when research context is needed
   -> synthesize_answer
   -> guardrail_review
   -> emit_final_output
 ```
 
-The Portfolio Agent is now a bounded-planning subgraph. It interprets a
+The Portfolio Agent now has a bounded-planning Python path. It interprets a
 `PortfolioTask`, produces a `PortfolioContextPlan`, then executes selected MCP
 tools deterministically. Full review and deep-dive tasks keep broad V1 context;
 cash/allocation fact tasks can skip broad SQL history and persistence; and
-what-changed tasks request portfolio growth plus allocation history. It should
-not call the Sentiment Agent. It can return candidate sentiment scope such as
-important tickers, large contributors, or concerning allocation changes.
+what-changed tasks request portfolio growth plus allocation history. This is not
+yet a separate compiled LangGraph subgraph. It should not call the Sentiment
+Agent. It can return candidate sentiment scope such as important tickers, large
+contributors, or concerning allocation changes.
 
 The Investment Agent decides whether sentiment is needed and calls the Sentiment
 Agent. In V2, the Sentiment Agent is a structured stub so the project can lock
 the task and response contracts before building Neo4j ingestion and retrieval.
+
+Current V2 non-goals:
+
+- no real GraphRAG retrieval
+- no Pinecone memory retrieval or writes
+- no official MCP client/host runtime inside the agent loop
+- no LLM planner for query classification or tool selection
+- no rich LLM synthesis at the Investment Agent layer
+- no trade execution or executable order-preparation path
 
 ## MCP Server Boundaries
 
@@ -195,6 +205,11 @@ Capabilities:
 Constraints:
 
 - V2 uses a Sentiment Agent stub only; real retrieval is deferred.
+- The V2 stub lives in `src/moomail_finance_ai/sentiment_agent_stub.py` and
+  implements the `SentimentTask -> SentimentPacket` boundary.
+- The stub returns `retrieval_status: not_implemented`, explicit missing
+  documents, no holdings, no citations, no source metadata, and no sentiment
+  stance.
 - The first real GraphRAG implementation should use a manually populated corpus.
 - No external web/news ingestion is required for the first GraphRAG build.
 - Retrieval scope starts with portfolio holdings selected by the Investment
@@ -559,7 +574,7 @@ V2 nodes:
 2. Classify query
 3. Load IPS
 4. Plan subagent calls
-5. Call Portfolio Agent subgraph when portfolio context is needed
+5. Call Portfolio Agent bounded-planning path when portfolio context is needed
 6. Decide whether sentiment is needed from user intent and portfolio packet
 7. Call Sentiment Agent stub when needed
 8. Synthesize response
@@ -568,8 +583,20 @@ V2 nodes:
 11. Store audit summary
 
 Portfolio Agent has evolved from the fixed deterministic workflow into a
-bounded-planning deterministic subgraph. Sentiment Agent should begin as a stub
+bounded-planning deterministic Python path. Sentiment Agent begins as a stub
 with the same contract the future Neo4j GraphRAG implementation will satisfy.
+
+V2 guardrails are deterministic and live in
+`src/moomail_finance_ai/v2_guardrails.py`. The active checks are no trading,
+no exact share-count trading instructions, no unsupported research claims, no
+unsupported portfolio facts, IPS-required optimization/rebalancing checks, and
+missing sentiment limitation visibility.
+
+V2 trace sanitization lives in `src/moomail_finance_ai/v2_trace.py`. The trace
+boundary exposes graph progress, subagent calls, planned/actual/skipped tool
+summaries, sentiment stub status, guardrail outcome, and sanitized errors. It
+does not expose hidden chain-of-thought, raw prompts, secrets, API keys, raw
+broker account IDs, or scratchpad fields.
 
 ## Frontend Direction
 
@@ -596,6 +623,8 @@ Current local UI:
 - Streams status events into the chat rail.
 - Renders portfolio evaluation, allocation, missing data, sentiment, citations,
   and trace panels.
+- Displays V2 guardrail result and sanitized V2 trace events from the final
+  response payload.
 
 Structured panels planned for later:
 

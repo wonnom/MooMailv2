@@ -1,0 +1,11 @@
+{
+  "tickers": ["GOOG", "ASML"],
+  "companies_entities": [],
+  "themes": ["portfolio thesis"],
+  "time_window": "1y",
+  "requested_evidence_types": ["earnings_transcript", "annual_report"],
+  "key_questions": ["What does recent source-backed research say about material holdings?"],
+  "reason": "V2 contract fixture for future GraphRAG-backed sentiment retrieval.",
+  "candidate_refs": [],
+  "warnings": []
+}

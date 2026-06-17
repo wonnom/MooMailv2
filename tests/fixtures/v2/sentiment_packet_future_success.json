@@ -1,0 +1,109 @@
+{
+  "retrieval_status": "sufficient",
+  "task": {
+    "tickers": ["GOOG"],
+    "companies_entities": ["Alphabet Inc."],
+    "themes": ["earnings", "investment thesis"],
+    "time_window": "1y",
+    "requested_evidence_types": ["earnings_transcript", "annual_report"],
+    "key_questions": ["What does source-backed research say about GOOG?"],
+    "reason": "Future GraphRAG success fixture for schema compatibility.",
+    "candidate_refs": [],
+    "warnings": []
+  },
+  "scope": [
+    {
+      "ticker": "GOOG",
+      "reason": "Material portfolio holding."
+    }
+  ],
+  "holdings": [
+    {
+      "ticker": "GOOG",
+      "company": "Alphabet Inc.",
+      "stance": "mixed",
+      "thesis_summary": "Placeholder future success summary grounded in retrieved documents.",
+      "recent_developments": ["Placeholder future retrieved development."],
+      "management_tone": "Placeholder future retrieved tone.",
+      "risks": ["Placeholder future retrieved risk."],
+      "catalysts": ["Placeholder future retrieved catalyst."],
+      "contradictions": ["Placeholder future retrieved contradiction."],
+      "open_questions": ["Placeholder future open question."],
+      "citations": [
+        {
+          "citation_id": "cite_future_goog_q4_2025",
+          "source_type": "earnings_transcript",
+          "title": "Placeholder GOOG Q4 2025 Earnings Transcript",
+          "publisher": "Alphabet Inc.",
+          "document_date": "2026-02-01",
+          "ingestion_date": "2026-06-01",
+          "ticker": "GOOG",
+          "company": "Alphabet Inc.",
+          "chunk_id": "chunk_future_001",
+          "document_id": "doc_future_goog_q4_2025",
+          "location": {
+            "section": "management commentary"
+          },
+          "snippet": "Placeholder citation snippet for schema validation only.",
+          "source_quality": "primary"
+        }
+      ]
+    }
+  ],
+  "portfolio_level_sentiment": {
+    "summary": "Placeholder future portfolio-level synthesis grounded in retrieved documents.",
+    "themes": ["earnings"],
+    "risks": ["Placeholder future portfolio-level risk."],
+    "citations": [
+      {
+        "citation_id": "cite_future_goog_q4_2025",
+        "source_type": "earnings_transcript",
+        "title": "Placeholder GOOG Q4 2025 Earnings Transcript",
+        "publisher": "Alphabet Inc.",
+        "document_date": "2026-02-01",
+        "ingestion_date": "2026-06-01",
+        "ticker": "GOOG",
+        "company": "Alphabet Inc.",
+        "chunk_id": "chunk_future_001",
+        "document_id": "doc_future_goog_q4_2025",
+        "location": {
+          "section": "management commentary"
+        },
+        "snippet": "Placeholder citation snippet for schema validation only.",
+        "source_quality": "primary"
+      }
+    ]
+  },
+  "contradictions": ["Placeholder future portfolio-level contradiction."],
+  "open_questions": ["Placeholder future portfolio-level open question."],
+  "source_metadata": {
+    "retriever": "neo4j_graphrag",
+    "corpus_version": "fixture-only"
+  },
+  "missing_documents": [],
+  "citations": [
+    {
+      "citation_id": "cite_future_goog_q4_2025",
+      "source_type": "earnings_transcript",
+      "title": "Placeholder GOOG Q4 2025 Earnings Transcript",
+      "publisher": "Alphabet Inc.",
+      "document_date": "2026-02-01",
+      "ingestion_date": "2026-06-01",
+      "ticker": "GOOG",
+      "company": "Alphabet Inc.",
+      "chunk_id": "chunk_future_001",
+      "document_id": "doc_future_goog_q4_2025",
+      "location": {
+        "section": "management commentary"
+      },
+      "snippet": "Placeholder citation snippet for schema validation only.",
+      "source_quality": "primary"
+    }
+  ],
+  "data_quality": {
+    "freshness_status": "fresh",
+    "missing_fields": [],
+    "warnings": []
+  },
+  "warnings": []
+}

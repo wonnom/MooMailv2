@@ -46,13 +46,46 @@ test when that backend exists.
 | `tests/test_research.py` | Local research store and Sentiment Agent contracts |
 | `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, daily SQL idempotency, and LLM evaluator JSON parsing/recovery |
 | `tests/test_full_agent.py` | Full local Investment Agent flow, guardrails, audit, and memory summary writes |
+| `tests/test_v2_schemas.py` | V2 Pydantic contracts, fixtures, guardrail schema, and trace schema |
+| `tests/test_v2_investment_agent.py` | Thin LangGraph Investment Agent routing, fake subagent call counts, missing-research synthesis, and status events |
+| `tests/test_v2_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, history/persistence minimization, and tool trace entries |
+| `tests/test_sentiment_agent_stub.py` | V2 Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
+| `tests/test_v2_guardrails.py` | Deterministic V2 no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
+| `tests/test_v2_trace.py` | V2 trace sanitizer, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |
 | `tests/test_chat_app.py` | Local HTTP/chat API and static frontend expectations |
 | `tests/test_prototype.py` | Milestone 1 static Investment Agent prototype contracts |
 
 The current Investment Agent/prototype tests are historical contract coverage
-from the V1 build. V2 should add new LangGraph routing, bounded Portfolio Agent
-planning, Sentiment Agent stub, and guardrail tests before retiring older
-prototype-only coverage.
+from the V1 build. They remain useful until the V2 Investment Agent fully
+replaces the older prototype/full-agent paths in CLI/chat/docs. Retirement plan:
+
+- Keep `tests/test_prototype.py` while `src/moomail_finance_ai/agents.py` is
+  still present as historical Milestone 1 coverage.
+- Keep `tests/test_full_agent.py` while `src/moomail_finance_ai/full_agent.py`
+  remains a supported local full-agent path.
+- Delete or merge these only after the V2 Investment Agent owns equivalent
+  memory/audit/sentiment behavior and the older entrypoints are removed.
+
+## V2 Closeout Test Gate
+
+V2 deterministic closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+```
+
+Latest V2 closeout result on 2026-06-15:
+
+```text
+156 passed, 1 warning
+```
+
+The warning is a LangGraph dependency deprecation warning. The deterministic
+suite does not require live OpenD, Neo4j, Pinecone, hosted LLM calls, or
+`MOOMAIL_RUN_LIVE_CONNECTOR_TESTS=1`.
+
+Live tests remain opt-in under `tests/live/`; see
+[CONNECTOR_TESTS.md](CONNECTOR_TESTS.md).
 
 ## When To Delete A Test
 

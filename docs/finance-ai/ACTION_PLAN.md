@@ -4,6 +4,8 @@
 
 V1 is complete as of 2026-06-06.
 
+V2 skeleton is complete as of 2026-06-15.
+
 V1 is a Portfolio Agent proof of concept with:
 
 - Read-only OpenD/MooMoo securities-account retrieval.
@@ -35,7 +37,18 @@ Implemented and useful today:
   a portfolio task, produces a `PortfolioContextPlan`, executes selected MCP
   tools deterministically, then asks an LLM evaluator to answer portfolio-only
   questions from the collected packet.
+- `V2InvestmentAgent`: thin LangGraph supervisor that routes portfolio-only
+  and portfolio-plus-sentiment queries through structured V2 packets.
+- `V2SentimentAgentStub`: deterministic missing-research Sentiment Agent stub
+  that cements the future Neo4j GraphRAG contract without requiring Neo4j.
+- `v2_guardrails`: deterministic V2 output guardrails for no-trading,
+  no-exact-share-count instructions, unsupported claims, IPS-gated
+  optimization, and missing-sentiment visibility.
+- `v2_trace`: sanitized V2 operational trace for graph progress, subagent
+  calls, Portfolio Agent tool summaries, sentiment stub status, guardrail
+  outcome, and errors.
 - `scripts/portfolio_agent_review.py`: terminal Portfolio Agent review.
+- `scripts/investment_agent_v2_review.py`: terminal V2 Investment Agent review.
 - `scripts/serve_chat.py`: local chat frontend server.
 - `data/portfolio-history.sqlite`: canonical local portfolio-history DB.
 - Deterministic tests and live OpenD connector smoke tests.
@@ -44,38 +57,41 @@ Important limitations:
 
 - The Portfolio Agent is MCP-backed with a deterministic bounded planner. It
   does not let the LLM decide which OpenD, SQL, or metrics tools to call.
-- The current Investment Agent is a prototype, not the target LangGraph
-  supervisor.
-- The Sentiment Agent and Neo4j GraphRAG path are not implemented for real V1
-  use. Existing research fixtures/stubs are contract placeholders.
+- The V2 Investment Agent is intentionally thin; richer LLM planning,
+  checkpointing, and memory are still future work.
+- V2 synthesis is deterministic/template-style. It does not yet perform a rich
+  LLM synthesis pass over portfolio, sentiment, memory, and market context.
+- The Sentiment Agent is a V2 stub only. Neo4j GraphRAG is not implemented, and
+  the stub must not invent research claims, citations, or sentiment.
+- The Portfolio Agent bounded planner is implemented inside the existing Python
+  Portfolio Agent path, not as a separate compiled LangGraph subgraph.
 - Pinecone memory is not connected.
 - The MCP modules can run through local stdio servers, but the agent currently
   uses in-process MCP modules rather than an official MCP client/host runtime.
 - Crypto holdings and OTC quote fallback are deferred.
 
-## V2 Goal
+## V2 Completed Skeleton
 
-V2 should turn the V1 Portfolio Agent POC into the first real Investment Agent
-architecture.
+V2 turns the V1 Portfolio Agent POC into the first real Investment Agent
+skeleton.
 
-The target is not to finish GraphRAG or memory yet. The target is to establish
-the orchestration shape:
+It does not finish GraphRAG or memory. It establishes this orchestration shape:
 
 ```text
 User query
   -> Thin LangGraph Investment Agent supervisor
       -> decide whether portfolio context is needed
       -> decide whether sentiment/research is needed
-      -> call Portfolio Agent subgraph
+      -> call Portfolio Agent bounded-planning path
       -> call Sentiment Agent stub when needed
       -> synthesize final answer
       -> run guardrails
 ```
 
-The Portfolio Agent should become a bounded-planning subgraph:
+The Portfolio Agent now has a bounded-planning path:
 
 ```text
-Portfolio Agent subgraph
+Portfolio Agent bounded-planning path
   -> interpret portfolio task
   -> produce bounded context plan
   -> retrieve current OpenD snapshot when needed
@@ -84,7 +100,7 @@ Portfolio Agent subgraph
   -> return structured portfolio packet and candidate sentiment scope
 ```
 
-The Sentiment Agent should be a stub in V2:
+The Sentiment Agent is a stub in V2:
 
 ```text
 Sentiment Agent stub
@@ -93,9 +109,9 @@ Sentiment Agent stub
   -> expose missing GraphRAG fields clearly
 ```
 
-This lets the project cement agent routing, subagent contracts, trace events,
-guardrail behavior, and output schemas before committing to the Neo4j ingestion
-and GraphRAG retrieval design.
+This cements agent routing, subagent contracts, trace events, guardrail
+behavior, and output schemas before committing to the Neo4j ingestion and
+GraphRAG retrieval design.
 
 ## V2 Principles
 
@@ -192,6 +208,8 @@ Exit criteria:
 
 ### 4. Add Sentiment Agent Stub
 
+Status: complete as of 2026-06-15.
+
 Build a stub that receives the real future task shape:
 
 - tickers
@@ -203,7 +221,7 @@ Build a stub that receives the real future task shape:
 
 It returns:
 
-- empty or placeholder holdings
+- empty holdings
 - explicit `retrieval_status: not_implemented`
 - missing document/research fields
 - no fabricated sentiment
@@ -216,6 +234,8 @@ Exit criteria:
 
 ### 5. Guardrails And Trace
 
+Status: complete as of 2026-06-15.
+
 Move guardrail review into the V2 Investment Agent path.
 
 Guardrails should check:
@@ -225,6 +245,16 @@ Guardrails should check:
 - no unsupported price/portfolio facts
 - no exact share-count recommendations
 - missing IPS where optimization/rebalancing is framed as recommendation
+- missing sentiment limitations are visible when GraphRAG is unavailable
+
+Trace should expose only operational information:
+
+- graph node/status progress
+- subagent calls
+- Portfolio Agent planned/actual/skipped tool summaries
+- Sentiment Agent stub retrieval status
+- guardrail outcome
+- sanitized errors
 
 Exit criteria:
 
@@ -233,6 +263,8 @@ Exit criteria:
 - Hidden reasoning is never stored or exposed.
 
 ### 6. Documentation And Tests
+
+Status: complete as of 2026-06-15.
 
 Keep tests deterministic by default.
 
@@ -251,7 +283,15 @@ Exit criteria:
 - Deterministic suite passes without live OpenD, Neo4j, Pinecone, or hosted LLM
   calls.
 - Live OpenD connector tests remain opt-in.
-- Docs describe V1 as complete and V2 as active.
+- Docs describe V1 as complete and V2 skeleton as complete, including remaining
+  mocks, stubs, and deferred pieces.
+
+Closeout verification:
+
+```text
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+156 passed, 1 warning
+```
 
 ## Deferred Until After V2 Skeleton
 
@@ -267,14 +307,56 @@ Exit criteria:
 These are still part of the long-term architecture. They should be built after
 the V2 Investment Agent and subagent contracts are stable.
 
-## Next Prompt Session
+## V3 Planned Iteration
 
-The next implementation-focused session should start with:
+The selected V3 track is the official MCP runtime migration, with one important
+clarification: MCP is backend infrastructure, not only an LLM-agent tool
+surface.
 
-1. `InvestmentAgentState` and V2 contract models.
-2. Minimal LangGraph supervisor.
-3. Sentiment Agent stub contract.
-4. Portfolio Agent bounded planning design.
+OpenD MCP must support both:
 
-Do not start with Neo4j ingestion. GraphRAG should be designed against the
-Sentiment Agent contract, not before it.
+- deterministic backend portfolio data flows for page load, manual refresh,
+  connection status, current funds/positions, normalized snapshots, metrics,
+  SQL history updates, and dashboard display
+- agentic analysis flows where the Investment Agent and Portfolio Agent use the
+  same permissioned data boundary for analytical queries
+
+The frontend should call backend APIs only. The backend owns the MCP client/host
+runtime, gateway permissions, server lifecycle, timeouts, traces, and sanitized
+errors.
+
+V3 task maps live under [`docs/finance-ai/V3_Tasks/`](V3_Tasks/).
+
+V3 tasks:
+
+| Task | Status | Purpose |
+| --- | --- | --- |
+| V3.0 | planned | Define MCP as backend infrastructure boundary for deterministic app flows and agentic flows. |
+| V3.1 | planned | Preserve business logic, replace custom `JsonRpcMCPServer` with FastMCP servers, and define the gateway contract. |
+| V3.2 | planned | Implement `DirectToolGateway` for parity tests and `StdioMCPToolGateway` for production-ish local runtime. |
+| V3.3 | planned | Move Portfolio Agent and V2 Investment Agent to the gateway, then update docs and retirement decisions. |
+
+V3 explicitly plans to retire or narrow the custom V2 MCP-shaped runtime only
+after parity tests pass. Candidate replacements include `mcp/stdio.py`, custom
+server script behavior, direct `RegisteredMCPModule` injection into agents, and
+custom stdio test helpers.
+
+## Next Work Options
+
+V2 is closed as a skeleton. V3 has selected option 4 below as the active next
+track. Other options remain future work after the MCP runtime boundary is
+settled:
+
+1. Real Neo4j GraphRAG ingestion and retrieval against the V2 Sentiment Agent
+   contract.
+2. Bounded structured-output LLM planner for query classification/subagent
+   planning.
+3. Richer LLM Investment Agent synthesis over portfolio, sentiment, policy, and
+   memory packets.
+4. Official MCP client/host runtime migration.
+5. Pinecone/local long-term memory after audit and source-precedence rules are
+   clear.
+6. Richer React/TypeScript frontend after backend contracts settle.
+
+GraphRAG should be designed against the V2 `SentimentTask` and
+`SentimentPacket` contract, not as a separate research demo.

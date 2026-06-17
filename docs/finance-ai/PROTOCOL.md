@@ -60,7 +60,16 @@ Recommended statuses:
 - `complete`
 - `failed`
 
-Status events must not reveal private chain-of-thought. They may reveal tool names, high-level steps, and operational progress.
+Status events must not reveal private chain-of-thought. They may reveal tool
+names, high-level steps, bounded input/output summaries, skipped-tool reasons,
+warnings, errors, and operational progress.
+
+V2 public trace metadata is allowlisted. Allowed metadata includes phase,
+result, guardrail status, check count, tool call kind, retrieval status, missing
+document count, warning count, pass/fail status, output status, and error
+location. Denied metadata includes hidden chain-of-thought, raw prompts,
+developer/system prompts, API keys, secrets, tokens, passwords, raw broker
+account IDs, and scratchpad fields.
 
 ## Stream Payloads
 
@@ -249,41 +258,56 @@ Severity labels are operational triage, not confidence scores.
 
 ## Sentiment Packet
 
+Current V2 stub response:
+
 ```json
 {
   "retrieval_status": "not_implemented",
+  "task": {
+    "tickers": ["AAPL"],
+    "companies_entities": [],
+    "themes": ["portfolio thesis"],
+    "time_window": "1y",
+    "requested_evidence_types": ["earnings_transcript", "annual_report"],
+    "key_questions": ["What does recent source-backed research say about AAPL?"],
+    "reason": "Investment Agent requested sentiment/research context.",
+    "candidate_refs": [],
+    "warnings": []
+  },
   "scope": [
     {
       "ticker": "AAPL",
       "reason": "Material holding above threshold."
     }
   ],
-  "holdings": [
-    {
-      "ticker": "AAPL",
-      "company": "Apple Inc.",
-      "stance": "mixed",
-      "thesis_summary": "Summary grounded in retrieved documents.",
-      "recent_developments": [],
-      "management_tone": "Measured but constructive.",
-      "risks": [],
-      "catalysts": [],
-      "contradictions": [],
-      "open_questions": [],
-      "citations": []
-    }
-  ],
+  "holdings": [],
   "portfolio_level_sentiment": {
-    "summary": "Portfolio-level qualitative exposure summary.",
+    "summary": "GraphRAG sentiment retrieval is not implemented in V2. No sentiment stance, company claims, or citations were produced.",
     "themes": [],
     "risks": [],
     "citations": []
   },
+  "contradictions": [],
+  "open_questions": [],
+  "source_metadata": {},
+  "missing_documents": [
+    {
+      "ticker": "AAPL",
+      "entity": null,
+      "document_type": "earnings_transcript",
+      "reason": "Neo4j GraphRAG is not implemented in V2. The V2 stub cannot retrieve earnings transcript evidence."
+    }
+  ],
+  "citations": [],
   "data_quality": {
-    "retrieval_status": "sufficient",
-    "missing_documents": [],
-    "warnings": []
-  }
+    "freshness_status": "unknown",
+    "missing_fields": ["graph_rag_corpus", "neo4j_research_store"],
+    "warnings": [
+      "Sentiment Agent is a V2 stub; no research retrieval was performed.",
+      "Neo4j GraphRAG is not implemented in V2."
+    ]
+  },
+  "warnings": ["Sentiment Agent is a V2 stub.", "Neo4j GraphRAG is not implemented in V2."]
 }
 ```
 
@@ -291,7 +315,10 @@ Sentiment stance is qualitative: `positive`, `mixed`, `negative`, or `unclear`.
 
 In V2, Sentiment Agent returns this shape as a stub. It should use
 `retrieval_status: "not_implemented"` or `retrieval_status: "missing_corpus"`
-and must not invent research claims, citations, or sentiment.
+and must not invent research claims, citations, source metadata, or sentiment.
+When GraphRAG is implemented, the same packet can include populated holdings,
+portfolio-level sentiment, contradictions, open questions, source metadata, and
+citations grounded in retrieved documents.
 
 ## Citation Schema
 
@@ -374,16 +401,16 @@ User preference and thesis changes require explicit approval. Routine agent-gene
 
 Required checks:
 
-- No trading
-- No executable order instructions
-- No unsupported portfolio facts
-- No unsupported market prices
-- Research claims have citations
-- IPS compliance
-- Stale data warnings
-- Missing critical data
-- No over-specific position sizing
-- Scope compliance
+- `no_trading`: no executable order-placement language.
+- `no_exact_share_count_trading`: no exact share/contract count trading instruction.
+- `unsupported_research_claims`: no research/sentiment claims when Sentiment
+  Agent retrieval is missing or `not_implemented`.
+- `unsupported_price_or_portfolio_facts`: portfolio facts require a Portfolio
+  Agent packet.
+- `missing_ips_for_optimization`: optimization or rebalancing recommendations
+  require an IPS.
+- `missing_sentiment_visibility`: missing GraphRAG/sentiment limitations must
+  be visible in final output.
 
 ## Final Report Shape
 

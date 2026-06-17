@@ -13,9 +13,9 @@ from moomail_finance_ai.portfolio_agent import (
     build_effective_cash_summary,
     plan_portfolio_context,
 )
+from moomail_finance_ai.sentiment_agent_stub import V2SentimentAgentStub
 from moomail_finance_ai.v2_investment_agent import (
     V2InvestmentAgent,
-    V2SentimentAgentStub,
     classify_investment_query,
 )
 from moomail_finance_ai.v2_schemas import PortfolioTask, SentimentPacket, SentimentTask
@@ -142,9 +142,13 @@ def test_v2_streamed_status_events_include_graph_steps():
     state = agent.run("Review my portfolio.", status_callback=emitted.append)
 
     statuses = [event.status for event in emitted]
-    assert statuses[:2] == ["classifying_query", "loading_policy"]
+    assert statuses[0] == "classifying_query"
+    assert "planning_subagent_calls" in statuses
+    assert "loading_policy" in statuses
     assert "calling_portfolio_agent" in statuses
     assert "calling_sentiment_agent" in statuses
+    assert "checking_guardrails" in statuses
+    assert "guardrails_passed" in statuses
     assert statuses[-1] == "complete"
     assert len(emitted) == len(state.status_events)
 

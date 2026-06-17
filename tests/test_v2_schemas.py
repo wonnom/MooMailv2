@@ -379,7 +379,9 @@ def test_all_v2_fixtures_validate_and_serialize():
         "investment_query_plan_full_review.json": InvestmentQueryPlan,
         "portfolio_context_plan_cash_only.json": PortfolioContextPlan,
         "portfolio_context_plan_what_changed.json": PortfolioContextPlan,
+        "sentiment_task_full_review.json": SentimentTask,
         "sentiment_packet_stub.json": SentimentPacket,
+        "sentiment_packet_future_success.json": SentimentPacket,
     }
 
     for fixture_name, model in model_by_fixture.items():

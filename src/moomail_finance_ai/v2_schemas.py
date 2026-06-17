@@ -257,6 +257,9 @@ class SentimentPacket(StrictModel):
             summary="GraphRAG sentiment retrieval is not implemented in V2."
         )
     )
+    contradictions: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
     missing_documents: list[MissingResearchDocument] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
     data_quality: DataQuality = Field(default_factory=DataQuality)
@@ -275,6 +278,11 @@ class SentimentPacket(StrictModel):
             raise ValueError(
                 "SentimentPacket with retrieval_status='not_implemented' cannot include "
                 "holdings or citations."
+            )
+        if self.contradictions or self.open_questions or self.source_metadata:
+            raise ValueError(
+                "SentimentPacket with retrieval_status='not_implemented' cannot include "
+                "research-derived contradictions, open questions, or source metadata."
             )
         return self
 

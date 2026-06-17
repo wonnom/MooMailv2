@@ -1,11 +1,11 @@
-# Task 3: Convert Portfolio Agent To Bounded Planning Subgraph
+# Task 3: Convert Portfolio Agent To Bounded Planning Path
 
 Status: complete as of 2026-06-13.
 
 ## Goal
 
 Refactor the current deterministic `MCPPortfolioAgent.run()` workflow into a
-bounded-planning Portfolio Agent subgraph.
+bounded-planning Portfolio Agent path.
 
 The key change is not "make it fully autonomous." The key change is:
 
@@ -31,6 +31,9 @@ Implemented shape:
   default.
 - `PortfolioAgentResult.tool_calls` now includes planned, actual, and skipped
   tool entries. The V2 portfolio packet also carries this trace.
+
+Reality note: this is implemented inside the existing Python Portfolio Agent,
+not as a separate compiled LangGraph subgraph.
 
 ## Exit Criteria
 

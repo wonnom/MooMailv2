@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
 
 from moomail_finance_ai.v2_investment_agent import build_default_v2_investment_agent  # noqa: E402
 from moomail_finance_ai.v2_schemas import InvestmentAgentState  # noqa: E402
+from moomail_finance_ai.v2_trace import sanitize_trace_events  # noqa: E402
 
 
 def main() -> None:
@@ -63,7 +64,26 @@ def v2_terminal_summary_lines(
             ]
         )
     if guardrail is not None:
-        lines.append(f"Guardrails passed: {guardrail.passed}")
+        lines.extend(
+            [
+                "",
+                f"Guardrails: {guardrail.output_status}",
+                f"Guardrails passed: {guardrail.passed}",
+            ]
+        )
+        failed = [check for check in guardrail.checks if not check.passed]
+        if failed:
+            lines.append("Failed guardrail checks:")
+            lines.extend(f"- {check.check}: {check.message}" for check in failed)
+        else:
+            lines.append(f"Guardrail checks: {len(guardrail.checks)} passed")
+    if state.status_events:
+        lines.extend(["", "Trace:"])
+        for event in sanitize_trace_events(state.status_events):
+            label = event.event_type
+            if event.tool_name:
+                label = f"{label}:{event.tool_name}"
+            lines.append(f"- {event.status} [{label}] {event.message}")
     return lines
 
 

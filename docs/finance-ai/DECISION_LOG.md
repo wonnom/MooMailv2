@@ -31,19 +31,19 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-13
+Date: 2026-06-15
 
 Current status:
 
 - V1 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
   portfolio history.
-- V2 is in progress: the thin LangGraph Investment Agent supervisor and
-  bounded-planning Portfolio Agent are implemented; Sentiment Agent remains a
-  structured stub target to cement future GraphRAG contracts.
+- V2 skeleton is complete: the thin LangGraph Investment Agent supervisor,
+  bounded-planning Portfolio Agent path, Sentiment Agent stub, deterministic
+  guardrails, sanitized trace, and deterministic test coverage are implemented.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1 task tracking lives under `docs/finance-ai/V1_TASKS/`.
-- Active V2 task maps live under `docs/finance-ai/V2_Tasks/`.
+- V2 task maps and closeout notes live under `docs/finance-ai/V2_Tasks/`.
 - The canonical portfolio database is `data/portfolio-history.sqlite`.
 - Trading remains fully out of scope.
 
@@ -53,7 +53,7 @@ Current status:
 | --- | --- | --- |
 | Concept / V0 | Complete | Architecture interview, requirements, agent boundaries, and tool-store choices. |
 | V1 | Complete | Portfolio Agent POC with OpenD, canonical local SQL history, deterministic metrics, MCP boundaries, terminal path, and local chat frontend. |
-| V2 | In progress | LangGraph Investment Agent supervisor, bounded-planning Portfolio Agent subgraph, Sentiment Agent stub, contracts, synthesis, and guardrails. |
+| V2 | Complete skeleton | LangGraph Investment Agent supervisor, bounded-planning Portfolio Agent path, Sentiment Agent stub, contracts, deterministic synthesis, guardrails, sanitized trace, and tests. |
 
 ## Timeline
 
@@ -456,8 +456,12 @@ Implementation reality:
 - V1 has no trading tools.
 - MCP surfaces are read-only or analysis-only.
 - V1 guardrail behavior is present around output framing and tool scope.
-- V2 should move final guardrail review into the Investment Agent path as a
-  structured graph node.
+- V2 moves final guardrail review into the Investment Agent path as a structured
+  graph node.
+- V2 guardrails are deterministic and cover no-trading, no exact share-count
+  instructions, unsupported research claims, unsupported portfolio facts,
+  missing IPS for optimization/rebalancing framing, and missing sentiment
+  limitation visibility.
 
 Learning note:
 
@@ -555,7 +559,7 @@ V2 goal:
 Turn the V1 Portfolio Agent POC into the first real Investment Agent
 architecture.
 
-Planned V2 flow:
+Planned V2 flow, now implemented as the V2 skeleton:
 
 ```text
 User query
@@ -563,7 +567,7 @@ User query
       -> classify query and load relevant policy context
       -> decide whether portfolio context is needed
       -> decide whether sentiment context is needed
-      -> call Portfolio Agent subgraph
+      -> call Portfolio Agent bounded-planning path
       -> call Sentiment Agent stub when needed
       -> synthesize answer
       -> run guardrail review
@@ -572,7 +576,8 @@ User query
 
 Portfolio Agent V2 direction:
 
-- Convert current deterministic flow into a bounded-planning subgraph.
+- Convert current deterministic flow into a bounded-planning path. The current
+  implementation is not a separate compiled LangGraph subgraph.
 - Planner decides:
   - whether current OpenD is needed
   - whether SQL history is needed
@@ -602,6 +607,67 @@ Designed versus planned actual:
   guardrail placement.
 - GraphRAG and Pinecone should come after the Investment Agent contracts are
   stable.
+
+### 14. V2 Closeout / 2026-06-15
+
+Goal:
+
+Close the V2 skeleton by making the V1 Portfolio Agent POC usable through a
+real LangGraph Investment Agent supervisor, with structured subagent contracts,
+missing-research behavior, guardrails, trace, and deterministic tests.
+
+Actual implementation:
+
+- Added V2 Pydantic contracts in `src/moomail_finance_ai/v2_schemas.py`.
+- Added `V2InvestmentAgent` in `src/moomail_finance_ai/v2_investment_agent.py`
+  as a real LangGraph `StateGraph`.
+- Routed portfolio-only and portfolio-plus-sentiment queries through structured
+  `InvestmentQueryPlan`, `PortfolioTask`, and `SentimentTask` objects.
+- Added bounded Portfolio Agent context planning to the existing Python
+  Portfolio Agent path.
+- Added `V2SentimentAgentStub`, which returns
+  `retrieval_status: not_implemented`, explicit missing research documents, no
+  citations, no holdings, and no sentiment stance.
+- Added deterministic V2 guardrails in `v2_guardrails.py`.
+- Added sanitized public trace helpers in `v2_trace.py`.
+- Added chat and terminal V2 output paths.
+- Added V2 deterministic tests and fixtures.
+
+Designed versus actual:
+
+- Designed target: Portfolio Agent as a bounded-planning LangGraph subgraph.
+  Actual V2: bounded planning is implemented inside the existing Python
+  Portfolio Agent path, not as a separate compiled graph.
+- Designed target: Investment Agent synthesizes portfolio, sentiment, memory,
+  and current market outlook. Actual V2: synthesis is
+  deterministic/template-style, with missing-research limitations surfaced.
+- Designed target: Sentiment Agent uses Neo4j GraphRAG. Actual V2: Sentiment
+  Agent is a deterministic stub to lock contracts before retrieval work.
+- Designed target: long-term memory through Pinecone. Actual V2: memory remains
+  disconnected.
+- Designed target: MCP server/tool runtime behind each agent. Actual V2:
+  MCP-style modules and stdio servers exist, but agent calls are still
+  in-process rather than through an official MCP client/host runtime.
+
+Verification:
+
+- Deterministic closeout command:
+  `.venv/bin/python -m pytest tests --ignore=tests/live -q`
+- Latest V2 closeout result:
+  `156 passed, 1 warning`
+- The warning is a LangGraph dependency deprecation warning.
+- Live connector tests remain opt-in under `tests/live/`.
+
+Lessons learned:
+
+- Building the Investment Agent skeleton before GraphRAG clarified the exact
+  input/output contract research retrieval must satisfy.
+- Deterministic planners are useful as a scaffold, but richer query
+  interpretation will likely need a bounded structured-output LLM planner later.
+- Trace is part of the product. It should show operational truth without
+  exposing hidden reasoning, prompts, secrets, or raw account identifiers.
+- Closing V2 honestly means marking stubs as stubs, not dressing them up as
+  finished research features.
 
 ## Major Decisions
 
@@ -652,8 +718,27 @@ Important current files and areas:
 - `docs/finance-ai/V1_TASKS/`
   - Historical V1 implementation tracking and closeout.
 
+- `docs/finance-ai/V2_Tasks/`
+  - V2 skeleton task maps and closeout notes.
+
 - `src/moomail_finance_ai/portfolio_agent.py`
-  - V1 Portfolio Agent deterministic orchestration and LLM evaluator path.
+  - Portfolio Agent deterministic orchestration, bounded context planning, and
+    LLM evaluator path.
+
+- `src/moomail_finance_ai/v2_investment_agent.py`
+  - Thin LangGraph Investment Agent supervisor.
+
+- `src/moomail_finance_ai/v2_schemas.py`
+  - V2 state, task, packet, synthesis, guardrail, and trace contracts.
+
+- `src/moomail_finance_ai/sentiment_agent_stub.py`
+  - V2 missing-research Sentiment Agent stub.
+
+- `src/moomail_finance_ai/v2_guardrails.py`
+  - Deterministic V2 output guardrails.
+
+- `src/moomail_finance_ai/v2_trace.py`
+  - Sanitized V2 operational trace helpers.
 
 - `src/moomail_finance_ai/opend_adapter.py`
   - Read-only OpenD interaction.
@@ -675,6 +760,9 @@ Important current files and areas:
 
 - `scripts/portfolio_agent_review.py`
   - Terminal review path.
+
+- `scripts/investment_agent_v2_review.py`
+  - Terminal V2 Investment Agent review path.
 
 - `scripts/serve_chat.py`
   - Local chat frontend server.
@@ -736,8 +824,8 @@ Verification:
   one-canonical-DB architecture.
 - The V1 Portfolio Agent is deterministic with an LLM evaluator; that is a
   deliberate stepping stone, not the final agent architecture.
-- V2 moves autonomy up to a LangGraph Investment Agent supervisor and bounded
-  Portfolio Agent planner.
+- V2 moves orchestration up to a LangGraph Investment Agent supervisor and
+  bounded Portfolio Agent planner.
 - The Sentiment Agent is stubbed before Neo4j GraphRAG so the retrieval system
   can be designed against stable contracts.
 - Safety is designed at the tool boundary, orchestration layer, and final
@@ -745,10 +833,10 @@ Verification:
 
 ## Open Questions
 
-- What exact Pydantic models should define V2 state, tasks, packets, and
-  guardrail outputs?
-- Should the V2 runtime use the official MCP client/host path immediately, or
-  continue with in-process MCP modules until graph contracts stabilize?
+- Should the next phase build Neo4j GraphRAG first, or first add a
+  structured-output LLM planner/synthesizer to the Investment Agent?
+- When should the V2 runtime move from in-process MCP modules to an official
+  MCP client/host path?
 - What is the first useful Neo4j graph schema for research documents,
   companies, events, risks, and management commentary?
 - When should Pinecone memory be introduced: before or after real GraphRAG?

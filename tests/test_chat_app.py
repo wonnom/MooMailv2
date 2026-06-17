@@ -111,12 +111,18 @@ def test_chat_service_can_call_v2_investment_agent_with_recorded_portfolio(tmp_p
     assert final["agent_type"] == "investment_agent_v2"
     assert final["query_plan"]["needs_sentiment_agent"] is True
     assert final["sentiment_packet"]["retrieval_status"] == "not_implemented"
+    assert any(event["event_type"] == "tool_call" for event in final["status_events"])
+    assert any(
+        event["status"] == "sentiment_stub_status"
+        for event in final["status_events"]
+    )
     assert final["final_report"]["portfolio_analysis"]["allocation"]["by_asset"]
     assert final["final_report"]["portfolio_analysis"]["risk"]
     assert "Sentiment Agent GraphRAG retrieval is not implemented in V2." in (
         final["final_report"]["missing_data"]
     )
     assert final["guardrail_result"]["passed"] is True
+    assert final["guardrail_result"]["checks"]
 
 
 def test_chat_defaults_use_canonical_portfolio_history_db():

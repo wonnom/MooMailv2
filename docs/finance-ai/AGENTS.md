@@ -13,10 +13,10 @@ Future branch:
 ```
 
 V1 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
-history. V2 focuses on making the Investment Agent a thin LangGraph supervisor
-over the Portfolio Agent and a Sentiment Agent stub. The future Main Finance
-Orchestrator can route between investment and budgeting domains later, but it is
-not required for V2.
+history. V2 is complete as a first Investment Agent skeleton: a thin LangGraph
+supervisor over the Portfolio Agent and a Sentiment Agent stub. The future Main
+Finance Orchestrator can route between investment and budgeting domains later,
+but it is not part of V2.
 
 ## Investment Agent
 
@@ -26,22 +26,26 @@ Responsibilities:
 
 - Interpret the user's investment query and infer the mode when useful.
 - Load the Investment Policy Statement.
-- Retrieve relevant long-term memory from Pinecone.
+- Retrieve relevant long-term memory from Pinecone in a future version.
 - Request portfolio diagnostics from the Portfolio Agent.
 - Request research and sentiment context from the Sentiment Agent in most investment analysis flows.
-- Synthesize portfolio facts, market context, research evidence, and policy constraints.
+- Synthesize portfolio facts, market context, research evidence, and policy
+  constraints. In current V2 this synthesis is deterministic/template-style;
+  richer LLM synthesis remains future work.
 - Produce source-backed investment analysis and optimization recommendations.
 - Run final guardrail review before responding.
-- Propose memory writes when durable investment context should be preserved.
-- Store audit records and simple output summaries.
+- Propose memory writes when durable investment context should be preserved in
+  a future version.
+- Store audit records and simple output summaries in a future V2/V3 persistence
+  pass.
 
 The Investment Agent owns the Portfolio Agent and Sentiment Agent from an
 orchestration perspective. The subagents should not freely message each other.
 The Investment Agent coordinates them through structured inputs and outputs.
 
-### V2 Investment Agent Target
+### V2 Investment Agent
 
-V2 should implement the Investment Agent as a thin LangGraph supervisor:
+V2 implements the Investment Agent as a thin LangGraph supervisor:
 
 - classify the user query
 - load the IPS
@@ -51,11 +55,21 @@ V2 should implement the Investment Agent as a thin LangGraph supervisor:
 - call Sentiment Agent stub when needed
 - synthesize the answer
 - run guardrails
-- emit structured terminal/frontend output
+- emit structured terminal/frontend output and sanitized trace
 
 The Investment Agent, not the Portfolio Agent, decides whether sentiment is
 needed. The Portfolio Agent may return candidate sentiment scope, but it should
 not invoke the Sentiment Agent directly.
+
+Current V2 limitations:
+
+- Query classification is deterministic and keyword/rule based, not an
+  LLM-guided structured-output planner.
+- The final V2 Investment Agent synthesis is deterministic/template-style. The
+  Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
+  Investment Agent itself does not yet perform a rich LLM synthesis pass.
+- Pinecone memory is not connected.
+- V2 does not place, prepare, or suggest executable trades.
 
 ### Supported Modes
 
@@ -128,8 +142,8 @@ whether to write SQL rows, invent market sentiment, or issue trade instructions.
 
 ### V2 Portfolio Agent
 
-V2 converts the Portfolio Agent into a bounded-planning subgraph. The planner
-decides which portfolio context is needed for the assigned task:
+V2 adds a bounded-planning path to the Portfolio Agent. The planner decides
+which portfolio context is needed for the assigned task:
 
 - current OpenD snapshot
 - SQL history status
@@ -140,9 +154,10 @@ decides which portfolio context is needed for the assigned task:
 - required metric groups
 - persistence for review-style runs
 
-Execution remains deterministic once the plan is produced. The Portfolio Agent
-returns structured portfolio evidence and candidate sentiment scope, not final
-investment advice.
+Execution remains deterministic once the plan is produced. This is implemented
+inside the existing Python Portfolio Agent path, not as a separate compiled
+LangGraph subgraph. The Portfolio Agent returns structured portfolio evidence
+and candidate sentiment scope, not final investment advice.
 
 Current V2 behavior:
 
@@ -239,8 +254,9 @@ for major holdings, large contributors, large weight changes, or named tickers.
 For mechanical portfolio questions, such as cash balance or allocation-by-ticker
 queries, sentiment can be skipped.
 
-V2 uses a Sentiment Agent stub only. It should accept the future GraphRAG task
-shape and return explicit missing-research fields without fabricating sentiment.
+V2 uses a Sentiment Agent stub only. It accepts the future GraphRAG task shape
+and returns explicit missing-research fields without fabricating sentiment,
+citations, holdings, source metadata, or company facts.
 
 ### Sentiment Agent Scope
 

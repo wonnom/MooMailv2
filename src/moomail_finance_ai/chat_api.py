@@ -16,6 +16,8 @@ from moomail_finance_ai.schemas import AgentState, StatusEvent
 from moomail_finance_ai.v2_investment_agent import V2InvestmentAgent
 from moomail_finance_ai.v2_investment_agent import build_default_v2_investment_agent
 from moomail_finance_ai.v2_schemas import InvestmentAgentState as V2InvestmentAgentState
+from moomail_finance_ai.v2_schemas import TraceEvent
+from moomail_finance_ai.v2_trace import sanitize_public_text, trace_event_to_public_dict
 
 
 class ChatService:
@@ -95,7 +97,7 @@ def v2_state_response(state: V2InvestmentAgentState) -> dict[str, Any]:
         "agent_type": "investment_agent_v2",
         "run_id": state.run_id,
         "mode": state.mode,
-        "status_events": [event.model_dump(mode="json") for event in state.status_events],
+        "status_events": [trace_event_to_public_dict(event) for event in state.status_events],
         "query_plan": state.query_plan.model_dump(mode="json") if state.query_plan else None,
         "portfolio_packet": (
             state.portfolio_packet.model_dump(mode="json") if state.portfolio_packet else None
@@ -179,6 +181,8 @@ def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
 
 
 def status_event_payload(event: StatusEvent | Any) -> dict[str, Any]:
+    if isinstance(event, TraceEvent):
+        return {"type": "status", "event": trace_event_to_public_dict(event)}
     return {"type": "status", "event": event.model_dump(mode="json")}
 
 
@@ -188,9 +192,12 @@ def error_event_payload(exc: BaseException) -> dict[str, Any]:
         "type": "error",
         "error": {
             "error_type": exc.__class__.__name__,
-            "message": message,
+            "message": sanitize_public_text(message),
             "timestamp": datetime.now(UTC).isoformat(),
-            "traceback": traceback.format_exception(type(exc), exc, exc.__traceback__),
+            "traceback": [
+                sanitize_public_text(line)
+                for line in traceback.format_exception(type(exc), exc, exc.__traceback__)
+            ],
         },
     }
 

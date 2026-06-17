@@ -16,16 +16,14 @@ from moomail_finance_ai.portfolio_agent import (
     build_default_portfolio_agent,
 )
 from moomail_finance_ai.schemas import (
-    DataQuality,
     FinalReport,
-    GuardrailCheck,
     InvestmentPolicy,
-    PortfolioLevelSentiment,
     Recommendation,
-    SentimentScopeItem,
 )
+from moomail_finance_ai.v2_guardrails import review_v2_report
+from moomail_finance_ai.sentiment_agent_stub import V2SentimentAgentStub
+from moomail_finance_ai.v2_trace import sanitize_trace_event
 from moomail_finance_ai.v2_schemas import (
-    GuardrailReview,
     InvestmentAgentState,
     InvestmentQueryPlan,
     PortfolioContextPlan,
@@ -95,43 +93,6 @@ class SentimentAgentProtocol(Protocol):
 
 
 @dataclass
-class V2SentimentAgentStub:
-    calls: int = 0
-    last_task: SentimentTask | None = None
-
-    def run(self, task: SentimentTask) -> SentimentPacket:
-        self.calls += 1
-        self.last_task = task
-        return SentimentPacket(
-            retrieval_status="not_implemented",
-            task=task,
-            scope=[
-                SentimentScopeItem(ticker=ticker, reason=task.reason)
-                for ticker in task.tickers
-            ],
-            portfolio_level_sentiment=PortfolioLevelSentiment(
-                summary="GraphRAG sentiment retrieval is not implemented in V2."
-            ),
-            missing_documents=[
-                {
-                    "ticker": ticker,
-                    "document_type": "unknown",
-                    "reason": "Neo4j GraphRAG corpus is not connected in V2.",
-                }
-                for ticker in task.tickers
-            ],
-            data_quality=DataQuality(
-                freshness_status="unknown",
-                missing_fields=["graph_rag_corpus"],
-                warnings=[
-                    "Sentiment Agent is a V2 stub; no research retrieval was performed."
-                ],
-            ),
-            warnings=["Sentiment Agent is a V2 stub."],
-        )
-
-
-@dataclass
 class V2InvestmentAgent:
     portfolio_agent: PortfolioAgentProtocol
     sentiment_agent: SentimentAgentProtocol = field(default_factory=V2SentimentAgentStub)
@@ -157,6 +118,9 @@ class V2InvestmentAgent:
             if isinstance(result, InvestmentAgentState):
                 return result
             return InvestmentAgentState.model_validate(result)
+        except Exception as exc:
+            self._emit_error(state, exc, status="v2_agent_error")
+            raise
         finally:
             self._status_callback = None
 
@@ -186,6 +150,15 @@ class V2InvestmentAgent:
         self._emit(state, "classifying_query", "Classifying the V2 investment query.")
         state.query_plan = classify_investment_query(state.user_query)
         state.mode = state.query_plan.mode
+        self._emit(
+            state,
+            "planning_subagent_calls",
+            "Planning bounded subagent calls from the structured query plan.",
+            metadata={
+                "phase": "planning",
+                "result": state.query_plan.route_reason,
+            },
+        )
         return state
 
     def _load_ips_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
@@ -215,6 +188,7 @@ class V2InvestmentAgent:
             portfolio_task=state.query_plan.portfolio_task,
         )
         state.portfolio_packet = adapt_portfolio_result_to_v2(result, state.ips)
+        self._emit_portfolio_tool_trace(state, state.portfolio_packet.tool_calls)
         return state
 
     def _route_sentiment_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
@@ -258,6 +232,18 @@ class V2InvestmentAgent:
             subagent="sentiment_agent",
         )
         state.sentiment_packet = self.sentiment_agent.run(state.query_plan.sentiment_task)
+        self._emit(
+            state,
+            "sentiment_stub_status",
+            "Sentiment Agent returned structured missing-research status.",
+            event_type="status",
+            subagent="sentiment_agent",
+            metadata={
+                "retrieval_status": state.sentiment_packet.retrieval_status,
+                "missing_documents_count": len(state.sentiment_packet.missing_documents),
+                "warning_count": len(state.sentiment_packet.warnings),
+            },
+        )
         return state
 
     def _synthesize_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
@@ -280,6 +266,22 @@ class V2InvestmentAgent:
         assert state.final_report is not None
         self._emit(state, "checking_guardrails", "Running V2 output guardrails.")
         state.guardrail_review = review_v2_report(state)
+        self._emit(
+            state,
+            (
+                "guardrails_passed"
+                if state.guardrail_review.passed
+                else "guardrails_blocked"
+            ),
+            "V2 output guardrails completed.",
+            event_type="status",
+            subagent="guardrails",
+            metadata={
+                "passed": state.guardrail_review.passed,
+                "output_status": state.guardrail_review.output_status,
+                "check_count": len(state.guardrail_review.checks),
+            },
+        )
         return state
 
     def _final_output_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
@@ -294,8 +296,15 @@ class V2InvestmentAgent:
         *,
         event_type: str = "graph_node",
         subagent: str | None = "investment_agent",
+        server_name: str | None = None,
+        tool_name: str | None = None,
+        input_summary: str | None = None,
+        output_summary: str | None = None,
+        metadata: dict | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
     ) -> None:
-        event = TraceEvent(
+        event = sanitize_trace_event(TraceEvent(
             event_type=event_type,
             run_id=state.run_id,
             status=status,
@@ -303,10 +312,55 @@ class V2InvestmentAgent:
             timestamp=datetime.now(UTC),
             node=status if event_type == "graph_node" else None,
             subagent=subagent,
-        )
+            server_name=server_name,
+            tool_name=tool_name,
+            input_summary=input_summary,
+            output_summary=output_summary,
+            metadata=metadata or {},
+            error_type=error_type,
+            error_message=error_message,
+        ))
         state.status_events.append(event)
         if self._status_callback is not None:
             self._status_callback(event)
+
+    def _emit_error(
+        self,
+        state: InvestmentAgentState,
+        exc: BaseException,
+        *,
+        status: str,
+    ) -> None:
+        self._emit(
+            state,
+            status,
+            "V2 Investment Agent run failed.",
+            event_type="error",
+            subagent="investment_agent",
+            error_type=exc.__class__.__name__,
+            error_message=str(exc) or exc.__class__.__name__,
+            metadata={"error_location": "v2_investment_agent.run"},
+        )
+
+    def _emit_portfolio_tool_trace(
+        self,
+        state: InvestmentAgentState,
+        tool_calls: list[str],
+    ) -> None:
+        for tool_call in tool_calls:
+            event = _portfolio_tool_trace_event(tool_call)
+            self._emit(
+                state,
+                event["status"],
+                event["message"],
+                event_type="tool_call",
+                subagent="portfolio_agent",
+                server_name=event["server_name"],
+                tool_name=event["tool_name"],
+                input_summary=event["input_summary"],
+                output_summary=event["output_summary"],
+                metadata=event["metadata"],
+            )
 
 
 def classify_investment_query(query: str) -> InvestmentQueryPlan:
@@ -451,51 +505,6 @@ def synthesize_final_report(state: InvestmentAgentState) -> FinalReport:
     )
 
 
-def review_v2_report(state: InvestmentAgentState) -> GuardrailReview:
-    assert state.final_report is not None
-    text = " ".join(
-        [
-            state.final_report.title,
-            state.final_report.summary,
-            " ".join(
-                recommendation.rationale
-                for recommendation in state.final_report.recommendations
-            ),
-        ]
-    ).lower()
-    trade_phrase = next((term for term in TRADE_EXECUTION_TERMS if term in text), None)
-    no_trading = GuardrailCheck(
-        check="no_trading",
-        passed=trade_phrase is None,
-        message=(
-            "No trade execution language detected."
-            if trade_phrase is None
-            else f"Trade execution language detected: {trade_phrase}."
-        ),
-    )
-    missing_sentiment_visible = GuardrailCheck(
-        check="missing_sentiment_visibility",
-        passed=(
-            state.sentiment_packet is None
-            or state.sentiment_packet.retrieval_status not in {"not_implemented", "missing_corpus"}
-            or bool(state.final_report.missing_data)
-        ),
-        message=(
-            "Missing sentiment data is visible when the Sentiment Agent cannot retrieve "
-            "research."
-        ),
-    )
-    checks = [no_trading, missing_sentiment_visible]
-    passed = all(check.passed for check in checks)
-    return GuardrailReview(
-        passed=passed,
-        output_status="approved" if passed else "blocked",
-        checks=checks,
-        required_revisions=[check.message for check in checks if not check.passed],
-        blocked_reason=None if passed else "V2 guardrail review failed.",
-    )
-
-
 def build_default_v2_investment_agent(
     *,
     env_file: str | Path | None = "config/local.env",
@@ -516,6 +525,60 @@ def build_default_v2_investment_agent(
         sentiment_agent=V2SentimentAgentStub(),
         ips=ips or mock_investment_policy(),
     )
+
+
+def _portfolio_tool_trace_event(tool_call: str) -> dict:
+    if tool_call.startswith("planned:"):
+        qualified_tool = tool_call.removeprefix("planned:")
+        server_name, tool_name = _split_qualified_tool(qualified_tool)
+        return {
+            "status": "planned_portfolio_tool",
+            "message": "Portfolio Agent planned a bounded tool call.",
+            "server_name": server_name,
+            "tool_name": tool_name,
+            "input_summary": "Portfolio context plan.",
+            "output_summary": qualified_tool,
+            "metadata": {"tool_call_kind": "planned"},
+        }
+    if tool_call.startswith("skipped:"):
+        skipped = tool_call.removeprefix("skipped:")
+        server_name, tool_name = _split_qualified_tool(skipped.split(" ", 1)[0])
+        return {
+            "status": "skipped_portfolio_tool",
+            "message": "Portfolio Agent skipped a bounded tool call.",
+            "server_name": server_name,
+            "tool_name": tool_name,
+            "input_summary": "Portfolio context plan.",
+            "output_summary": skipped,
+            "metadata": {"tool_call_kind": "skipped"},
+        }
+    if tool_call.startswith("actual_detail:"):
+        return {
+            "status": "portfolio_tool_detail",
+            "message": "Portfolio Agent emitted tool execution detail.",
+            "server_name": None,
+            "tool_name": "portfolio_tool_detail",
+            "input_summary": None,
+            "output_summary": tool_call.removeprefix("actual_detail:"),
+            "metadata": {"tool_call_kind": "detail"},
+        }
+    server_name, tool_name = _split_qualified_tool(tool_call)
+    return {
+        "status": "called_portfolio_tool",
+        "message": "Portfolio Agent completed a bounded tool call.",
+        "server_name": server_name,
+        "tool_name": tool_name,
+        "input_summary": "Bounded Portfolio Agent execution.",
+        "output_summary": tool_call,
+        "metadata": {"tool_call_kind": "actual"},
+    }
+
+
+def _split_qualified_tool(value: str) -> tuple[str | None, str]:
+    if ":" in value:
+        server_name, tool_name = value.split(":", 1)
+        return server_name or None, tool_name or "unknown_tool"
+    return None, value or "unknown_tool"
 
 
 def _sentiment_task_from_plan_and_candidates(

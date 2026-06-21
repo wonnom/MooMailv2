@@ -332,7 +332,7 @@ V3 tasks:
 | Task | Status | Purpose |
 | --- | --- | --- |
 | V3.0 | complete as of 2026-06-17 | Define MCP as backend infrastructure boundary for deterministic app flows and agentic flows. |
-| V3.1 | planned | Preserve business logic, replace custom `JsonRpcMCPServer` with FastMCP servers, and define the gateway contract. |
+| V3.1 | complete as of 2026-06-17 | Preserve business logic, replace custom `JsonRpcMCPServer` server scripts with FastMCP servers, and define the gateway contract. |
 | V3.2 | planned | Implement `DirectToolGateway` for parity tests and `StdioMCPToolGateway` for production-ish local runtime. |
 | V3.3 | planned | Implement the deterministic backend/frontend portfolio data lane for dashboard status, latest snapshot, manual refresh, SQL update, and no-agent refresh behavior. |
 | V3.4 | planned | Move Portfolio Agent and V2 Investment Agent to the gateway, then update docs and retirement decisions. |
@@ -360,6 +360,16 @@ It must update the backend and frontend so page load/manual refresh can show
 connection status, current balances, holdings, metrics, warnings, and
 last-updated metadata without invoking Portfolio Agent or Investment Agent.
 
+V3.1 implementation reality:
+
+- `scripts/mcp_finance_metrics_server.py`, `scripts/mcp_opend_server.py`, and
+  `scripts/mcp_portfolio_sql_server.py` now run official FastMCP over stdio.
+- `src/moomail_finance_ai/mcp/fastmcp.py` adapts existing registered tool
+  modules into FastMCP servers so business logic remains plain Python.
+- `src/moomail_finance_ai/mcp/gateway.py` defines the gateway protocol/result
+  and error contract for V3.2.
+- Agents still call in-process modules until V3.4.
+
 ## Next Work Options
 
 V2 is closed as a skeleton. V3 has selected option 4 below as the active next
@@ -368,8 +378,9 @@ settled:
 
 1. Real Neo4j GraphRAG ingestion and retrieval against the V2 Sentiment Agent
    contract.
-2. Bounded structured-output LLM planner for query classification/subagent
-   planning.
+2. Bounded structured-output LLM/LangGraph planner for query classification,
+   ticker/asset-scope selection, history-window selection, and subagent
+   planning. V4 notes live under [`docs/finance-ai/V4_Tasks/`](V4_Tasks/).
 3. Richer LLM Investment Agent synthesis over portfolio, sentiment, policy, and
    memory packets.
 4. Official MCP client/host runtime migration.

@@ -924,6 +924,59 @@ Implementation implications:
 - Preserve stale last-known dashboard data when refresh fails.
 - Add tests proving no agent or LLM is invoked by the deterministic lane.
 
+## V3.1 FastMCP Server Migration / 2026-06-17
+
+Goal:
+
+- Replace the custom MCP server script runtime with official FastMCP while
+  preserving existing OpenD, SQL, and metrics business logic.
+
+Actual implementation:
+
+- Added `src/moomail_finance_ai/mcp/fastmcp.py` as an adapter from existing
+  `RegisteredMCPModule` instances to official FastMCP servers.
+- Rewired `scripts/mcp_finance_metrics_server.py`,
+  `scripts/mcp_opend_server.py`, and `scripts/mcp_portfolio_sql_server.py` to
+  run FastMCP over stdio.
+- Promoted `mcp>=1,<2` from optional extra to normal project dependency.
+- Added `src/moomail_finance_ai/mcp/gateway.py` with the V3 gateway protocol,
+  result model, and gateway error types.
+- Updated deterministic MCP stdio tests and live MCP connector tests to use the
+  official MCP Python client instead of the custom `_MCPStdioClient`.
+- Added FastMCP parity tests comparing representative stdio server outputs with
+  direct module outputs.
+
+Designed versus actual:
+
+- Designed target: FastMCP servers behind a backend MCP gateway.
+- Actual V3.1: FastMCP servers exist and the gateway contract exists, but
+  concrete gateway modes do not. Agents still call in-process modules until
+  V3.4.
+- `RegisteredMCPModule` remains the single local registry underneath FastMCP so
+  business handlers and direct-module tests stay stable during migration.
+- `JsonRpcMCPServer` still exists as legacy/custom-wrapper code, but the three
+  MCP server scripts no longer use it.
+- FastMCP initialize metadata reports the SDK server version; MooMail module
+  versions remain available through resources and structured payloads.
+
+Verification:
+
+- Focused MCP suite passed:
+  `tests/test_mcp_stdio_round_trips.py`,
+  `tests/test_mcp_fastmcp_parity.py`,
+  `tests/test_mcp_servers.py`, `tests/test_mcp_tool_contracts.py`, and
+  `tests/test_mcp_gateway_contract.py`.
+- Live OpenD/FastMCP smoke tests were updated but remain opt-in.
+
+Lessons learned:
+
+- The safest migration path is to adapt the existing tool registry into
+  FastMCP, not to bury domain logic inside decorators.
+- Official FastMCP stdio uses the SDK/client newline JSON-RPC transport, not
+  the project's old custom `Content-Length` helper.
+- Server migration and agent migration are separate concerns. FastMCP servers
+  can be real before agents consume them through the future gateway.
+
 ## Interview And Presentation Talking Points
 
 - The project began as a broad multi-agent finance system, then narrowed
@@ -963,6 +1016,32 @@ Implementation implications:
   separate account surface?
 - How much of the current local chat UI should survive the future React
   frontend migration?
+
+## V4 Planning Note: Portfolio Planner Should Own Ticker Scope
+
+Date: 2026-06-21
+
+Decision:
+
+- Treat the current Portfolio Agent regex ticker extraction as a temporary
+  bounded-planning fallback, not the intended long-term architecture.
+- V4 should move ticker/asset-scope selection, history-window choice, task type,
+  and SQL history tool scope into explicit planner output.
+- After a plan is selected, MCP tool execution remains deterministic and
+  auditable.
+
+Reasoning:
+
+- Hardcoded extraction hidden inside `interpret_portfolio_task()` is easy to
+  forget and hard to reason about as the query space grows.
+- The Portfolio Agent should decide which ticker history to extract as part of
+  planning, just as it decides task type and history requirements.
+- This keeps finance math and SQL reads deterministic while allowing a future
+  LangGraph/LangChain planner node to handle less deterministic interpretation.
+
+Follow-up:
+
+- See `docs/finance-ai/V4_Tasks/README.md`.
 
 ## Future Update Template
 

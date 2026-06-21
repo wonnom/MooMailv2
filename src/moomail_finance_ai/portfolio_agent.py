@@ -43,7 +43,22 @@ PORTFOLIO_REVIEW_TERMS = ("review", "analyze", "analyse", "breakdown", "overview
 PORTFOLIO_CASH_TERMS = ("cash", "effective cash", "buying power", "purchase power")
 PORTFOLIO_ALLOCATION_TERMS = ("allocation", "allocations", "weight", "weights")
 PORTFOLIO_POSITION_TERMS = ("holding", "holdings", "position", "positions", "value")
-PORTFOLIO_HISTORY_TERMS = ("what changed", "changed", "history", "growth", "performance")
+PORTFOLIO_HISTORY_TERMS = (
+    "what changed",
+    "changed",
+    "history",
+    "growth",
+    "performance",
+    "bought",
+    "purchased",
+    "sold",
+    "added",
+    "reduced",
+    "increased",
+    "decreased",
+    "average cost",
+    "cost basis",
+)
 PORTFOLIO_RISK_TERMS = ("risk", "concentration", "downside", "drawdown")
 
 
@@ -75,6 +90,7 @@ class PortfolioHistoryContext(StrictModel):
     latest_portfolio_state: dict[str, Any] | None = None
     portfolio_growth: list[dict[str, Any]] = Field(default_factory=list)
     allocation_history: list[dict[str, Any]] = Field(default_factory=list)
+    position_state_changes: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PortfolioAgentResult(StrictModel):
@@ -320,6 +336,7 @@ class MCPPortfolioAgent:
                 latest_portfolio_state=None,
                 portfolio_growth=[],
                 allocation_history=[],
+                position_state_changes=[],
             )
 
         emit(
@@ -333,6 +350,7 @@ class MCPPortfolioAgent:
         latest_portfolio_state = None
         portfolio_growth: list[dict[str, Any]] = []
         allocation_history: list[dict[str, Any]] = []
+        position_state_changes: list[dict[str, Any]] = []
 
         if "history_status" in plan.history_queries:
             history_status = self._call(
@@ -366,12 +384,54 @@ class MCPPortfolioAgent:
                 "portfolio_sql_get_allocation_history",
                 {"portfolio_id": ips.portfolio_id, "limit": plan.row_limit},
             )
+        if "position_state_changes" in plan.history_queries:
+            position_state_changes = self._read_position_state_changes(
+                ips,
+                snapshot,
+                plan,
+            )
         return PortfolioHistoryContext(
             history_status=history_status,
             latest_portfolio_state=latest_portfolio_state,
             portfolio_growth=portfolio_growth,
             allocation_history=allocation_history,
+            position_state_changes=position_state_changes,
         )
+
+    def _read_position_state_changes(
+        self,
+        ips: InvestmentPolicy,
+        snapshot: PortfolioSnapshot,
+        plan: PortfolioContextPlan,
+    ) -> list[dict[str, Any]]:
+        tickers = plan.tickers or [None]
+        changes: list[dict[str, Any]] = []
+        for ticker in tickers:
+            lookback_days = _history_window_days(plan.history_window)
+            until = snapshot.as_of.isoformat()
+            arguments: dict[str, Any] = {
+                "portfolio_id": ips.portfolio_id,
+                "lookback_days": lookback_days,
+                "until": until,
+                "limit": plan.row_limit,
+            }
+            if ticker:
+                arguments["ticker"] = ticker
+            position_change_result = self._call(
+                PORTFOLIO_SQL_SERVER,
+                self.portfolio_sql_mcp,
+                "portfolio_sql_get_position_state_changes",
+                arguments,
+            )
+            self.tool_calls.append(
+                "actual_detail:"
+                f"{PORTFOLIO_SQL_SERVER}:portfolio_sql_get_position_state_changes "
+                f"ticker={ticker or '*'} "
+                f"lookback_days={lookback_days} "
+                f"until={until}"
+            )
+            changes.extend(position_change_result.get("changes", []))
+        return sorted(changes, key=_position_state_change_sort_key)[: plan.row_limit]
 
     def _write_portfolio_history(
         self,
@@ -497,6 +557,7 @@ class MCPPortfolioAgent:
             "latest_state": "portfolio_sql_get_latest_portfolio_state",
             "portfolio_growth": "portfolio_sql_get_portfolio_growth",
             "allocation_history": "portfolio_sql_get_allocation_history",
+            "position_state_changes": "portfolio_sql_get_position_state_changes",
         }
         if not plan.needs_sql_history:
             reason = _history_skip_reason(plan)
@@ -631,6 +692,7 @@ def plan_portfolio_context(task: PortfolioTask) -> PortfolioContextPlan:
                 "latest_state",
                 "portfolio_growth",
                 "allocation_history",
+                "position_state_changes",
             ],
             tickers=task.requested_tickers,
             metric_groups=[
@@ -653,6 +715,7 @@ def plan_portfolio_context(task: PortfolioTask) -> PortfolioContextPlan:
                 "latest_state",
                 "portfolio_growth",
                 "allocation_history",
+                "position_state_changes",
             ],
             tickers=task.requested_tickers,
             metric_groups=["allocation", "effective_cash", "performance"],
@@ -681,6 +744,23 @@ def plan_portfolio_context(task: PortfolioTask) -> PortfolioContextPlan:
         persist_observation=persist_observation,
         history_window=task.history_window,
         row_limit=30,
+    )
+
+
+def _history_window_days(history_window: str | None) -> float | None:
+    if not history_window:
+        return None
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*d\s*", history_window.lower())
+    if match is None:
+        return None
+    return float(match.group(1))
+
+
+def _position_state_change_sort_key(change: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(change.get("change_at") or ""),
+        str(change.get("ticker") or ""),
+        str(change.get("asset_id") or ""),
     )
 
 

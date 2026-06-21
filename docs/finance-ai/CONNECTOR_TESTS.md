@@ -101,7 +101,7 @@ No secrets are required for the finance metrics MCP smoke test. It launches:
 scripts/mcp_finance_metrics_server.py
 ```
 
-It speaks a minimal stdio MCP-compatible JSON-RPC flow and exposes one tool:
+It speaks official FastMCP stdio and exposes one tool:
 
 ```text
 calculate_cash_weight

@@ -22,6 +22,10 @@ from moomail_finance_ai.chat_api import (  # noqa: E402
 )
 
 
+class _ClientDisconnected(Exception):
+    """Internal signal used when a streaming client closes its socket."""
+
+
 class ChatHandler(SimpleHTTPRequestHandler):
     service: ChatService
 
@@ -65,10 +69,18 @@ class ChatHandler(SimpleHTTPRequestHandler):
 
         try:
             state = self.service.run(query, agent=agent, status_callback=emit)
-        except Exception as exc:
-            self._write_line(error_event_payload(exc))
+        except _ClientDisconnected:
             return
-        self._write_line({"type": "final", "state": chat_response(state)})
+        except Exception as exc:
+            try:
+                self._write_line(error_event_payload(exc))
+            except _ClientDisconnected:
+                return
+            return
+        try:
+            self._write_line({"type": "final", "state": chat_response(state)})
+        except _ClientDisconnected:
+            return
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
@@ -86,8 +98,11 @@ class ChatHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def _write_line(self, payload: dict) -> None:
-        self.wfile.write(json.dumps(payload).encode("utf-8") + b"\n")
-        self.wfile.flush()
+        try:
+            self.wfile.write(json.dumps(payload).encode("utf-8") + b"\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError) as exc:
+            raise _ClientDisconnected from exc
 
     def _send_file(self, file_path: Path) -> None:
         content_type = "text/html"

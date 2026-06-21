@@ -9,6 +9,7 @@ from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
 from moomail_finance_ai.mocks import mock_investment_policy, mock_portfolio_packet
+from moomail_finance_ai.opend import OpenDConnectionStatus, OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.schemas import AuditRecord, GuardrailCheck, GuardrailResult
 
 
@@ -254,6 +255,55 @@ def test_portfolio_sql_mcp_rejects_table_count_outside_allowlist(tmp_path):
         module.call_tool("portfolio_sql_table_count", {"table_name": "sqlite_master"})
 
 
+def test_portfolio_sql_mcp_position_state_changes_infer_added_cost(tmp_path):
+    module = build_portfolio_sql_mcp_module(db_path=tmp_path / "portfolio.sqlite")
+    first_seen = datetime(2026, 5, 20, tzinfo=UTC)
+    second_seen = datetime(2026, 5, 23, tzinfo=UTC)
+
+    snapshots = [
+        _single_holding_snapshot(
+            ticker="AMZN",
+            quantity=20,
+            average_cost=157.0,
+            as_of=first_seen,
+        ),
+        _single_holding_snapshot(
+            ticker="AMZN",
+            quantity=25,
+            average_cost=174.6,
+            as_of=second_seen,
+        ),
+    ]
+    for snapshot, average_cost in zip(snapshots, [157.0, 174.6], strict=True):
+        module.call_tool(
+            "portfolio_sql_upsert_position_states",
+            {
+                "snapshot": snapshot.model_dump(mode="json"),
+                "source_report": _source_report_for_average_cost(
+                    snapshot,
+                    average_cost,
+                ).model_dump(mode="json"),
+                "observed_at": snapshot.as_of.isoformat(),
+            },
+        )
+
+    changes = module.call_tool(
+        "portfolio_sql_get_position_state_changes",
+        {
+            "portfolio_id": "portfolio_default",
+            "ticker": "AMZN",
+            "since": "2026-05-21T00:00:00+00:00",
+            "until": "2026-05-24T00:00:00+00:00",
+        },
+    )
+
+    assert changes.structured_content["ticker"] == "AMZN"
+    assert len(changes.structured_content["changes"]) == 1
+    change = changes.structured_content["changes"][0]
+    assert change["quantity_delta"] == 5
+    assert change["implied_added_average_cost"] == 245.0
+
+
 def _metrics_snapshot():
     snapshot = mock_portfolio_packet().snapshot
     holdings = []
@@ -291,4 +341,66 @@ def _audit_record() -> AuditRecord:
         ),
         output_summary="MCP audit summary only.",
         memory_updates=[],
+    )
+
+
+def _single_holding_snapshot(
+    *,
+    ticker: str,
+    quantity: float,
+    average_cost: float,
+    as_of: datetime,
+):
+    snapshot = mock_portfolio_packet().snapshot
+    market_value = quantity * average_cost
+    holding = snapshot.holdings[0].model_copy(
+        update={
+            "asset_id": f"asset_{ticker.lower()}_us",
+            "ticker": ticker,
+            "name": f"{ticker} Test Holding",
+            "quantity": quantity,
+            "market_price": average_cost,
+            "market_value": market_value,
+            "portfolio_weight": 1.0,
+            "unrealized_pnl": 0.0,
+            "as_of": as_of,
+        }
+    )
+    return snapshot.model_copy(
+        update={
+            "as_of": as_of,
+            "cash": [],
+            "holdings": [holding],
+            "total_value": snapshot.total_value.model_copy(
+                update={"amount": market_value, "as_of": as_of}
+            ),
+        }
+    )
+
+
+def _source_report_for_average_cost(snapshot, average_cost: float) -> OpenDFieldReport:
+    holding = snapshot.holdings[0]
+    return OpenDFieldReport(
+        generated_at=snapshot.as_of,
+        connection=OpenDConnectionStatus(
+            ok=True,
+            host="127.0.0.1",
+            port=11111,
+            checked_at=snapshot.as_of,
+            message="ok",
+        ),
+        tables=[
+            OpenDTableResult(
+                name="positions",
+                rows=[
+                    {
+                        "code": holding.asset_id,
+                        "average_cost": average_cost,
+                        "position_side": "LONG",
+                    }
+                ],
+                fields=["code", "average_cost", "position_side"],
+                as_of=snapshot.as_of,
+            )
+        ],
     )

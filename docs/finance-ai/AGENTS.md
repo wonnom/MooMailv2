@@ -65,6 +65,9 @@ Current V2 limitations:
 
 - Query classification is deterministic and keyword/rule based, not an
   LLM-guided structured-output planner.
+- Ticker extraction is also deterministic in the current bounded-planning path.
+  V4 should move ticker/asset-scope selection into explicit planner output
+  rather than relying on inline regex helpers.
 - The final V2 Investment Agent synthesis is deterministic/template-style. The
   Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
   Investment Agent itself does not yet perform a rich LLM synthesis pass.
@@ -116,6 +119,13 @@ Current V1 implementation:
   `portfolio_sql_store_weight_snapshots`,
   `portfolio_sql_store_data_quality_events`, and
   `portfolio_sql_get_history_status`.
+- `what_changed` and broad review plans can also read
+  `portfolio_sql_get_position_state_changes` so the evaluator can explain
+  compact quantity/average-cost changes, including inferred added-share average
+  cost when SQL has adjacent position states.
+- If a portfolio-change query names tickers, the bounded plan passes those
+  tickers into the position-state change read; otherwise it scans recent
+  changes across the portfolio within the configured history window.
 - LLM evaluator: a provider-neutral LLM adapter produces a portfolio-only
   structured evaluation after deterministic tools complete. Gemini and OpenAI
   are supported, with Gemini as the current default. The evaluator now asks for
@@ -158,6 +168,11 @@ Execution remains deterministic once the plan is produced. This is implemented
 inside the existing Python Portfolio Agent path, not as a separate compiled
 LangGraph subgraph. The Portfolio Agent returns structured portfolio evidence
 and candidate sentiment scope, not final investment advice.
+
+The current bounded planner still uses hardcoded keyword/rule logic and a
+temporary regex ticker extractor. V4 should replace this with a planner node
+that chooses task type, relevant tickers/assets, history window, and tool scope
+as structured plan fields before deterministic execution.
 
 Current V2 behavior:
 

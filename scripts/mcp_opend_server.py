@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 
+from moomail_finance_ai.mcp.fastmcp import build_fastmcp_server
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
-from moomail_finance_ai.mcp.stdio import JsonRpcMCPServer
 
 
 def main() -> None:
@@ -16,7 +16,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     module = build_opend_mcp_module(env_file=args.env_file, from_report=args.from_report)
-    JsonRpcMCPServer(module).serve_forever()
+    build_fastmcp_server(module).run("stdio")
 
 
 if __name__ == "__main__":

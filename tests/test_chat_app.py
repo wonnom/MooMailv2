@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 from moomail_finance_ai.chat_api import ChatService, stream_payloads
 from moomail_finance_ai.opend import OpenDConnectionStatus, OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.portfolio_agent import PortfolioEvaluation
-from scripts.serve_chat import WEB
+from moomail_finance_ai.schemas import StatusEvent
+from scripts.serve_chat import WEB, ChatHandler
 
 
 def test_milestone6_chat_service_returns_full_report(tmp_path):
@@ -45,6 +46,20 @@ def test_milestone6_stream_endpoint_emits_error_event_when_agent_fails():
     assert lines[-1]["error"]["error_type"] == "RuntimeError"
     assert lines[-1]["error"]["message"] == "synthetic stream failure"
     assert "RuntimeError" in "".join(lines[-1]["error"]["traceback"])
+
+
+def test_stream_handler_stops_quietly_when_client_disconnects():
+    handler = object.__new__(ChatHandler)
+    writer = BrokenPipeWriter()
+    handler.wfile = writer
+    handler.service = DisconnectingStreamService()
+    handler.send_response = lambda _status: None
+    handler.send_header = lambda _name, _value: None
+    handler.end_headers = lambda: None
+
+    handler._stream_chat("Review my portfolio", agent="portfolio")
+
+    assert writer.write_calls == 1
 
 
 def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
@@ -294,3 +309,29 @@ class FakePortfolioEvaluator:
 class ExplodingChatService:
     def run(self, query, *, agent=None, status_callback=None):
         raise RuntimeError("synthetic stream failure")
+
+
+class DisconnectingStreamService:
+    def run(self, query, *, agent=None, status_callback=None):
+        assert status_callback is not None
+        status_callback(
+            StatusEvent(
+                run_id="run_disconnect",
+                status="streaming",
+                message="This event will hit a closed client socket.",
+                timestamp=datetime(2026, 5, 23, tzinfo=UTC),
+            )
+        )
+        raise AssertionError("service should stop after status callback disconnects")
+
+
+class BrokenPipeWriter:
+    def __init__(self):
+        self.write_calls = 0
+
+    def write(self, _data: bytes) -> None:
+        self.write_calls += 1
+        raise BrokenPipeError()
+
+    def flush(self) -> None:
+        return

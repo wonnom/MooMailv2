@@ -287,6 +287,49 @@ def build_portfolio_sql_mcp_module(
     )
     module.add_tool(
         MCPToolSpec(
+            name="portfolio_sql_get_position_state_changes",
+            description=(
+                "Read compact position-state changes in a time range and compute "
+                "quantity, average-cost, cost-basis, and implied added-share cost deltas."
+            ),
+            input_schema=object_schema(
+                {
+                    "portfolio_id": {"type": "string", "default": "portfolio_default"},
+                    "account_id": {"type": "string", "default": DEFAULT_ACCOUNT_ID},
+                    "ticker": {"type": "string"},
+                    "asset_id": {"type": "string"},
+                    "since": {
+                        "type": "string",
+                        "description": "Inclusive ISO datetime lower bound for change_at.",
+                    },
+                    "until": {
+                        "type": "string",
+                        "description": "Inclusive ISO datetime upper bound for change_at.",
+                    },
+                    "lookback_days": {
+                        "type": "number",
+                        "description": "If since is omitted, derive since from until/now.",
+                    },
+                    "limit": {"type": "integer", "default": 100},
+                    "include_initial_observations": {"type": "boolean", "default": False},
+                },
+                required=["portfolio_id"],
+            ),
+        ),
+        lambda arguments: store.position_state_changes(
+            str(arguments["portfolio_id"]),
+            account_id=str(arguments.get("account_id", DEFAULT_ACCOUNT_ID)),
+            ticker=arguments.get("ticker"),
+            asset_id=arguments.get("asset_id"),
+            since=_optional_datetime(arguments.get("since")),
+            until=_optional_datetime(arguments.get("until")),
+            lookback_days=_optional_float(arguments.get("lookback_days")),
+            limit=int(arguments.get("limit", 100)),
+            include_initial_observations=bool(arguments.get("include_initial_observations", False)),
+        ),
+    )
+    module.add_tool(
+        MCPToolSpec(
             name="portfolio_sql_store_agent_run",
             description="Store compact agent run metadata and output summary only.",
             input_schema=object_schema(
@@ -403,3 +446,9 @@ def _optional_datetime(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    return float(value)

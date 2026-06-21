@@ -55,6 +55,7 @@ HistoryQuery = Literal[
     "latest_state",
     "portfolio_growth",
     "allocation_history",
+    "position_state_changes",
 ]
 MetricGroup = Literal[
     "allocation",

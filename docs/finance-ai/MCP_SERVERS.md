@@ -14,27 +14,29 @@ the standardized backend boundary for MooMoo/OpenD data access. Deterministic
 portfolio dashboard refresh/status flows and agentic analysis flows should use
 the same read-only MCP boundary through a backend-owned gateway.
 
-The implementation is split into two layers:
+The V3.1 implementation is split into two layers:
 
 1. Tool modules in `src/moomail_finance_ai/mcp/` register tools, resources, input
    schemas, and Python handlers.
-2. `JsonRpcMCPServer` exposes those modules over local stdio using MCP-style
-   JSON-RPC methods: `initialize`, `tools/list`, `tools/call`,
-   `resources/list`, and `resources/read`.
+2. `src/moomail_finance_ai/mcp/fastmcp.py` adapts those registered modules to
+   the official FastMCP server runtime.
 
-This keeps the business logic independent from the transport. The optional
-`mcp` Python SDK dependency can be added when the project is ready to use the
-official FastMCP server runtime directly.
+This keeps the business logic independent from the transport. The project now
+depends on the official `mcp` Python SDK because the local MCP server scripts
+run through FastMCP.
 
-V2 implementation reality:
+Current implementation reality:
 
-- Agents still call in-process `RegisteredMCPModule` objects.
-- The custom stdio wrappers are tested, but they are not the runtime path used
-  by the app.
+- Local MCP server scripts run official FastMCP over stdio.
+- `RegisteredMCPModule` still owns the local tool registry and handler surface
+  underneath FastMCP.
+- `JsonRpcMCPServer` still exists for legacy/custom-wrapper tests, but it is no
+  longer used by the three server scripts.
+- Agents still call in-process `RegisteredMCPModule` objects until V3.4 moves
+  them to the gateway.
 
-V3 target:
+Remaining V3 target:
 
-- Replace custom stdio wrappers with FastMCP servers.
 - Add a backend MCP client/gateway.
 - Use the gateway for deterministic backend portfolio data flows and for
   Portfolio Agent/V2 Investment Agent tool calls.
@@ -141,6 +143,7 @@ Current tools:
 - `portfolio_sql_get_latest_portfolio_state`
 - `portfolio_sql_get_portfolio_growth`
 - `portfolio_sql_get_allocation_history`
+- `portfolio_sql_get_position_state_changes`
 - `portfolio_sql_store_agent_run`
 - `portfolio_sql_link_agent_run_sources`
 - `portfolio_sql_table_count`
@@ -179,6 +182,10 @@ Implemented schema from the 2026-06-02 portfolio-history design review:
   side, active status, or asset identity changes. Update the active state when
   only market price, market value, unrealized P&L, or last-observed timestamp
   changes.
+- Expose deterministic position-state change reads through
+  `portfolio_sql_get_position_state_changes`, including time-window filtering,
+  quantity deltas, average-cost deltas, cost-basis deltas, and implied
+  added-share average cost when the quantity increased.
 - If the same daily value snapshot is observed again, update the value row's
   latest parsed values and `last_observed_at`, then replace its child weight
   rows so the daily allocation view stays coherent.
@@ -366,6 +373,8 @@ Run the focused MCP tests:
 .venv/bin/python -m pytest tests/test_mcp_servers.py
 .venv/bin/python -m pytest tests/test_mcp_tool_contracts.py
 .venv/bin/python -m pytest tests/test_mcp_stdio_round_trips.py
+.venv/bin/python -m pytest tests/test_mcp_fastmcp_parity.py
+.venv/bin/python -m pytest tests/test_mcp_gateway_contract.py
 ```
 
 Run the full project suite:

@@ -109,6 +109,41 @@ class PortfolioObservationStoreResult(StrictModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class PositionStateChangeResult(StrictModel):
+    portfolio_id: str
+    account_id: str
+    asset_id: str
+    ticker: str | None = None
+    name: str | None = None
+    change_type: str
+    change_at: datetime
+    previous_quantity: float | None = None
+    current_quantity: float | None = None
+    quantity_delta: float | None = None
+    previous_average_cost: float | None = None
+    current_average_cost: float | None = None
+    average_cost_delta: float | None = None
+    previous_cost_basis: float | None = None
+    current_cost_basis: float | None = None
+    cost_basis_delta: float | None = None
+    implied_added_average_cost: float | None = None
+    implied_removed_average_cost: float | None = None
+    previous_state: dict[str, Any] | None = None
+    current_state: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PositionStateChangesResult(StrictModel):
+    portfolio_id: str
+    account_id: str
+    since: datetime | None = None
+    until: datetime | None = None
+    ticker: str | None = None
+    asset_id: str | None = None
+    changes: list[PositionStateChangeResult] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class StoredSnapshotResult(StrictModel):
     """Compatibility result for older callers.
 
@@ -1031,6 +1066,90 @@ class PortfolioSqlStore:
             ).fetchall()
         return [_row_dict(row) for row in rows]
 
+    def position_state_changes(
+        self,
+        portfolio_id: str,
+        *,
+        account_id: str = DEFAULT_ACCOUNT_ID,
+        ticker: str | None = None,
+        asset_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        lookback_days: float | None = None,
+        limit: int = 100,
+        include_initial_observations: bool = False,
+    ) -> PositionStateChangesResult:
+        self.initialize()
+        if lookback_days is not None and since is None:
+            until_for_window = until or datetime.now(UTC)
+            since = until_for_window - timedelta(days=float(lookback_days))
+
+        clauses = ["p.portfolio_id = ?", "p.account_id = ?"]
+        params: list[Any] = [portfolio_id, account_id]
+        if ticker:
+            clauses.append("UPPER(a.ticker) = ?")
+            params.append(ticker.upper())
+        if asset_id:
+            clauses.append("p.asset_id = ?")
+            params.append(asset_id)
+
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT p.*, a.ticker, a.name, a.provider_code, a.asset_type, a.exchange
+                FROM position_states p
+                JOIN assets a ON a.asset_id = p.asset_id
+                WHERE {' AND '.join(clauses)}
+                ORDER BY p.asset_id, p.first_observed_at, p.last_observed_at
+                """,
+                params,
+            ).fetchall()
+
+        changes: list[PositionStateChangeResult] = []
+        for asset_rows in _group_position_rows_by_asset(rows).values():
+            if include_initial_observations and asset_rows:
+                initial_change = _initial_position_state_change(
+                    asset_rows[0],
+                    since=since,
+                    until=until,
+                )
+                if initial_change is not None:
+                    changes.append(initial_change)
+
+            for previous, current in zip(asset_rows, asset_rows[1:], strict=False):
+                change = _position_state_delta_change(
+                    previous,
+                    current,
+                    since=since,
+                    until=until,
+                )
+                if change is not None:
+                    changes.append(change)
+
+            if asset_rows and not bool(asset_rows[-1]["is_active"]):
+                close_change = _closed_position_state_change(
+                    asset_rows[-1],
+                    since=since,
+                    until=until,
+                )
+                if close_change is not None:
+                    changes.append(close_change)
+
+        changes.sort(key=lambda change: (change.change_at, change.ticker or "", change.asset_id))
+        warnings = []
+        if not changes and (ticker or asset_id):
+            warnings.append("No position-state changes matched the requested asset and time range.")
+        return PositionStateChangesResult(
+            portfolio_id=portfolio_id,
+            account_id=account_id,
+            since=since,
+            until=until,
+            ticker=ticker.upper() if ticker else None,
+            asset_id=asset_id,
+            changes=changes[: max(0, int(limit))],
+            warnings=warnings,
+        )
+
     def latest_snapshot(self, portfolio_id: str) -> sqlite3.Row | None:
         self.initialize()
         with self.connect() as conn:
@@ -1250,6 +1369,199 @@ def _same_position_state(
         and _same_float(row["average_cost"], average_cost)
         and str(row["position_side"] or "") == position_side
     )
+
+
+def _group_position_rows_by_asset(
+    rows: list[sqlite3.Row],
+) -> dict[str, list[sqlite3.Row]]:
+    grouped: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["asset_id"]), []).append(row)
+    return grouped
+
+
+def _initial_position_state_change(
+    row: sqlite3.Row,
+    *,
+    since: datetime | None,
+    until: datetime | None,
+) -> PositionStateChangeResult | None:
+    change_at = _parse_db_datetime(row["first_observed_at"])
+    if not _datetime_in_range(change_at, since=since, until=until):
+        return None
+    return PositionStateChangeResult(
+        portfolio_id=str(row["portfolio_id"]),
+        account_id=str(row["account_id"]),
+        asset_id=str(row["asset_id"]),
+        ticker=row["ticker"],
+        name=row["name"],
+        change_type="initial_observation",
+        change_at=change_at,
+        current_quantity=float(row["quantity"]),
+        current_average_cost=float(row["average_cost"]),
+        current_cost_basis=_cost_basis(row),
+        current_state=_position_state_summary(row),
+        warnings=[
+            "No prior position state exists in SQL; this may be the first stored observation."
+        ],
+    )
+
+
+def _position_state_delta_change(
+    previous: sqlite3.Row,
+    current: sqlite3.Row,
+    *,
+    since: datetime | None,
+    until: datetime | None,
+) -> PositionStateChangeResult | None:
+    change_at = _parse_db_datetime(current["first_observed_at"])
+    if not _datetime_in_range(change_at, since=since, until=until):
+        return None
+
+    previous_quantity = float(previous["quantity"])
+    current_quantity = float(current["quantity"])
+    previous_average_cost = float(previous["average_cost"])
+    current_average_cost = float(current["average_cost"])
+    quantity_delta = current_quantity - previous_quantity
+    average_cost_delta = current_average_cost - previous_average_cost
+    previous_cost_basis = previous_quantity * previous_average_cost
+    current_cost_basis = current_quantity * current_average_cost
+    cost_basis_delta = current_cost_basis - previous_cost_basis
+    warnings: list[str] = []
+    implied_added_average_cost = None
+    implied_removed_average_cost = None
+
+    if not _same_float(quantity_delta, 0.0):
+        implied_delta_average_cost = cost_basis_delta / quantity_delta
+        if quantity_delta > 0:
+            implied_added_average_cost = implied_delta_average_cost
+        else:
+            implied_removed_average_cost = implied_delta_average_cost
+    elif not _same_float(average_cost_delta, 0.0):
+        warnings.append(
+            "Average cost changed without a quantity delta; trade price is not inferable."
+        )
+
+    if str(previous["position_side"] or "") != str(current["position_side"] or ""):
+        warnings.append("Position side changed; cost-basis inference may not be comparable.")
+
+    return PositionStateChangeResult(
+        portfolio_id=str(current["portfolio_id"]),
+        account_id=str(current["account_id"]),
+        asset_id=str(current["asset_id"]),
+        ticker=current["ticker"],
+        name=current["name"],
+        change_type=_position_state_change_type(
+            quantity_delta=quantity_delta,
+            average_cost_delta=average_cost_delta,
+            previous_side=str(previous["position_side"] or ""),
+            current_side=str(current["position_side"] or ""),
+        ),
+        change_at=change_at,
+        previous_quantity=previous_quantity,
+        current_quantity=current_quantity,
+        quantity_delta=quantity_delta,
+        previous_average_cost=previous_average_cost,
+        current_average_cost=current_average_cost,
+        average_cost_delta=average_cost_delta,
+        previous_cost_basis=previous_cost_basis,
+        current_cost_basis=current_cost_basis,
+        cost_basis_delta=cost_basis_delta,
+        implied_added_average_cost=implied_added_average_cost,
+        implied_removed_average_cost=implied_removed_average_cost,
+        previous_state=_position_state_summary(previous),
+        current_state=_position_state_summary(current),
+        warnings=warnings,
+    )
+
+
+def _closed_position_state_change(
+    row: sqlite3.Row,
+    *,
+    since: datetime | None,
+    until: datetime | None,
+) -> PositionStateChangeResult | None:
+    change_at = _parse_db_datetime(row["last_observed_at"])
+    if not _datetime_in_range(change_at, since=since, until=until):
+        return None
+    return PositionStateChangeResult(
+        portfolio_id=str(row["portfolio_id"]),
+        account_id=str(row["account_id"]),
+        asset_id=str(row["asset_id"]),
+        ticker=row["ticker"],
+        name=row["name"],
+        change_type="closed_or_missing",
+        change_at=change_at,
+        previous_quantity=float(row["quantity"]),
+        previous_average_cost=float(row["average_cost"]),
+        previous_cost_basis=_cost_basis(row),
+        previous_state=_position_state_summary(row),
+        warnings=["Position was not observed in the latest state and was marked inactive."],
+    )
+
+
+def _position_state_change_type(
+    *,
+    quantity_delta: float,
+    average_cost_delta: float,
+    previous_side: str,
+    current_side: str,
+) -> str:
+    if previous_side != current_side:
+        return "side_changed"
+    quantity_changed = not _same_float(quantity_delta, 0.0)
+    cost_changed = not _same_float(average_cost_delta, 0.0)
+    if quantity_changed and cost_changed:
+        return "quantity_and_average_cost_changed"
+    if quantity_delta > 0:
+        return "quantity_increased"
+    if quantity_delta < 0:
+        return "quantity_decreased"
+    if cost_changed:
+        return "average_cost_changed"
+    return "state_changed"
+
+
+def _position_state_summary(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "position_state_id": row["position_state_id"],
+        "asset_id": row["asset_id"],
+        "ticker": row["ticker"],
+        "quantity": row["quantity"],
+        "average_cost": row["average_cost"],
+        "market_price": row["market_price"],
+        "market_value": row["market_value"],
+        "unrealized_pl": row["unrealized_pl"],
+        "currency": row["currency"],
+        "position_side": row["position_side"],
+        "first_observed_at": row["first_observed_at"],
+        "last_observed_at": row["last_observed_at"],
+        "is_active": bool(row["is_active"]),
+    }
+
+
+def _cost_basis(row: sqlite3.Row) -> float:
+    return float(row["quantity"]) * float(row["average_cost"])
+
+
+def _parse_db_datetime(value: Any) -> datetime:
+    parsed = datetime.fromisoformat(str(value))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _datetime_in_range(
+    value: datetime,
+    *,
+    since: datetime | None,
+    until: datetime | None,
+) -> bool:
+    if since is not None and value < since:
+        return False
+    if until is not None and value > until:
+        return False
+    return True
 
 
 def _asset_rows_from_snapshot(

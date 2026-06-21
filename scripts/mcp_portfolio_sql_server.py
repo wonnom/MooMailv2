@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 
+from moomail_finance_ai.mcp.fastmcp import build_fastmcp_server
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
-from moomail_finance_ai.mcp.stdio import JsonRpcMCPServer
 
 
 def main() -> None:
@@ -14,7 +14,7 @@ def main() -> None:
         help="SQLite database path for portfolio history.",
     )
     args = parser.parse_args()
-    JsonRpcMCPServer(build_portfolio_sql_mcp_module(db_path=args.db_path)).serve_forever()
+    build_fastmcp_server(build_portfolio_sql_mcp_module(db_path=args.db_path)).run("stdio")
 
 
 if __name__ == "__main__":

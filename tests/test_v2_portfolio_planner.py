@@ -54,9 +54,19 @@ def test_what_changed_plan_requests_history():
         "latest_state",
         "portfolio_growth",
         "allocation_history",
+        "position_state_changes",
     ]
     assert plan.persist_observation is True
     assert plan.row_limit == 100
+
+
+def test_purchase_cost_query_routes_to_position_change_history():
+    task = interpret_portfolio_task("What price were my recently purchased AMZN shares?")
+    plan = plan_portfolio_context(task)
+
+    assert task.task_type == "what_changed"
+    assert task.requested_tickers == ["AMZN"]
+    assert "position_state_changes" in plan.history_queries
 
 
 def test_full_review_plan_matches_v1_broad_context():
@@ -71,6 +81,7 @@ def test_full_review_plan_matches_v1_broad_context():
         "latest_state",
         "portfolio_growth",
         "allocation_history",
+        "position_state_changes",
     ]
     assert plan.metric_groups == [
         "allocation",
@@ -123,9 +134,53 @@ def test_what_changed_execution_reads_growth_and_allocation_history(
     assert result.context_plan.needs_sql_history is True
     assert _actual("portfolio_sql_get_portfolio_growth") in result.tool_calls
     assert _actual("portfolio_sql_get_allocation_history") in result.tool_calls
+    assert _actual("portfolio_sql_get_position_state_changes") in result.tool_calls
     assert result.history_context.portfolio_growth == []
     assert result.history_context.allocation_history == []
+    assert result.history_context.position_state_changes == []
     assert result.storage_result["status"] == "inserted"
+
+
+def test_named_ticker_change_query_scopes_position_history_tool(
+    tmp_path,
+    recorded_opend_client,
+):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    sql_module = RecordingMCPModule(build_portfolio_sql_mcp_module(store=store))
+    agent = MCPPortfolioAgent(
+        opend_mcp=build_opend_mcp_module(
+            client=recorded_opend_client,
+            config=OpenDConfig(),
+        ),
+        finance_metrics_mcp=build_finance_metrics_mcp_module(),
+        portfolio_sql_mcp=sql_module,
+        evaluator=CapturingEvaluator(),
+    )
+
+    result = agent.run(
+        "What price were my recently purchased AMZN shares?",
+        mock_investment_policy(),
+    )
+
+    position_change_calls = [
+        arguments
+        for tool_name, arguments in sql_module.calls
+        if tool_name == "portfolio_sql_get_position_state_changes"
+    ]
+    assert result.context_plan is not None
+    assert result.context_plan.tickers == ["AMZN"]
+    assert len(position_change_calls) == 1
+    assert position_change_calls[0]["ticker"] == "AMZN"
+    assert position_change_calls[0]["lookback_days"] == 90.0
+    assert position_change_calls[0]["until"] == result.snapshot.as_of.isoformat()
+    assert any(
+        call.startswith(
+            f"actual_detail:{PORTFOLIO_SQL_SERVER}:"
+            "portfolio_sql_get_position_state_changes"
+        )
+        and "ticker=AMZN" in call
+        for call in result.tool_calls
+    )
 
 
 def test_explicit_persist_skip_does_not_write_daily_value_snapshot(
@@ -198,3 +253,24 @@ class CapturingEvaluator:
         self.calls += 1
         self.context = kwargs
         return PortfolioEvaluation(summary="Portfolio-only evaluation complete.")
+
+
+class RecordingMCPModule:
+    def __init__(self, module):
+        self.module = module
+        self.server_name = module.server_name
+        self.version = module.version
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def list_tools(self):
+        return self.module.list_tools()
+
+    def call_tool(self, name, arguments=None):
+        self.calls.append((name, dict(arguments or {})))
+        return self.module.call_tool(name, arguments)
+
+    def list_resources(self):
+        return self.module.list_resources()
+
+    def read_resource(self, uri):
+        return self.module.read_resource(uri)

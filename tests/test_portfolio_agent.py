@@ -53,6 +53,7 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
     assert result.history_context.history_status["snapshot_count"] == 0
     assert result.history_context.portfolio_growth == []
     assert result.history_context.allocation_history == []
+    assert result.history_context.position_state_changes == []
     assert result.evaluation.summary == "Portfolio-only evaluation complete."
     assert evaluator.context["storage_result"]["status"] == "pending"
     assert evaluator.context["history_status"]["snapshot_count"] == 0
@@ -74,6 +75,9 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
     )
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_portfolio_growth" in result.tool_calls
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_allocation_history" in result.tool_calls
+    assert "moomail-portfolio-sql-mcp:portfolio_sql_get_position_state_changes" in (
+        result.tool_calls
+    )
     assert result.tool_calls.index(
         "moomail-portfolio-sql-mcp:portfolio_sql_get_portfolio_growth"
     ) < result.tool_calls.index(

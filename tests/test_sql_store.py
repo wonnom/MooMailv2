@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from moomail_finance_ai.agents import InvestmentAgentPrototype
 from moomail_finance_ai.mocks import mock_portfolio_packet
+from moomail_finance_ai.opend import OpenDConnectionStatus, OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.sql_store import ALLOWED_COUNT_TABLES, PortfolioSqlStore
 
 
@@ -158,6 +159,60 @@ def test_position_states_update_prices_but_insert_on_quantity_change(tmp_path):
     assert store.table_count("position_states") == 4
 
 
+def test_position_state_changes_infer_added_share_average_cost(tmp_path):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    first_seen = datetime(2026, 5, 20, tzinfo=UTC)
+    second_seen = datetime(2026, 5, 23, tzinfo=UTC)
+
+    first_snapshot = _single_holding_snapshot(
+        ticker="AMZN",
+        quantity=20,
+        average_cost=157.0,
+        as_of=first_seen,
+    )
+    second_snapshot = _single_holding_snapshot(
+        ticker="AMZN",
+        quantity=25,
+        average_cost=174.6,
+        as_of=second_seen,
+    )
+    store.upsert_position_states(
+        first_snapshot,
+        source_report=_source_report_for_average_cost(first_snapshot, 157.0),
+        observed_at=first_seen,
+    )
+    store.upsert_position_states(
+        second_snapshot,
+        source_report=_source_report_for_average_cost(second_snapshot, 174.6),
+        observed_at=second_seen,
+    )
+
+    changes = store.position_state_changes(
+        "portfolio_default",
+        ticker="AMZN",
+        since=datetime(2026, 5, 21, tzinfo=UTC),
+        until=datetime(2026, 5, 24, tzinfo=UTC),
+    )
+    outside_range = store.position_state_changes(
+        "portfolio_default",
+        ticker="AMZN",
+        since=datetime(2026, 5, 24, tzinfo=UTC),
+    )
+
+    assert len(changes.changes) == 1
+    change = changes.changes[0]
+    assert change.change_type == "quantity_and_average_cost_changed"
+    assert change.previous_quantity == 20
+    assert change.current_quantity == 25
+    assert change.quantity_delta == 5
+    assert change.previous_average_cost == 157.0
+    assert change.current_average_cost == 174.6
+    assert change.implied_added_average_cost == 245.0
+    assert change.previous_state is not None
+    assert change.current_state is not None
+    assert outside_range.changes == []
+
+
 def test_history_status_growth_and_allocation_reads_use_value_snapshots(tmp_path):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     empty = store.history_status("portfolio_default")
@@ -219,3 +274,65 @@ def test_agent_run_summary_shape_has_no_hidden_or_full_response_columns(tmp_path
     assert json.loads(run["tools_called_json"]) == state.audit_record.tools_called
     assert json.loads(run["snapshot_refs_json"]) == ["value_snap_test"]
     assert json.loads(run["missing_data_json"]) == ["missing_history"]
+
+
+def _single_holding_snapshot(
+    *,
+    ticker: str,
+    quantity: float,
+    average_cost: float,
+    as_of: datetime,
+):
+    snapshot = mock_portfolio_packet().snapshot
+    market_value = quantity * average_cost
+    holding = snapshot.holdings[0].model_copy(
+        update={
+            "asset_id": f"asset_{ticker.lower()}_us",
+            "ticker": ticker,
+            "name": f"{ticker} Test Holding",
+            "quantity": quantity,
+            "market_price": average_cost,
+            "market_value": market_value,
+            "portfolio_weight": 1.0,
+            "unrealized_pnl": 0.0,
+            "as_of": as_of,
+        }
+    )
+    return snapshot.model_copy(
+        update={
+            "as_of": as_of,
+            "cash": [],
+            "holdings": [holding],
+            "total_value": snapshot.total_value.model_copy(
+                update={"amount": market_value, "as_of": as_of}
+            ),
+        }
+    )
+
+
+def _source_report_for_average_cost(snapshot, average_cost: float) -> OpenDFieldReport:
+    holding = snapshot.holdings[0]
+    return OpenDFieldReport(
+        generated_at=snapshot.as_of,
+        connection=OpenDConnectionStatus(
+            ok=True,
+            host="127.0.0.1",
+            port=11111,
+            checked_at=snapshot.as_of,
+            message="ok",
+        ),
+        tables=[
+            OpenDTableResult(
+                name="positions",
+                rows=[
+                    {
+                        "code": holding.asset_id,
+                        "average_cost": average_cost,
+                        "position_side": "LONG",
+                    }
+                ],
+                fields=["code", "average_cost", "position_side"],
+                as_of=snapshot.as_of,
+            )
+        ],
+    )

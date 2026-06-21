@@ -1,7 +1,8 @@
 # V3 Task Maps
 
-Status: planned iteration. V3.0 design boundary is complete as of 2026-06-17;
-V3.1 through V3.4 are not implemented.
+Status: planned iteration. V3.0 design boundary is complete as of 2026-06-17,
+and V3.1 FastMCP server migration is complete as of 2026-06-17;
+V3.2 through V3.4 are not implemented.
 
 V3 turns the V2 MCP-shaped runtime into a real backend MCP runtime. The main
 change is conceptual as much as technical: MCP becomes shared backend
@@ -65,7 +66,7 @@ Chat or CLI analytical query
 | Task | File | Purpose |
 | --- | --- | --- |
 | V3.0 | [TASK_0_MCP_BACKEND_BOUNDARY.md](TASK_0_MCP_BACKEND_BOUNDARY.md) | Complete. Define MCP as backend infrastructure for deterministic app flows and agentic flows. |
-| V3.1 | [TASK_1_FASTMCP_SERVER_MIGRATION.md](TASK_1_FASTMCP_SERVER_MIGRATION.md) | Preserve business logic, replace the custom stdio server with FastMCP servers, and define the gateway contract. |
+| V3.1 | [TASK_1_FASTMCP_SERVER_MIGRATION.md](TASK_1_FASTMCP_SERVER_MIGRATION.md) | Complete. Preserve business logic, replace the custom stdio server scripts with FastMCP servers, and define the gateway contract. |
 | V3.2 | [TASK_2_GATEWAY_MODES.md](TASK_2_GATEWAY_MODES.md) | Implement DirectToolGateway for parity tests and StdioMCPToolGateway for production-ish local runtime. |
 | V3.3 | [TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md](TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md) | Implement the deterministic backend and frontend portfolio data lane without invoking agents. |
 | V3.4 | [TASK_4_AGENT_GATEWAY_MIGRATION.md](TASK_4_AGENT_GATEWAY_MIGRATION.md) | Move Portfolio Agent and V2 Investment Agent to the gateway and update docs/tests. |
@@ -101,9 +102,9 @@ working path.
 | Candidate | Current role | V3 replacement | Delete or narrow after |
 | --- | --- | --- | --- |
 | `src/moomail_finance_ai/mcp/stdio.py` | Custom minimal stdio JSON-RPC server wrapper. | FastMCP server runtime. | All three FastMCP servers pass deterministic and live smoke tests. |
-| `scripts/mcp_opend_server.py` | Starts custom OpenD stdio wrapper. | FastMCP OpenD server entrypoint, likely rewritten in place or replaced by a new entrypoint. | FastMCP OpenD server is the only supported server script. |
-| `scripts/mcp_portfolio_sql_server.py` | Starts custom portfolio SQL stdio wrapper. | FastMCP portfolio SQL server entrypoint. | FastMCP SQL server is the only supported server script. |
-| `scripts/mcp_finance_metrics_server.py` | Starts custom metrics stdio wrapper. | FastMCP metrics server entrypoint. | FastMCP metrics server is the only supported server script. |
+| `scripts/mcp_opend_server.py` | FastMCP OpenD server entrypoint as of V3.1. | Keep stable CLI while gateway modes are added. | Gateway/live tests prove this is the only supported OpenD server path. |
+| `scripts/mcp_portfolio_sql_server.py` | FastMCP portfolio SQL server entrypoint as of V3.1. | Keep stable CLI while gateway modes are added. | Gateway tests prove this is the only supported SQL server path. |
+| `scripts/mcp_finance_metrics_server.py` | FastMCP metrics server entrypoint as of V3.1. | Keep stable CLI while gateway modes are added. | Gateway tests prove this is the only supported metrics server path. |
 | `RegisteredMCPModule` in `mcp/registry.py` | In-process tool registry used by agents and custom tests. | FastMCP tool registration plus DirectToolGateway parity adapter. | Agents no longer receive in-process modules and parity tests no longer need this registry. |
 | `MCPModule` protocol in `mcp/registry.py` | Type contract for in-process module calls. | `MCPToolGateway` contract. | Portfolio Agent and tests no longer type against `MCPModule`. |
 | `MCPToolSpec`, `MCPResourceSpec`, `MCPToolCallResult` | Custom MCP-shaped models. | FastMCP/native MCP schemas and gateway result models. | FastMCP/gateway tests cover tool metadata and structured results. |
@@ -128,8 +129,8 @@ should include:
 
 ```bash
 .venv/bin/python -m pytest tests --ignore=tests/live -q
-.venv/bin/python -m pytest tests/test_mcp_fastmcp_servers.py -q
-.venv/bin/python -m pytest tests/test_mcp_gateway.py -q
+.venv/bin/python -m pytest tests/test_mcp_stdio_round_trips.py tests/test_mcp_fastmcp_parity.py -q
+.venv/bin/python -m pytest tests/test_mcp_gateway_contract.py -q
 .venv/bin/python -m pytest tests/test_dashboard_portfolio_data_lane.py -q
 ```
 

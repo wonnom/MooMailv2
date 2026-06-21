@@ -21,11 +21,9 @@ Installed project extras:
 
 - `dev`: pytest and test tooling
 - `opend`: MooMoo OpenAPI SDK and its dependencies
-- `mcp`: optional official MCP SDK runtime for future FastMCP work
 
-The current local MCP server scripts do not require the official MCP SDK. They
-use the project's lightweight stdio adapter so tests can run without network
-dependency installation.
+The official MCP SDK is a normal project dependency as of V3.1. The local MCP
+server scripts run through FastMCP over stdio.
 
 ## Recommended Command Style
 
@@ -202,13 +200,6 @@ When dependencies change:
 
 ```bash
 .venv/bin/python -m pip install -e '.[dev,opend]'
-```
-
-Install the optional official MCP SDK when actively working on the FastMCP
-runtime migration:
-
-```bash
-.venv/bin/python -m pip install -e '.[dev,opend,mcp]'
 ```
 
 Do not use plain `pip install` unless the venv is activated. Prefer:

@@ -8,7 +8,9 @@ testing different responsibilities rather than duplicating each other.
 | File | Scope | Real OpenD? | Real SQL? | Keep because |
 | --- | --- | --- | --- | --- |
 | `tests/test_mcp_tool_contracts.py` | Individual MCP tool contracts for OpenD, portfolio SQL, and metrics | No | No | Proves each tool's structured inputs/outputs without live services |
-| `tests/test_mcp_stdio_round_trips.py` | Starts each local MCP server script and calls it over stdio JSON-RPC | No | No | Proves process-level MCP server wiring works |
+| `tests/test_mcp_stdio_round_trips.py` | Starts each local FastMCP server script and calls it through the official MCP stdio client | No | No | Proves process-level FastMCP server wiring works |
+| `tests/test_mcp_fastmcp_parity.py` | Compares representative FastMCP stdio results with direct module results | No | Temp SQLite only | Proves V3.1 preserves V2 structured payload shapes during server migration |
+| `tests/test_mcp_gateway_contract.py` | Gateway protocol/result/error contract | No | No | Defines the V3.2 gateway boundary without implementing gateway modes yet |
 | `tests/test_mcp_servers.py` | Registry behavior, resources, manifests, and basic module smoke tests | No | No | Proves agent allowlists and common MCP module mechanics |
 | `tests/live/test_connector_targets.py` | Opt-in live connector smoke tests | Yes, for OpenD tests | Temp SQLite only | Proves the real machine/API/gateway path works |
 | `tests/live/test_portfolio_agent_live.py` | Opt-in live Portfolio Agent LLM evaluation over recorded OpenD data and MCP modules, currently using Gemini | No | Temp SQLite only | Proves the agent-level LLM boundary works without requiring live OpenD |
@@ -25,6 +27,9 @@ testing different responsibilities rather than duplicating each other.
 
 The MCP tests do not replace adapter or normalization tests. They prove that the
 MCP boundary calls those layers correctly.
+
+V3.1 note: the three local MCP server scripts now use the official FastMCP
+runtime over stdio. The current agents still use in-process modules until V3.4.
 
 ## SQL Tests
 

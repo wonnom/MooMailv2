@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
   "langchain>=0.3,<1",
   "langgraph>=0.2,<1",
+  "mcp>=1,<2",
   "pydantic>=2.8,<3",
 ]
 
@@ -16,10 +17,6 @@ dev = [
 opend = [
   "moomoo-api>=10,<11",
 ]
-mcp = [
-  "mcp>=1,<2",
-]
-
 [project.scripts]
 finance-ai-prototype = "moomail_finance_ai.cli:main"
 

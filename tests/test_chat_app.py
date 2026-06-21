@@ -161,6 +161,7 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
             "dom.ts",
             "format.ts",
             "layout.ts",
+            "portfolio_api.ts",
             "report_components.ts",
             "stream_client.ts",
             "types.ts",
@@ -178,12 +179,21 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
     assert "showChatButton" in html
     assert "chatResizeHandle" in html
     assert "portfolioPositions" in html
+    assert "portfolioRefreshButton" in html
+    assert "portfolioConnectionBadge" in html
+    assert "portfolioDashboardMeta" in html
     assert "allocationSort" in html
     assert "data-allocation-view=\"pie\"" in html
     assert "from \"./report_components.js\"" in frontend_source
     assert "from \"./stream_client.js\"" in frontend_source
+    assert "from \"./portfolio_api.js\"" in frontend_source
     assert "/api/chat/stream" in frontend_source
+    assert "/api/portfolio/dashboard" in frontend_source
+    assert "/api/portfolio/status" in frontend_source
+    assert "/api/portfolio/refresh" in frontend_source
     assert "isPortfolioSnapshot" in frontend_source
+    assert "deterministic_portfolio_data_lane" in frontend_source
+    assert "refreshPortfolioDashboard" in frontend_source
     assert "addReasoningSummary" in frontend_source
     assert "route_reason" in frontend_source
     assert "portfolio_packet" in frontend_source

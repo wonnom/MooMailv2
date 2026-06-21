@@ -12,6 +12,13 @@ from moomail_finance_ai.portfolio_agent import (
     PortfolioEvaluator,
     build_default_portfolio_agent,
 )
+from moomail_finance_ai.portfolio_data_service import (
+    PortfolioConnectionStatus,
+    PortfolioDashboardSnapshot,
+    PortfolioDataService,
+    PortfolioRefreshResult,
+    build_default_portfolio_data_service,
+)
 from moomail_finance_ai.schemas import AgentState, StatusEvent
 from moomail_finance_ai.v2_investment_agent import V2InvestmentAgent
 from moomail_finance_ai.v2_investment_agent import build_default_v2_investment_agent
@@ -31,6 +38,7 @@ class ChatService:
         llm_provider: str | None = None,
         portfolio_evaluator: PortfolioEvaluator | None = None,
         v2_investment_agent: V2InvestmentAgent | None = None,
+        portfolio_data_service: PortfolioDataService | None = None,
         default_agent: str = "investment",
     ):
         self.from_report = from_report
@@ -40,6 +48,7 @@ class ChatService:
         self.llm_provider = llm_provider
         self.portfolio_evaluator = portfolio_evaluator
         self.v2_investment_agent = v2_investment_agent
+        self._portfolio_data_service = portfolio_data_service
         self.default_agent = default_agent
 
     def run(
@@ -80,6 +89,24 @@ class ChatService:
             memory_path=self.memory_path,
         )
         return agent.run(query, status_callback=status_callback)
+
+    def portfolio_connection_status(self) -> PortfolioConnectionStatus:
+        return self.portfolio_data_service().connection_status()
+
+    def portfolio_dashboard(self) -> PortfolioDashboardSnapshot:
+        return self.portfolio_data_service().latest_snapshot()
+
+    def portfolio_refresh(self) -> PortfolioRefreshResult:
+        return self.portfolio_data_service().refresh()
+
+    def portfolio_data_service(self) -> PortfolioDataService:
+        if self._portfolio_data_service is None:
+            self._portfolio_data_service = build_default_portfolio_data_service(
+                env_file=self.env_file,
+                from_report=self.from_report,
+                db_path=self.db_path,
+            )
+        return self._portfolio_data_service
 
 
 def chat_response(

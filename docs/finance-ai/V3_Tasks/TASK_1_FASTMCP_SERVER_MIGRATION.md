@@ -129,7 +129,7 @@ A. Audit current tool handlers and domain logic
 | F | Define `MCPToolGateway` protocol with `call_tool(server_name, tool_name, arguments, consumer=...)`. | V3.0 | Done in `src/moomail_finance_ai/mcp/gateway.py`. |
 | F1 | Define result shape: structured content, textual content if needed, `is_error`, server/tool metadata, duration, and sanitized error. | F | Done in `MCPGatewayResult`. |
 | F2 | Define resource methods if needed: `list_tools`, `read_resource`, and health/capability checks. | F | Done at protocol level. |
-| F3 | Define timeout, retry, and error policy at contract level. | F | Partially done through gateway error classes; concrete timeout/retry behavior remains V3.2. |
+| F3 | Define timeout, retry, and error policy at contract level. | F | Partially done through gateway error classes in V3.1; concrete gateway behavior was implemented in V3.2. |
 
 ### EC5: Parity tests exist
 

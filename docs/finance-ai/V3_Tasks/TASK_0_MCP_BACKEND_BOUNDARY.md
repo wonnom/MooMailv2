@@ -97,30 +97,30 @@ A. Audit current app and agent consumers
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
 | C | Define a backend endpoint or service method for connection status. Suggested shape: `PortfolioConnectionStatus`. | B | Done: contract documented in `ARCHITECTURE.md`. |
-| C1 | Include OpenD reachable status, configured host/port summary, selected account metadata, and sanitized error. | C | Done: documented. Test to add in V3.2/V3.3 implementation. |
-| C2 | Ensure no credentials or account secrets leak to frontend. | C1 | Done: documented as contract requirement. Test to add when response model exists. |
+| C1 | Include OpenD reachable status, configured host/port summary, selected account metadata, and sanitized error. | C | Done: documented. V3.3 added status/route tests. |
+| C2 | Ensure no credentials or account secrets leak to frontend. | C1 | Done: documented as contract requirement. V3.3 response models expose sanitized status only. |
 | D | Define a backend endpoint or service method for dashboard snapshot. Suggested shape: `PortfolioDashboardSnapshot`. | B | Done: contract documented in `ARCHITECTURE.md`. |
 | D1 | Include `as_of`, `last_updated_at`, `freshness_status`, funds/balances, holdings, cash-equivalent handling, metrics, and warnings. | D | Done: documented. |
 | D2 | Include unsupported quote warnings and cash sweep assumptions as displayable warnings. | D1 | Done: documented. |
 | E | Define manual refresh semantics. | C, D | Done: contract documented as `PortfolioRefreshResult`. |
 | E1 | Refresh should check OpenD, retrieve latest funds/positions/context, calculate metrics, update SQL, and return dashboard snapshot. | E | Done: documented in `ARCHITECTURE.md` and `MCP_SERVERS.md`. |
-| E2 | Failed refresh should return structured error and preserve last-known dashboard state if available. | E | Done: documented. Test to add when service exists. |
+| E2 | Failed refresh should return structured error and preserve last-known dashboard state if available. | E | Done: documented and covered in V3.3 service tests. |
 
 ### EC3: Backend owns MCP gateway lifecycle
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
 | F | Define the backend as the MCP host/client owner. | B | Done: architecture and MCP docs. |
-| F1 | Define startup behavior: create gateway, launch or connect to MCP servers, validate capabilities. | F | Done as design; lifecycle test to add in V3.2. |
-| F2 | Define shutdown behavior: close MCP sessions/processes cleanly. | F | Done as design; lifecycle test to add in V3.2. |
-| F3 | Define per-request behavior: reuse existing sessions and emit trace/status events. | F | Done as design; trace test to add in V3.2. |
+| F1 | Define startup behavior: create gateway, launch or connect to MCP servers, validate capabilities. | F | Done as design; V3.2 added StdioMCPToolGateway startup tests. |
+| F2 | Define shutdown behavior: close MCP sessions/processes cleanly. | F | Done as design; V3.2 added gateway close coverage. |
+| F3 | Define per-request behavior: reuse existing sessions and emit trace/status events. | F | Done as design; V3.2 tests assert stdio sessions are reused. |
 | F4 | State that frontend talks only to backend APIs. | F | Done. |
 
 ### EC4: Permission profiles exist
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| G | Define gateway consumer identities. Suggested identities: `dashboard_refresh`, `portfolio_agent`, `investment_agent`, `sentiment_agent`. | F | Done. Permission config test to add in V3.2. |
+| G | Define gateway consumer identities. Suggested identities: `dashboard_refresh`, `portfolio_agent`, `investment_agent`, `sentiment_agent`. | F | Done. V3.2 added permission tests. |
 | G1 | `dashboard_refresh` can call OpenD status/context, metrics snapshot, and SQL update tools. | G | Done as design. |
 | G2 | `portfolio_agent` can call OpenD, metrics, and SQL tools needed for analysis. | G | Done as design. |
 | G3 | `investment_agent` should not directly call OpenD unless explicitly approved later; it should call Portfolio Agent for portfolio retrieval. | G | Done as design. |

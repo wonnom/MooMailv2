@@ -83,6 +83,18 @@ button {
   margin-bottom: 12px;
 }
 
+.panel-title-stack,
+.dashboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dashboard-controls {
+  justify-content: flex-end;
+}
+
 .control-row {
   display: flex;
   align-items: center;

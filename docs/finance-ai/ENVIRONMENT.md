@@ -23,7 +23,8 @@ Installed project extras:
 - `opend`: MooMoo OpenAPI SDK and its dependencies
 
 The official MCP SDK is a normal project dependency as of V3.1. The local MCP
-server scripts run through FastMCP over stdio.
+server scripts run through FastMCP over stdio. V3.2/V3.3 add a backend MCP
+gateway and deterministic dashboard APIs to the local chat server.
 
 ## Recommended Command Style
 
@@ -166,6 +167,17 @@ data/portfolio-history.sqlite
 Terminal reviews, `scripts/serve_chat.py`, and `scripts/mcp_portfolio_sql_server.py`
 use this same DB by default. Pass `--db <temporary-path>` only for isolated tests
 or demos.
+
+When `scripts/serve_chat.py` is running, the deterministic portfolio dashboard
+lane is available at:
+
+```text
+GET  /api/portfolio/status
+GET  /api/portfolio/dashboard
+POST /api/portfolio/refresh
+```
+
+These endpoints use backend MCP gateway calls and do not start agent runs.
 
 ## Portfolio Agent LLM
 

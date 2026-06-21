@@ -6,6 +6,9 @@ V1 is complete as of 2026-06-06.
 
 V2 skeleton is complete as of 2026-06-15.
 
+V3.2 gateway modes and V3.3 deterministic portfolio data lane are complete as
+of 2026-06-21. V3.4 agent gateway migration remains open.
+
 V1 is a Portfolio Agent proof of concept with:
 
 - Read-only OpenD/MooMoo securities-account retrieval.
@@ -33,6 +36,14 @@ Implemented and useful today:
 - `moomail-opend-mcp`: local read-only OpenD tool surface.
 - `moomail-portfolio-sql-mcp`: local SQLite portfolio-history tool surface.
 - `moomail-finance-metrics-mcp`: deterministic calculation tool surface.
+- FastMCP server scripts for OpenD, portfolio SQL, and finance metrics over
+  stdio.
+- `DirectToolGateway`: test/dev parity gateway over in-process modules.
+- `StdioMCPToolGateway`: backend-owned local MCP client gateway over FastMCP
+  stdio servers.
+- `PortfolioDataService`: deterministic backend service for OpenD status,
+  latest SQL-backed dashboard snapshots, manual refresh, metrics, and canonical
+  SQL history updates without invoking agents or LLMs.
 - `MCPPortfolioAgent`: bounded-planning Python Portfolio Agent that interprets
   a portfolio task, produces a `PortfolioContextPlan`, executes selected MCP
   tools deterministically, then asks an LLM evaluator to answer portfolio-only
@@ -50,6 +61,8 @@ Implemented and useful today:
 - `scripts/portfolio_agent_review.py`: terminal Portfolio Agent review.
 - `scripts/investment_agent_v2_review.py`: terminal V2 Investment Agent review.
 - `scripts/serve_chat.py`: local chat frontend server.
+- Local frontend portfolio dashboard flow: page load reads stored dashboard
+  data; refresh button calls deterministic backend APIs.
 - `data/portfolio-history.sqlite`: canonical local portfolio-history DB.
 - Deterministic tests and live OpenD connector smoke tests.
 
@@ -66,8 +79,9 @@ Important limitations:
 - The Portfolio Agent bounded planner is implemented inside the existing Python
   Portfolio Agent path, not as a separate compiled LangGraph subgraph.
 - Pinecone memory is not connected.
-- The MCP modules can run through local stdio servers, but the agent currently
-  uses in-process MCP modules rather than an official MCP client/host runtime.
+- The deterministic dashboard lane uses the gateway. The Portfolio Agent and V2
+  Investment Agent still use in-process MCP modules until V3.4 migrates agents
+  to the gateway.
 - Crypto holdings and OTC quote fallback are deferred.
 
 ## V2 Completed Skeleton
@@ -333,8 +347,8 @@ V3 tasks:
 | --- | --- | --- |
 | V3.0 | complete as of 2026-06-17 | Define MCP as backend infrastructure boundary for deterministic app flows and agentic flows. |
 | V3.1 | complete as of 2026-06-17 | Preserve business logic, replace custom `JsonRpcMCPServer` server scripts with FastMCP servers, and define the gateway contract. |
-| V3.2 | planned | Implement `DirectToolGateway` for parity tests and `StdioMCPToolGateway` for production-ish local runtime. |
-| V3.3 | planned | Implement the deterministic backend/frontend portfolio data lane for dashboard status, latest snapshot, manual refresh, SQL update, and no-agent refresh behavior. |
+| V3.2 | complete as of 2026-06-21 | Implement `DirectToolGateway` for parity tests and `StdioMCPToolGateway` for production-ish local runtime. |
+| V3.3 | complete as of 2026-06-21 | Implement the deterministic backend/frontend portfolio data lane for dashboard status, latest snapshot, manual refresh, SQL update, and no-agent refresh behavior. |
 | V3.4 | planned | Move Portfolio Agent and V2 Investment Agent to the gateway, then update docs and retirement decisions. |
 
 V3.0 decisions now accepted:
@@ -369,6 +383,29 @@ V3.1 implementation reality:
 - `src/moomail_finance_ai/mcp/gateway.py` defines the gateway protocol/result
   and error contract for V3.2.
 - Agents still call in-process modules until V3.4.
+
+V3.2 implementation reality:
+
+- `src/moomail_finance_ai/mcp/gateway.py` now implements `MCPToolGateway`,
+  `DirectToolGateway`, `StdioMCPToolGateway`, permission profiles, and local
+  stdio server configuration.
+- `dashboard_refresh`, `portfolio_agent`, `investment_agent`, and
+  `sentiment_agent` have distinct gateway allowlists.
+- `investment_agent` is denied direct OpenD by default. Trade/order-like tool
+  names are globally denied.
+
+V3.3 implementation reality:
+
+- `src/moomail_finance_ai/portfolio_data_service.py` owns deterministic
+  portfolio status, latest-dashboard, and refresh flows.
+- `GET /api/portfolio/status`, `GET /api/portfolio/dashboard`, and
+  `POST /api/portfolio/refresh` are served by `scripts/serve_chat.py`.
+- Page load reads the latest stored SQL dashboard snapshot and OpenD status.
+- Manual refresh pulls OpenD context, calculates metrics, updates canonical SQL
+  history, and returns dashboard-ready data without constructing Portfolio
+  Agent, Investment Agent, sentiment agent, or an LLM evaluator.
+- Refresh failure returns stale last-known SQL dashboard data when available
+  plus a sanitized error.
 
 ## Next Work Options
 

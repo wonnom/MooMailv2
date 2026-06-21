@@ -2,9 +2,11 @@
 
 This repository documents and implements a personal multi-agent finance AI. V1
 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
-portfolio history. V2 is focused on turning that base into a thin LangGraph
-Investment Agent with a bounded-planning Portfolio Agent subgraph and a
-Sentiment Agent stub.
+portfolio history. V2 added a thin LangGraph Investment Agent with a
+bounded-planning Portfolio Agent path and a Sentiment Agent stub. V3 is moving
+MCP into a backend-owned runtime boundary; gateway modes and the deterministic
+portfolio dashboard data lane are implemented, while agent migration to the
+gateway remains next.
 
 The system is designed for one user's portfolio first. It should analyze actual holdings, current market data, portfolio history, curated research, and long-term investment memory. It must produce source-backed portfolio reviews and investment reasoning without ever placing trades.
 
@@ -12,7 +14,7 @@ The system is designed for one user's portfolio first. It should analyze actual 
 
 - [AGENTS.md](docs/finance-ai/AGENTS.md): agent hierarchy, responsibilities, boundaries, and agent-to-agent contracts.
 - [ARCHITECTURE.md](docs/finance-ai/ARCHITECTURE.md): system architecture, data stores, MCP servers, orchestration, and deployment shape.
-- [ACTION_PLAN.md](docs/finance-ai/ACTION_PLAN.md): active V2 plan and current project truth.
+- [ACTION_PLAN.md](docs/finance-ai/ACTION_PLAN.md): active V3 plan and current project truth.
 - [PROTOCOL.md](docs/finance-ai/PROTOCOL.md): runtime protocol, state flow, structured events, schemas, and audit records.
 - [REQUIREMENTS.md](docs/finance-ai/REQUIREMENTS.md): product, engineering, security, data, and acceptance requirements.
 - [ENVIRONMENT.md](docs/finance-ai/ENVIRONMENT.md): project venv, dependency installation, and command conventions.
@@ -22,6 +24,7 @@ The system is designed for one user's portfolio first. It should analyze actual 
 - [DECISION_LOG.md](docs/finance-ai/DECISION_LOG.md): project history, design decisions, implementation reality, lessons learned, and future update template.
 - [V1_FINALIZATION_PLAN.md](docs/finance-ai/V1_TASKS/V1_FINALIZATION_PLAN.md): V1 closeout record and release gate summary.
 - [V1_TASKS/](docs/finance-ai/V1_TASKS/): historical implementation tracking from the V1 build.
+- [V3_Tasks/](docs/finance-ai/V3_Tasks/): current MCP runtime, deterministic data lane, and agent-gateway migration task maps.
 
 ## Scope
 
@@ -37,10 +40,11 @@ The target system centers on the Investment Agent branch:
 - Guardrail and audit protocol
 
 The current complete version is narrower than the target system: a live OpenD
-portfolio review through the Portfolio Agent path, with SQLite persistence,
-deterministic metrics, provider-backed portfolio evaluation, and the local chat
-frontend. Pinecone memory, Neo4j GraphRAG, crypto ingestion, and OTC quote
-fallback are deferred until after the V2 agent contracts are stable.
+portfolio review through the Portfolio Agent path, SQLite persistence,
+deterministic metrics, provider-backed portfolio evaluation, a local chat
+frontend, and a deterministic dashboard refresh/status lane that does not
+invoke agents or LLMs. Pinecone memory, Neo4j GraphRAG, crypto ingestion, OTC
+quote fallback, and agent migration to the gateway remain open.
 
 The future Budgeting, Expenses, and Savings Agent is acknowledged as part of the
 long-term product, but it is not part of V2.
@@ -74,7 +78,11 @@ flowchart TD
 - Investment branch first; no main finance orchestrator needed in V2.
 - Python agent layer using LangGraph and LangChain components.
 - Local TypeScript/static chatbot frontend exists with streaming status, structured error rendering, report panels, trace output, and a resizable/hideable chat rail.
-- MCP servers are the boundary for broker access, portfolio data, metrics, research retrieval, and memory.
+- Frontend dashboard refresh calls backend APIs; it never calls MCP directly.
+- MCP servers are the backend boundary for broker access, portfolio data,
+  metrics, future research retrieval, and future memory.
+- `StdioMCPToolGateway` uses the official MCP client against local FastMCP
+  stdio servers for deterministic backend flows.
 - MooMoo/OpenD is the read-only source for current portfolio data.
 - OpenD exploration drives the SQL schema and portfolio normalization.
 - OpenD unsupported OTC quote snapshots are warnings when positions are still available.

@@ -30,6 +30,13 @@ Current implementation reality:
 - Local MCP server scripts run official FastMCP over stdio.
 - `RegisteredMCPModule` still owns the local tool registry and handler surface
   underneath FastMCP.
+- `DirectToolGateway` wraps in-process modules for fast parity tests and test
+  fixtures only.
+- `StdioMCPToolGateway` uses the official MCP Python client to launch/connect
+  to the FastMCP stdio servers and reuse sessions.
+- `PortfolioDataService` uses the gateway with consumer
+  `dashboard_refresh` for deterministic status, dashboard, refresh, metrics,
+  and SQL update flows.
 - `JsonRpcMCPServer` still exists for legacy/custom-wrapper tests, but it is no
   longer used by the three server scripts.
 - Agents still call in-process `RegisteredMCPModule` objects until V3.4 moves
@@ -37,9 +44,7 @@ Current implementation reality:
 
 Remaining V3 target:
 
-- Add a backend MCP client/gateway.
-- Use the gateway for deterministic backend portfolio data flows and for
-  Portfolio Agent/V2 Investment Agent tool calls.
+- Move Portfolio Agent and V2 Investment Agent tool calls to the gateway.
 - Keep business logic in plain Python services/functions underneath the MCP
   transport.
 
@@ -51,13 +56,15 @@ The same MCP servers will serve two lanes.
 
 Triggered by app startup, page load, or a manual refresh button.
 
-Expected backend sequence:
+Implemented backend sequence:
 
 1. Check OpenD connection through `moomail-opend-mcp`.
-2. Retrieve latest funds, positions, and normalized portfolio context.
-3. Calculate current metrics through `moomail-finance-metrics-mcp`.
-4. Update portfolio history through `moomail-portfolio-sql-mcp`.
-5. Return a frontend-safe dashboard snapshot with `last_updated_at`,
+2. Read latest stored SQL dashboard state without OpenD on page load.
+3. On explicit refresh, retrieve latest funds, positions, and normalized
+   portfolio context.
+4. Calculate current metrics through `moomail-finance-metrics-mcp`.
+5. Update portfolio history through `moomail-portfolio-sql-mcp`.
+6. Return a frontend-safe dashboard snapshot with `last_updated_at`,
    freshness, warnings, metrics, balances, holdings, and data-quality events.
 
 This lane must not call an LLM or wait for an agent planner.
@@ -218,8 +225,10 @@ V1.
 
 ## Agent Access
 
-Agent tool exposure is controlled in
-`src/moomail_finance_ai/mcp/agent_access.py`.
+Legacy in-process agent tool exposure is controlled in
+`src/moomail_finance_ai/mcp/agent_access.py`. V3 gateway permissions are
+implemented in `src/moomail_finance_ai/mcp/gateway.py` and are the target
+runtime boundary for V3.4.
 
 Default allowlist:
 
@@ -242,8 +251,11 @@ moomail-opend-mcp:opend_get_positions
 ```
 
 This is the registry layer. The LLM does not need to decide which server exists;
-the agent runtime binds the allowed modules for the agent before the model sees
-the tool list.
+the agent runtime binds the allowed modules or gateway tools for the consumer
+before any model sees tool choices.
+
+V3.4 should retire direct module injection into agents after parity tests prove
+the gateway-backed path.
 
 ## Running Servers
 

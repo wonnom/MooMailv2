@@ -134,25 +134,18 @@ wait for an LLM or agent planner to decide that OpenD data is needed.
 
 ### V3 Backend API Contracts
 
-These are design contracts for V3.0. Implementation belongs to later V3 tasks.
+Implemented in V3.3 through `PortfolioDataService`, `ChatService`, and
+`scripts/serve_chat.py`.
 
-`PortfolioConnectionStatus` should be returned by a backend status endpoint or
-service method:
+`PortfolioConnectionStatus` is returned by `GET /api/portfolio/status`:
 
 ```json
 {
+  "ok": true,
   "status": "connected",
   "checked_at": "2026-06-17T00:00:00Z",
-  "opend": {
-    "reachable": true,
-    "host": "127.0.0.1",
-    "port": 11111,
-    "server_name": "moomail-opend-mcp",
-    "selected_account_configured": true,
-    "selected_account_label": "securities_account"
-  },
-  "last_successful_refresh_at": "2026-06-17T00:00:00Z",
-  "can_refresh": true,
+  "message": "ok",
+  "source": "moomail-opend-mcp",
   "warnings": [],
   "error": null
 }
@@ -161,8 +154,9 @@ service method:
 The response must never expose API keys, login credentials, raw account secrets,
 or hidden backend configuration.
 
-`PortfolioDashboardSnapshot` should be returned by a backend dashboard endpoint
-or service method:
+`PortfolioDashboardSnapshot` is returned by `GET /api/portfolio/dashboard`.
+This endpoint reads the latest SQL state and calculates metrics from the
+reconstructed snapshot. It does not call OpenD:
 
 ```json
 {
@@ -170,52 +164,44 @@ or service method:
   "as_of": "2026-06-17T00:00:00Z",
   "last_updated_at": "2026-06-17T00:00:00Z",
   "freshness_status": "fresh",
-  "connection_status": {},
-  "balances": {
-    "currency": "USD",
-    "total_assets": 47891.07,
-    "cash": 3.07,
-    "fund_assets": 1200.0,
-    "cash_sweep_treated_as_cash": true
-  },
-  "holdings": [],
-  "allocation": {
-    "by_asset": [],
-    "by_asset_type": [],
-    "by_sector": []
-  },
+  "connection": null,
+  "portfolio_snapshot": {},
   "metrics": [],
+  "history_status": {},
+  "latest_state": {},
+  "storage_result": null,
   "warnings": [],
-  "data_quality_events": [],
+  "errors": [],
   "source_summary": {
-    "opend_snapshot": "fresh",
-    "sql_history_updated": true
+    "source": "portfolio_sql_latest_state"
   }
 }
 ```
 
-`PortfolioRefreshResult` should be returned by a backend manual-refresh action:
+`PortfolioRefreshResult` is returned by `POST /api/portfolio/refresh`.
+This endpoint checks OpenD, retrieves a normalized current portfolio context,
+calculates metrics, updates canonical SQL history, and returns dashboard-ready
+state:
 
 ```json
 {
-  "refresh_id": "refresh_123",
-  "started_at": "2026-06-17T00:00:00Z",
-  "completed_at": "2026-06-17T00:00:02Z",
-  "status": "succeeded",
-  "dashboard_snapshot": {},
-  "history_update": {
-    "daily_value_snapshot_status": "inserted_or_updated",
-    "weight_rows_stored": 0,
-    "data_quality_events_stored": 0
-  },
+  "status": "refreshed",
+  "dashboard": {},
+  "connection": {},
+  "storage_result": {},
   "warnings": [],
-  "error": null,
-  "trace": []
+  "errors": []
 }
 ```
 
-If refresh fails, the backend should return a structured sanitized error and,
-when available, the last-known dashboard snapshot with a stale freshness status.
+If refresh fails, the backend returns a structured sanitized error and, when
+available, the last-known dashboard snapshot with a stale freshness status.
+
+The current static frontend calls these backend APIs directly on page load and
+manual refresh. It converts `PortfolioDashboardSnapshot` into the existing
+report/table/chart UI shape so the dashboard can render holdings, cash,
+allocation bars/pie, metrics, warnings, and trace metadata without starting a
+chat agent run.
 
 ### V3 Gateway Consumers
 

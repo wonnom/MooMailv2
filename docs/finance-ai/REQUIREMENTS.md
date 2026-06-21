@@ -45,6 +45,14 @@ The V2 Investment Agent workflow adds:
 - Investment Agent synthesis
 - Guardrail review
 
+The V3 deterministic dashboard lane adds:
+
+- Backend OpenD connection status
+- Latest SQL-backed portfolio dashboard snapshot
+- Manual refresh of OpenD context, metrics, and SQL history
+- Frontend dashboard update without invoking Portfolio Agent, Investment Agent,
+  a sentiment agent, or an LLM
+
 ### PR-7: Investment Policy Statement
 
 Optimization recommendations require an IPS. Factual portfolio queries may proceed without one.
@@ -154,6 +162,13 @@ Agent stub, or both. Portfolio Agent must not directly call Sentiment Agent.
 The V2 Portfolio Agent must produce a bounded context plan before executing
 portfolio tools. Execution of OpenD, SQL, and metric tools remains deterministic
 after the plan is selected.
+
+### FR-19: Deterministic Portfolio Data Lane
+
+The web app must be able to load portfolio status, latest dashboard state, and
+manual refresh results through backend APIs without starting an agent run. The
+backend owns MCP access through the gateway; the frontend must never call MCP
+directly.
 
 ## Non-Functional Requirements
 

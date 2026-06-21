@@ -10,8 +10,8 @@ V3 = DOCS / "V3_Tasks"
 def test_v3_readme_records_backend_mcp_boundary_and_task_map():
     text = (V3 / "README.md").read_text(encoding="utf-8")
 
-    assert "V3.0 design boundary is complete as of 2026-06-17" in text
-    assert "V3.1 FastMCP server" in text
+    assert "V3.0, V3.1, V3.2, and V3.3 are complete" in text
+    assert "V3.4 is the remaining agent gateway migration" in text
     assert "MCP becomes shared backend" in text
     assert "infrastructure for deterministic app flows" in text
     assert "deterministic app flows and agentic analysis flows" in text
@@ -78,7 +78,8 @@ def test_v3_docs_include_deterministic_portfolio_data_lane_implementation_task()
     action_plan = (DOCS / "ACTION_PLAN.md").read_text(encoding="utf-8")
 
     assert "TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md" in readme
-    assert "Implement the deterministic portfolio data lane" in task3
+    assert "Status: complete" in task3
+    assert "Implemented routes" in task3
     assert "backend and frontend" in task3
     assert "without asking Portfolio Agent or Investment Agent" in task3
     assert "does not call Portfolio Agent, Investment Agent, an LLM" in task3
@@ -92,6 +93,7 @@ def test_decision_log_records_v3_mcp_backend_boundary():
 
     assert "V3.0 MCP Backend Boundary / 2026-06-17" in decision_log
     assert "V3.1 FastMCP Server Migration / 2026-06-17" in decision_log
+    assert "V3.2 And V3.3 Closeout / 2026-06-21" in decision_log
     assert "V3 Planning Adjustment / 2026-06-17" in decision_log
     assert "Insert V3.3 as `Deterministic Portfolio Data Lane`" in decision_log
     assert "MCP is backend infrastructure, not only an LLM-agent tool surface" in decision_log

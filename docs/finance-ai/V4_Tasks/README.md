@@ -65,4 +65,3 @@ V4 target:
 - Do not let the LLM directly calculate cost basis or inferred purchase price.
 - Do not make tool execution autonomous after planning.
 - Do not remove deterministic tests; use fake planner outputs for stable tests.
-

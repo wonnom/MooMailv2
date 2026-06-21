@@ -31,7 +31,7 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-15
+Date: 2026-06-21
 
 Current status:
 
@@ -40,6 +40,13 @@ Current status:
 - V2 skeleton is complete: the thin LangGraph Investment Agent supervisor,
   bounded-planning Portfolio Agent path, Sentiment Agent stub, deterministic
   guardrails, sanitized trace, and deterministic test coverage are implemented.
+- V3.2 gateway modes are complete: `DirectToolGateway` exists for parity tests
+  and `StdioMCPToolGateway` uses the official MCP client against FastMCP stdio
+  servers.
+- V3.3 deterministic portfolio data lane is complete: backend APIs and the
+  frontend dashboard can load status, latest SQL-backed dashboard data, manual
+  refresh, metrics, canonical SQL updates, and stale fallback without invoking
+  agents or LLMs.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1 task tracking lives under `docs/finance-ai/V1_TASKS/`.
@@ -54,6 +61,9 @@ Current status:
 | Concept / V0 | Complete | Architecture interview, requirements, agent boundaries, and tool-store choices. |
 | V1 | Complete | Portfolio Agent POC with OpenD, canonical local SQL history, deterministic metrics, MCP boundaries, terminal path, and local chat frontend. |
 | V2 | Complete skeleton | LangGraph Investment Agent supervisor, bounded-planning Portfolio Agent path, Sentiment Agent stub, contracts, deterministic synthesis, guardrails, sanitized trace, and tests. |
+| V3.1 | Complete | FastMCP server migration for OpenD, portfolio SQL, and finance metrics while preserving Python business logic. |
+| V3.2 | Complete | Gateway modes: direct parity adapter and stdio MCP client runtime with permission profiles. |
+| V3.3 | Complete | Deterministic portfolio data lane for backend APIs and frontend dashboard refresh independent from agent runs. |
 
 ## Timeline
 
@@ -683,6 +693,77 @@ Lessons learned:
   exposing hidden reasoning, prompts, secrets, or raw account identifiers.
 - Closing V2 honestly means marking stubs as stubs, not dressing them up as
   finished research features.
+
+### 15. V3.2 And V3.3 Closeout / 2026-06-21
+
+Goal:
+
+Move MCP from a custom/in-process tool shape toward a real backend runtime
+boundary, and implement the deterministic portfolio data lane separately from
+agent analysis.
+
+Actual implementation:
+
+- `src/moomail_finance_ai/mcp/gateway.py` now implements:
+  - `MCPToolGateway`
+  - `DirectToolGateway`
+  - `StdioMCPToolGateway`
+  - `GatewayManager`
+  - local stdio server configuration helpers
+  - gateway result/error models
+  - permission profiles for `dashboard_refresh`, `portfolio_agent`,
+    `investment_agent`, and `sentiment_agent`
+- `StdioMCPToolGateway` uses the official MCP Python client against FastMCP
+  stdio servers and reuses sessions instead of spawning a server per tool call.
+- `dashboard_refresh` can call OpenD status/context, finance metrics, and SQL
+  dashboard update/read tools.
+- `investment_agent` is denied direct OpenD by default.
+- Trade/order-like tool names are globally denied.
+- `src/moomail_finance_ai/portfolio_data_service.py` owns deterministic
+  portfolio status, latest-dashboard, and refresh flows.
+- `scripts/serve_chat.py` exposes:
+  - `GET /api/portfolio/status`
+  - `GET /api/portfolio/dashboard`
+  - `POST /api/portfolio/refresh`
+- The static frontend loads stored dashboard data on page load, checks OpenD
+  status independently, and has a manual refresh button that calls the
+  deterministic backend API.
+- Refresh pulls OpenD context, calculates metrics, updates canonical SQL
+  history, and returns dashboard-ready state without constructing Portfolio
+  Agent, Investment Agent, Sentiment Agent, or an LLM evaluator.
+- Refresh failures return stale last-known SQL dashboard data when available
+  plus a sanitized error.
+
+Designed versus actual:
+
+- Designed target: all agents use the MCP gateway. Actual V3.3: the
+  deterministic dashboard lane uses the gateway; agents still use in-process
+  modules until V3.4.
+- Designed target: frontend eventually becomes a richer app. Actual V3.3:
+  static TypeScript/JavaScript frontend now has the correct backend lane and
+  refresh behavior, but it is still not a React app.
+- Designed target: delete old MCP wrappers after migration. Actual V3.3:
+  no MCP tools or legacy wrappers were deleted because agent migration is not
+  complete.
+
+Verification:
+
+```text
+.venv/bin/python -m pytest tests/test_mcp_gateway.py tests/test_mcp_stdio_gateway.py tests/test_mcp_gateway_contract.py tests/test_portfolio_data_service.py tests/test_chat_app.py -q
+22 passed, 1 warning
+```
+
+Lessons learned:
+
+- MCP is useful as a backend boundary for deterministic services, not only as an
+  LLM tool surface.
+- Page-load dashboard freshness should be application infrastructure. It should
+  not depend on an LLM planner deciding whether OpenD is needed.
+- The correct split is now:
+  - frontend calls backend APIs
+  - deterministic backend services own refresh/status/dashboard state
+  - agents own analytical reasoning
+  - MCP servers remain shared read-only/analysis tool boundaries
 
 ## Major Decisions
 

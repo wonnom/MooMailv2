@@ -1,6 +1,6 @@
 # Task V3.3: Deterministic Portfolio Data Lane
 
-Status: planned.
+Status: complete.
 
 ## Goal
 
@@ -14,6 +14,17 @@ is needed.
 
 This task proves the non-agent MCP consumer path before moving agents to the
 gateway in V3.4.
+
+Implemented files:
+
+- `src/moomail_finance_ai/portfolio_data_service.py`
+- `src/moomail_finance_ai/chat_api.py`
+- `scripts/serve_chat.py`
+- `web/index.html`
+- `web/static/app.ts` / `web/static/app.js`
+- `web/static/portfolio_api.ts` / `web/static/portfolio_api.js`
+- `tests/test_portfolio_data_service.py`
+- `tests/test_chat_app.py`
 
 ## Target Shape
 
@@ -34,19 +45,37 @@ Chat analytical query
 
 ## Exit Criteria
 
-1. Backend has a deterministic `PortfolioDataService` or equivalent service for
+1. Complete. Backend has a deterministic `PortfolioDataService` for
    connection status, latest dashboard snapshot, and manual refresh.
-2. The service uses `MCPToolGateway` with the `dashboard_refresh` consumer and
+2. Complete. The service uses `MCPToolGateway` with the `dashboard_refresh` consumer and
    does not call Portfolio Agent, Investment Agent, an LLM, or agent planner.
-3. Backend API routes expose connection status, latest dashboard snapshot, and
+3. Complete. Backend API routes expose connection status, latest dashboard snapshot, and
    manual refresh result to the frontend.
-4. Frontend dashboard/page-load flow uses those backend APIs and shows refresh
+4. Complete. Frontend dashboard/page-load flow uses those backend APIs and shows refresh
    progress, errors, last-updated metadata, balances, holdings, metrics, and
    warnings without starting an agent run.
-5. Refresh updates the canonical SQL portfolio-history DB through portfolio SQL
+5. Complete. Refresh updates the canonical SQL portfolio-history DB through portfolio SQL
    MCP and preserves a last-known stale snapshot when refresh fails.
-6. Tests prove the deterministic lane, frontend behavior, and no-agent/no-LLM
+6. Complete. Tests prove the deterministic lane, frontend behavior, and no-agent/no-LLM
    boundary.
+
+Implemented routes:
+
+- `GET /api/portfolio/status`
+- `GET /api/portfolio/dashboard`
+- `POST /api/portfolio/refresh`
+
+Current route behavior:
+
+- Status checks OpenD through the backend service and returns a connected or
+  disconnected status with sanitized errors.
+- Dashboard reads the latest SQL portfolio state and calculates metrics from
+  that reconstructed snapshot. It does not call OpenD.
+- Refresh checks OpenD, retrieves a normalized current portfolio context,
+  calculates metrics, stores the observation in canonical SQL history, and
+  returns dashboard-ready state.
+- On refresh failure, the service returns the last-known SQL dashboard snapshot
+  when available and includes the sanitized refresh error.
 
 ## Dependency Graph
 
@@ -153,6 +182,18 @@ V3.0. MCP backend boundary
   - live OpenD manual refresh through FastMCP/StdioMCPToolGateway
   - still guarded by `MOOMAIL_RUN_LIVE_CONNECTOR_TESTS=1`
 
+Implemented verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_portfolio_data_service.py tests/test_chat_app.py -q
+```
+
+Latest targeted result during V3.3 implementation:
+
+```text
+15 passed
+```
+
 ## Deletion Candidates After This Task
 
 Review and remove or quarantine any frontend/backend behavior that treats
@@ -167,6 +208,12 @@ dashboard refresh as an agent run:
 
 Do not remove the Portfolio Agent itself. It remains the analytical subagent for
 chat queries and V3.4 migration.
+
+No MCP tools were deleted in V3.3. The deterministic service still uses the
+same OpenD, metrics, and SQL MCP surfaces as the agents will use through the
+gateway. Tool deletion/narrowing should wait until V3.4 proves the agent path is
+also gateway-backed and there is no remaining in-process dependency on the old
+module wiring.
 
 ## Risks
 

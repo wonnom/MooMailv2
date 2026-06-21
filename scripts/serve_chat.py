@@ -5,7 +5,7 @@ import json
 import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,10 +30,27 @@ class ChatHandler(SimpleHTTPRequestHandler):
     service: ChatService
 
     def do_GET(self) -> None:
-        if self.path == "/health":
+        parsed = urlparse(self.path)
+        if parsed.path == "/health":
             self._json({"ok": True})
             return
-        path = "/" if self.path == "/" else unquote(self.path)
+        if parsed.path == "/api/portfolio/status":
+            try:
+                payload = self.service.portfolio_connection_status().model_dump(mode="json")
+            except Exception as exc:
+                self._json(error_event_payload(exc), status=500)
+                return
+            self._json(payload)
+            return
+        if parsed.path == "/api/portfolio/dashboard":
+            try:
+                payload = self.service.portfolio_dashboard().model_dump(mode="json")
+            except Exception as exc:
+                self._json(error_event_payload(exc), status=500)
+                return
+            self._json(payload)
+            return
+        path = "/" if parsed.path == "/" else unquote(parsed.path)
         file_path = WEB / ("index.html" if path == "/" else path.lstrip("/"))
         if not file_path.resolve().is_relative_to(WEB.resolve()) or not file_path.exists():
             self.send_error(404)
@@ -41,13 +58,22 @@ class ChatHandler(SimpleHTTPRequestHandler):
         self._send_file(file_path)
 
     def do_POST(self) -> None:
-        if self.path not in {"/api/chat", "/api/chat/stream"}:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/portfolio/refresh":
+            try:
+                payload = self.service.portfolio_refresh().model_dump(mode="json")
+            except Exception as exc:
+                self._json(error_event_payload(exc), status=500)
+                return
+            self._json(payload)
+            return
+        if parsed.path not in {"/api/chat", "/api/chat/stream"}:
             self.send_error(404)
             return
         payload = self._read_json()
         query = str(payload.get("query") or "Review my portfolio")
         agent = str(payload.get("agent") or self.service.default_agent)
-        if self.path == "/api/chat":
+        if parsed.path == "/api/chat":
             try:
                 state = self.service.run(query, agent=agent)
             except Exception as exc:

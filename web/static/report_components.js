@@ -29,6 +29,7 @@ let allocationView = "bars";
 export function resetReportView() {
   currentReport = null;
   ui.traceOutput.textContent = "";
+  ui.portfolioDashboardMeta.textContent = "";
   ui.portfolioMeta.textContent = "";
   ui.portfolioPositions.replaceChildren();
   ui.allocationChart.replaceChildren();

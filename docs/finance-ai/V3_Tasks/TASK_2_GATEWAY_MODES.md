@@ -1,6 +1,6 @@
 # Task V3.2: Gateway Modes
 
-Status: planned.
+Status: complete.
 
 ## Goal
 
@@ -16,6 +16,13 @@ V3 uses two modes:
 
 `DirectToolGateway` is not the production app runtime and is not the target MCP
 runtime boundary.
+
+Implemented files:
+
+- `src/moomail_finance_ai/mcp/gateway.py`
+- `tests/test_mcp_gateway.py`
+- `tests/test_mcp_stdio_gateway.py`
+- `tests/test_mcp_gateway_contract.py`
 
 ## Target Shape
 
@@ -38,15 +45,16 @@ Backend shutdown
 
 ## Exit Criteria
 
-1. `MCPToolGateway` contract is implemented with structured results, sanitized
+1. Complete. `MCPToolGateway` contract is implemented with structured results, sanitized
    errors, timeouts, and trace metadata.
-2. `DirectToolGateway` supports fast deterministic parity tests only.
-3. `StdioMCPToolGateway` uses the official MCP client to call FastMCP servers
+2. Complete. `DirectToolGateway` supports fast deterministic parity tests only.
+3. Complete. `StdioMCPToolGateway` uses the official MCP client to call FastMCP servers
    over stdio.
-4. Gateway permissions support deterministic backend consumers and agent
+4. Complete. Gateway permissions support deterministic backend consumers and agent
    consumers.
-5. Gateway lifecycle is reusable by chat backend, CLI scripts, and future
-   dashboard APIs.
+5. Complete for backend service use. Gateway lifecycle is reusable by the
+   deterministic portfolio data service and remains the target for V3.4 agent
+   migration.
 
 ## Dependency Graph
 
@@ -138,6 +146,21 @@ V3.1. FastMCP server migration and gateway contract
 - `tests/test_dashboard_portfolio_data_lane.py`
   - fake gateway sequence for status, refresh, metrics, SQL update
 
+Implemented verification:
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_mcp_gateway.py \
+  tests/test_mcp_stdio_gateway.py \
+  tests/test_mcp_gateway_contract.py -q
+```
+
+Latest targeted result during V3.2/V3.3 implementation:
+
+```text
+7 passed
+```
+
 ## Deletion Candidates After This Task
 
 These become real deletion candidates only after V3.2, V3.3, and V3.4 are green:
@@ -147,8 +170,8 @@ These become real deletion candidates only after V3.2, V3.3, and V3.4 are green:
 - direct `module.call_tool(...)` helper paths in agents
 - `agent_access.py` if gateway permission config replaces it fully
 
-Keep `DirectToolGateway` while it is useful for parity tests. Remove or quarantine
-it later if it becomes a tempting production shortcut.
+Keep `DirectToolGateway` while it is useful for parity tests. It is still used by
+tests and should not become the default app runtime.
 
 ## Risks
 

@@ -103,10 +103,14 @@ local operational diagnostics; they must not include hidden model reasoning.
 V3 adds a deterministic portfolio data lane for dashboard status, page load, and
 manual refresh. This lane is not an agent query and must not call an LLM.
 
-The frontend calls backend APIs only. The backend calls MCP through the future
+The frontend calls backend APIs only. The backend calls MCP through the V3
 gateway.
 
-Recommended backend contracts:
+Implemented backend routes:
+
+- `GET /api/portfolio/status`
+- `GET /api/portfolio/dashboard`
+- `POST /api/portfolio/refresh`
 
 ### `PortfolioConnectionStatus`
 
@@ -114,16 +118,11 @@ Purpose: show whether OpenD and the backend data lane are ready.
 
 Required fields:
 
+- `ok`
 - `status`: `connected`, `degraded`, or `disconnected`
 - `checked_at`
-- `opend.reachable`
-- `opend.host`
-- `opend.port`
-- `opend.server_name`
-- `opend.selected_account_configured`
-- `opend.selected_account_label`
-- `last_successful_refresh_at`
-- `can_refresh`
+- `message`
+- `source`
 - `warnings`
 - `error`
 
@@ -141,18 +140,23 @@ Required fields:
 - `as_of`
 - `last_updated_at`
 - `freshness_status`
-- `connection_status`
-- `balances`
-- `holdings`
-- `allocation`
+- `connection`
+- `portfolio_snapshot`
 - `metrics`
+- `history_status`
+- `latest_state`
+- `storage_result`
 - `warnings`
-- `data_quality_events`
+- `errors`
 - `source_summary`
 
 Balances should make configured cash sweep treatment explicit. Unsupported
 quotes, stale data, missing data, and cash-sweep assumptions should be surfaced
 as displayable warnings or data-quality events.
+
+The dashboard endpoint reads SQL and calculates metrics from the stored
+snapshot. It does not call OpenD. Explicit refresh is the boundary that performs
+OpenD retrieval.
 
 ### `PortfolioRefreshResult`
 
@@ -160,15 +164,12 @@ Purpose: represent a manual or backend-triggered refresh.
 
 Required fields:
 
-- `refresh_id`
-- `started_at`
-- `completed_at`
-- `status`: `succeeded`, `partial`, or `failed`
-- `dashboard_snapshot`
-- `history_update`
+- `status`: `refreshed` or `failed`
+- `dashboard`
+- `connection`
+- `storage_result`
 - `warnings`
-- `error`
-- `trace`
+- `errors`
 
 Refresh sequence:
 

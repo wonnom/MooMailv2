@@ -56,6 +56,7 @@ export type Holding = {
 };
 
 export type PortfolioSnapshot = {
+  portfolio_id?: string;
   as_of: string;
   base_currency: string;
   total_value: Money;
@@ -140,6 +141,48 @@ export type StreamError = {
   message: string;
   timestamp?: string;
   traceback?: string[];
+};
+
+export type MetricResult = {
+  metric_name: string;
+  value: unknown;
+  source_inputs?: Record<string, unknown>;
+  warnings?: string[];
+};
+
+export type PortfolioConnectionStatus = {
+  ok: boolean;
+  status: "connected" | "disconnected" | "degraded";
+  checked_at: string;
+  message: string;
+  source: string;
+  warnings: string[];
+  error?: string | null;
+};
+
+export type PortfolioDashboardSnapshot = {
+  portfolio_id: string;
+  as_of?: string | null;
+  last_updated_at: string;
+  freshness_status: string;
+  connection?: PortfolioConnectionStatus | null;
+  portfolio_snapshot?: PortfolioSnapshot | null;
+  metrics: MetricResult[];
+  history_status: Record<string, unknown>;
+  latest_state?: Record<string, unknown> | null;
+  storage_result?: Record<string, unknown> | null;
+  source_summary: Record<string, unknown>;
+  warnings: string[];
+  errors: string[];
+};
+
+export type PortfolioRefreshResult = {
+  status: "refreshed" | "failed";
+  dashboard: PortfolioDashboardSnapshot;
+  connection: PortfolioConnectionStatus;
+  storage_result?: Record<string, unknown> | null;
+  warnings: string[];
+  errors: string[];
 };
 
 export type AllocationView = "bars" | "pie";

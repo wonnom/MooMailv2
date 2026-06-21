@@ -16,7 +16,9 @@ V1 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
 history. V2 is complete as a first Investment Agent skeleton: a thin LangGraph
 supervisor over the Portfolio Agent and a Sentiment Agent stub. The future Main
 Finance Orchestrator can route between investment and budgeting domains later,
-but it is not part of V2.
+but it is not part of V2. V3.3 adds a deterministic backend portfolio data lane
+for dashboard status/page-load/manual refresh; that service is application
+infrastructure, not a Portfolio Agent run.
 
 ## Investment Agent
 
@@ -149,6 +151,10 @@ Implemented persistence policy after the 2026-06-02 portfolio-history refactor:
 
 The Portfolio Agent LLM may interpret portfolio-only facts. It must not decide
 whether to write SQL rows, invent market sentiment, or issue trade instructions.
+
+V3 runtime note: the deterministic dashboard lane already uses the MCP gateway.
+The Portfolio Agent still uses in-process MCP modules until V3.4 migrates it to
+the gateway. This should not change the agent's responsibility boundary.
 
 ### V2 Portfolio Agent
 

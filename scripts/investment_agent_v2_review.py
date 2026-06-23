@@ -32,12 +32,15 @@ def main() -> None:
         db_path=args.db,
         llm_provider=args.llm_provider,
     )
-    state = agent.run(" ".join(args.query))
-    if args.json:
-        print(json.dumps(state.model_dump(mode="json"), indent=2))
-        return
+    try:
+        state = agent.run(" ".join(args.query))
+        if args.json:
+            print(json.dumps(state.model_dump(mode="json"), indent=2))
+            return
 
-    print("\n".join(v2_terminal_summary_lines(state, graph_runtime=agent.graph_runtime)))
+        print("\n".join(v2_terminal_summary_lines(state, graph_runtime=agent.graph_runtime)))
+    finally:
+        agent.close()
 
 
 def v2_terminal_summary_lines(

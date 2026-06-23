@@ -7,6 +7,7 @@ import pytest
 
 from moomail_finance_ai.config import OpenDConfig, load_env_file
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
+from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
 from moomail_finance_ai.mocks import mock_investment_policy
@@ -31,12 +32,16 @@ def test_live_portfolio_agent_llm_evaluator_round_trip_with_gemini(tmp_path, sam
         pytest.skip("Set MOOMAIL_GEMINI_MODEL.")
 
     agent = MCPPortfolioAgent(
-        opend_mcp=build_opend_mcp_module(
-            client=RecordedOpenDClient(sample_opend_report),
-            config=OpenDConfig(base_currency="USD"),
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(
+                    client=RecordedOpenDClient(sample_opend_report),
+                    config=OpenDConfig(base_currency="USD"),
+                ),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(db_path=tmp_path / "portfolio.sqlite"),
+            ]
         ),
-        finance_metrics_mcp=build_finance_metrics_mcp_module(),
-        portfolio_sql_mcp=build_portfolio_sql_mcp_module(db_path=tmp_path / "portfolio.sqlite"),
         evaluator=LLMPortfolioEvaluator.from_env(provider="gemini", env_file=LOCAL_ENV_PATH),
     )
 

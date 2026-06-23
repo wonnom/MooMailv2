@@ -10,8 +10,8 @@ V3 = DOCS / "V3_Tasks"
 def test_v3_readme_records_backend_mcp_boundary_and_task_map():
     text = (V3 / "README.md").read_text(encoding="utf-8")
 
-    assert "V3.0, V3.1, V3.2, and V3.3 are complete" in text
-    assert "V3.4 is the remaining agent gateway migration" in text
+    assert "V3.0 through V3.4 are complete" in text
+    assert "V3 is complete for the MCP runtime migration" in text
     assert "MCP becomes shared backend" in text
     assert "infrastructure for deterministic app flows" in text
     assert "deterministic app flows and agentic analysis flows" in text
@@ -62,7 +62,7 @@ def test_v3_docs_record_retirement_candidates_without_premature_deletion():
     readme = (V3 / "README.md").read_text(encoding="utf-8")
     task4 = (V3 / "TASK_4_AGENT_GATEWAY_MIGRATION.md").read_text(encoding="utf-8")
 
-    assert "Do not delete these before V3 parity is proven" in readme
+    assert "V3 parity is proven for the Portfolio Agent" in readme
     assert "src/moomail_finance_ai/mcp/stdio.py" in readme
     assert "RegisteredMCPModule" in readme
     assert "_MCPStdioClient" in readme
@@ -94,8 +94,10 @@ def test_decision_log_records_v3_mcp_backend_boundary():
     assert "V3.0 MCP Backend Boundary / 2026-06-17" in decision_log
     assert "V3.1 FastMCP Server Migration / 2026-06-17" in decision_log
     assert "V3.2 And V3.3 Closeout / 2026-06-21" in decision_log
+    assert "V3.4 Agent Gateway Migration / 2026-06-23" in decision_log
     assert "V3 Planning Adjustment / 2026-06-17" in decision_log
     assert "Insert V3.3 as `Deterministic Portfolio Data Lane`" in decision_log
     assert "MCP is backend infrastructure, not only an LLM-agent tool surface" in decision_log
     assert "deterministic dashboard" in decision_log
     assert "backend APIs only" in decision_log
+    assert "Portfolio Agent and V2 Investment Agent now use the gateway" in decision_log

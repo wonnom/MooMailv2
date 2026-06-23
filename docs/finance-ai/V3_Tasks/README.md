@@ -1,7 +1,6 @@
 # V3 Task Maps
 
-Status: active iteration. V3.0, V3.1, V3.2, and V3.3 are complete.
-V3.4 is the remaining agent gateway migration.
+Status: complete iteration. V3.0 through V3.4 are complete.
 
 V3 turns the V2 MCP-shaped runtime into a real backend MCP runtime. The main
 change is conceptual as much as technical: MCP becomes shared backend
@@ -68,7 +67,7 @@ Chat or CLI analytical query
 | V3.1 | [TASK_1_FASTMCP_SERVER_MIGRATION.md](TASK_1_FASTMCP_SERVER_MIGRATION.md) | Complete. Preserve business logic, replace the custom stdio server scripts with FastMCP servers, and define the gateway contract. |
 | V3.2 | [TASK_2_GATEWAY_MODES.md](TASK_2_GATEWAY_MODES.md) | Complete. Implement DirectToolGateway for parity tests and StdioMCPToolGateway for production-ish local runtime. |
 | V3.3 | [TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md](TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md) | Complete. Implement the deterministic backend and frontend portfolio data lane without invoking agents. |
-| V3.4 | [TASK_4_AGENT_GATEWAY_MIGRATION.md](TASK_4_AGENT_GATEWAY_MIGRATION.md) | Move Portfolio Agent and V2 Investment Agent to the gateway and update docs/tests. |
+| V3.4 | [TASK_4_AGENT_GATEWAY_MIGRATION.md](TASK_4_AGENT_GATEWAY_MIGRATION.md) | Complete. Move Portfolio Agent and V2 Investment Agent to the gateway and update docs/tests. |
 
 ## Cross-Task Dependency Map
 
@@ -90,47 +89,56 @@ V3.4. Agent gateway migration
   ├── depends on V3.2 StdioMCPToolGateway
   ├── depends on V3.3 dashboard data lane remaining separate
   ├── depends on DirectToolGateway parity tests
-  └── closes old in-process MCP runtime usage
+  └── closes old in-process MCP runtime usage for Portfolio Agent and V2 Investment Agent
 ```
 
 ## Old Or Replaced Code To Review After V3
 
-Do not delete these before V3 parity is proven. They currently protect the V2
-working path.
+V3 parity is proven for the Portfolio Agent and V2 Investment Agent gateway
+path. The items below are now either migrated, legacy/test-only, or still
+deliberately kept as domain/tool-registry support.
 
 | Candidate | Current role | V3 replacement | Delete or narrow after |
 | --- | --- | --- | --- |
-| `src/moomail_finance_ai/mcp/stdio.py` | Custom minimal stdio JSON-RPC server wrapper. | FastMCP server runtime. | All three FastMCP servers pass deterministic and live smoke tests. |
+| `src/moomail_finance_ai/mcp/stdio.py` | Legacy custom minimal stdio JSON-RPC server wrapper used by registry tests only. | FastMCP server runtime. | Remove after registry tests no longer need custom wrapper coverage. |
 | `scripts/mcp_opend_server.py` | FastMCP OpenD server entrypoint as of V3.1. | Keep stable CLI while gateway modes are added. | Gateway/live tests prove this is the only supported OpenD server path. |
 | `scripts/mcp_portfolio_sql_server.py` | FastMCP portfolio SQL server entrypoint as of V3.1. | Keep stable CLI while gateway modes are added. | Gateway tests prove this is the only supported SQL server path. |
 | `scripts/mcp_finance_metrics_server.py` | FastMCP metrics server entrypoint as of V3.1. | Keep stable CLI while gateway modes are added. | Gateway tests prove this is the only supported metrics server path. |
-| `RegisteredMCPModule` in `mcp/registry.py` | In-process tool registry used by agents and custom tests. | FastMCP tool registration plus DirectToolGateway parity adapter. | Agents no longer receive in-process modules and parity tests no longer need this registry. |
-| `MCPModule` protocol in `mcp/registry.py` | Type contract for in-process module calls. | `MCPToolGateway` contract. | Portfolio Agent and tests no longer type against `MCPModule`. |
+| `RegisteredMCPModule` in `mcp/registry.py` | In-process tool registry underneath FastMCP and DirectToolGateway tests. Agents no longer receive these modules. | FastMCP tool registration plus DirectToolGateway parity adapter. | Keep while business handlers are registered this way. |
+| `MCPModule` protocol in `mcp/registry.py` | Type contract for registry/FastMCP adapter and DirectToolGateway. | `MCPToolGateway` is the agent runtime contract. | Keep while registry adapter exists. |
 | `MCPToolSpec`, `MCPResourceSpec`, `MCPToolCallResult` | Custom MCP-shaped models. | FastMCP/native MCP schemas and gateway result models. | FastMCP/gateway tests cover tool metadata and structured results. |
 | `src/moomail_finance_ai/mcp/agent_access.py` | In-process allowlist manifest builder. | Gateway/server permission config used by backend services and agents. | Gateway allowlist tests replace manifest tests. |
-| Direct module injection in `portfolio_agent.py` | Agent receives `opend_mcp`, `finance_metrics_mcp`, and `portfolio_sql_mcp` modules. | Agent receives a permissioned gateway or tool client. | Portfolio Agent tests are migrated to gateway fakes. |
-| Direct module builders in `build_default_portfolio_agent` | Creates in-process MCP modules. | Uses backend/gateway factory. | Chat, CLI, and tests all use gateway construction. |
+| Direct module injection in `portfolio_agent.py` | Removed in V3.4. | Agent receives a permissioned gateway. | Complete. |
+| Direct module builders in `build_default_portfolio_agent` | Removed as the default runtime path in V3.4. DirectToolGateway remains test/dev parity support. | Uses backend/gateway factory. | Complete. |
 | `_MCPStdioClient` helpers in tests | Custom JSON-RPC subprocess client. | Official MCP client session test helper. | FastMCP stdio round-trip tests are stable. |
 | `tests/test_mcp_stdio_round_trips.py` | Verifies custom stdio wrapper. | FastMCP stdio round-trip tests. | New tests prove equivalent server behavior. |
 | `tests/test_mcp_servers.py::test_mcp_stdio_adapter_exposes_tools_and_resources` | Unit test for custom wrapper. | FastMCP metadata and gateway tests. | Custom wrapper is removed. |
 | Direct-module portions of `tests/test_mcp_tool_contracts.py` | Verifies tool behavior through `RegisteredMCPModule`. | Domain tests plus DirectToolGateway/FastMCP parity tests. | Parity tests prove the same structured content over FastMCP. |
-| Direct-module construction in `tests/test_portfolio_agent.py`, `tests/test_v2_portfolio_planner.py`, and `tests/live/test_portfolio_agent_live.py` | Builds agents with in-process modules. | Gateway fake or StdioMCPToolGateway test fixtures. | Agent constructors no longer accept MCP modules. |
+| Direct-module construction in `tests/test_portfolio_agent.py`, `tests/test_v2_portfolio_planner.py`, and `tests/live/test_portfolio_agent_live.py` | Removed in V3.4. | DirectToolGateway/recording gateway fixtures. | Complete. |
 | Custom MCP live smoke portions of `tests/live/test_connector_targets.py` | Starts custom server scripts. | Official MCP client live smoke tests against FastMCP servers. | FastMCP live smoke tests pass against local OpenD. |
 
 Also clean generated `__pycache__` directories before committing if they are
 still present in the working tree. They are not part of V3 design and should
 not be versioned.
 
-## Suggested V3 Closeout Gate
+## V3 Closeout Gate
 
-The exact commands will be finalized during implementation, but V3 closeout
-should include:
+V3 closeout includes:
 
 ```bash
 .venv/bin/python -m pytest tests --ignore=tests/live -q
 .venv/bin/python -m pytest tests/test_mcp_gateway.py tests/test_mcp_stdio_gateway.py tests/test_mcp_gateway_contract.py -q
 .venv/bin/python -m pytest tests/test_portfolio_data_service.py tests/test_chat_app.py -q
 ```
+
+Latest V3.4 closeout result:
+
+```text
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+183 passed, 1 warning
+```
+
+The warning is the existing LangGraph dependency deprecation warning.
 
 Optional live gate:
 
@@ -142,6 +150,7 @@ MOOMAIL_RUN_LIVE_CONNECTOR_TESTS=1 .venv/bin/python -m pytest tests/live -q -k "
 
 ## Remaining Work
 
-Start V3.4 next. Do not delete the old in-process agent MCP paths until the
-Portfolio Agent and V2 Investment Agent both call tools through the gateway and
-the non-live suite passes.
+V3 is complete for the MCP runtime migration targeted in this iteration. Keep
+legacy registry/custom-stdio tests only while they protect still-used registry
+behavior. Future work should move to V4 planning, GraphRAG, memory, or richer
+planner/synthesis work.

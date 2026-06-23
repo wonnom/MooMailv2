@@ -37,16 +37,20 @@ Current implementation reality:
 - `PortfolioDataService` uses the gateway with consumer
   `dashboard_refresh` for deterministic status, dashboard, refresh, metrics,
   and SQL update flows.
+- `MCPPortfolioAgent` uses the gateway with consumer `portfolio_agent`.
+- `V2InvestmentAgent` receives a gateway-backed Portfolio Agent through its
+  default builder.
 - `JsonRpcMCPServer` still exists for legacy/custom-wrapper tests, but it is no
   longer used by the three server scripts.
-- Agents still call in-process `RegisteredMCPModule` objects until V3.4 moves
-  them to the gateway.
+- Agents no longer receive direct `RegisteredMCPModule` objects in the V3.4
+  Portfolio Agent/V2 Investment Agent path.
 
-Remaining V3 target:
+Remaining target:
 
-- Move Portfolio Agent and V2 Investment Agent tool calls to the gateway.
 - Keep business logic in plain Python services/functions underneath the MCP
   transport.
+- Retire legacy custom stdio/manifest tests later only when they no longer
+  protect used registry behavior.
 
 ## Backend Consumers
 
@@ -226,9 +230,9 @@ V1.
 ## Agent Access
 
 Legacy in-process agent tool exposure is controlled in
-`src/moomail_finance_ai/mcp/agent_access.py`. V3 gateway permissions are
-implemented in `src/moomail_finance_ai/mcp/gateway.py` and are the target
-runtime boundary for V3.4.
+`src/moomail_finance_ai/mcp/agent_access.py` for remaining manifest tests.
+Runtime gateway permissions are implemented in
+`src/moomail_finance_ai/mcp/gateway.py`.
 
 Default allowlist:
 
@@ -251,11 +255,9 @@ moomail-opend-mcp:opend_get_positions
 ```
 
 This is the registry layer. The LLM does not need to decide which server exists;
-the agent runtime binds the allowed modules or gateway tools for the consumer
-before any model sees tool choices.
-
-V3.4 should retire direct module injection into agents after parity tests prove
-the gateway-backed path.
+the runtime binds allowed gateway tools for the consumer before any model sees
+tool choices. Direct module injection into Portfolio Agent has been retired in
+V3.4.
 
 ## Running Servers
 

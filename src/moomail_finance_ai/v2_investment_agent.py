@@ -10,6 +10,7 @@ from uuid import uuid4
 from langgraph.graph import END, StateGraph
 
 from moomail_finance_ai.mocks import mock_investment_policy
+from moomail_finance_ai.mcp.gateway import MCPToolGateway
 from moomail_finance_ai.portfolio_agent import (
     PortfolioAgentResult,
     PortfolioEvaluator,
@@ -123,6 +124,11 @@ class V2InvestmentAgent:
             raise
         finally:
             self._status_callback = None
+
+    def close(self) -> None:
+        close = getattr(self.portfolio_agent, "close", None)
+        if callable(close):
+            close()
 
     def _build_graph(self):
         self.graph_runtime = "langgraph_state_graph"
@@ -513,6 +519,8 @@ def build_default_v2_investment_agent(
     llm_provider: str | None = None,
     portfolio_evaluator: PortfolioEvaluator | None = None,
     ips: InvestmentPolicy | None = None,
+    gateway: MCPToolGateway | None = None,
+    gateway_mode: str = "stdio",
 ) -> V2InvestmentAgent:
     return V2InvestmentAgent(
         portfolio_agent=build_default_portfolio_agent(
@@ -521,6 +529,8 @@ def build_default_v2_investment_agent(
             db_path=db_path,
             llm_provider=llm_provider,
             evaluator=portfolio_evaluator,
+            gateway=gateway,
+            gateway_mode=gateway_mode,
         ),
         sentiment_agent=V2SentimentAgentStub(),
         ips=ips or mock_investment_policy(),

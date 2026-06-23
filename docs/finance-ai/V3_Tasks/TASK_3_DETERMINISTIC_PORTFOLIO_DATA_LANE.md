@@ -210,10 +210,10 @@ Do not remove the Portfolio Agent itself. It remains the analytical subagent for
 chat queries and V3.4 migration.
 
 No MCP tools were deleted in V3.3. The deterministic service still uses the
-same OpenD, metrics, and SQL MCP surfaces as the agents will use through the
-gateway. Tool deletion/narrowing should wait until V3.4 proves the agent path is
-also gateway-backed and there is no remaining in-process dependency on the old
-module wiring.
+same OpenD, metrics, and SQL MCP surfaces as the agents use through the
+gateway. V3.4 later proved the agent path is gateway-backed; the remaining
+registry/custom-stdio code is kept only where it still protects the FastMCP
+adapter, DirectToolGateway parity mode, or legacy registry behavior.
 
 ## Risks
 

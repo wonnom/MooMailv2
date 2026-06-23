@@ -76,6 +76,28 @@ Current V2 limitations:
 - Pinecone memory is not connected.
 - V2 does not place, prepare, or suggest executable trades.
 
+### Planning Responsibility
+
+Target planning ownership:
+
+- Investment Agent planner: user intent, mode, subagent needs, broad
+  ticker/theme/time-horizon scope, freshness requirement, and final synthesis
+  constraints.
+- Portfolio Agent planner: portfolio task type, portfolio ticker/asset scope,
+  history window, SQL history scope, metric groups, current-value dependency,
+  and persistence mode.
+- Deterministic policy: freshness enforcement, OpenD connection checks, SQL
+  freshness checks, permission validation, tool execution, finance math, and
+  persistence.
+- Sentiment Agent planner: future research scope and evidence strategy. This is
+  not implemented in V4.
+
+Investment Agent should plan enough to decide which subagents are needed and
+what evidence to request. It should not micromanage exact SQL/OpenD/metric tool
+calls. Portfolio Agent should plan only inside the portfolio evidence domain.
+Sentiment Agent should eventually plan research retrieval, but it should not
+make portfolio allocation or trade decisions.
+
 ### Supported Modes
 
 The chatbot can infer or suggest these modes through conversation:
@@ -152,9 +174,10 @@ Implemented persistence policy after the 2026-06-02 portfolio-history refactor:
 The Portfolio Agent LLM may interpret portfolio-only facts. It must not decide
 whether to write SQL rows, invent market sentiment, or issue trade instructions.
 
-V3 runtime note: the deterministic dashboard lane already uses the MCP gateway.
-The Portfolio Agent still uses in-process MCP modules until V3.4 migrates it to
-the gateway. This should not change the agent's responsibility boundary.
+V3 runtime note: the deterministic dashboard lane and Portfolio Agent both use
+the MCP gateway. The Portfolio Agent receives a permissioned `MCPToolGateway`,
+not direct `RegisteredMCPModule` objects. This does not change the agent's
+responsibility boundary.
 
 ### V2 Portfolio Agent
 

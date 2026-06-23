@@ -31,12 +31,15 @@ def main() -> None:
         db_path=args.db,
         llm_provider=args.llm_provider,
     )
-    result = agent.run(" ".join(args.query), mock_investment_policy())
-    if args.json:
-        print(json.dumps(result.model_dump(mode="json"), indent=2))
-        return
+    try:
+        result = agent.run(" ".join(args.query), mock_investment_policy())
+        if args.json:
+            print(json.dumps(result.model_dump(mode="json"), indent=2))
+            return
 
-    print("\n".join(portfolio_agent_terminal_summary_lines(result)))
+        print("\n".join(portfolio_agent_terminal_summary_lines(result)))
+    finally:
+        agent.close()
 
 
 def portfolio_agent_terminal_summary_lines(result: PortfolioAgentResult) -> list[str]:

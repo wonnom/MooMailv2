@@ -21,7 +21,12 @@ from moomail_finance_ai.mcp.portfolio_sql_mcp import (
     SERVER_NAME as PORTFOLIO_SQL_SERVER,
     build_portfolio_sql_mcp_module,
 )
-from moomail_finance_ai.mcp.registry import MCPModule
+from moomail_finance_ai.mcp.gateway import (
+    DirectToolGateway,
+    MCPToolGateway,
+    StdioMCPToolGateway,
+    local_stdio_server_configs,
+)
 from moomail_finance_ai.metrics import MetricResult
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.opend import OpenDFieldReport
@@ -172,9 +177,7 @@ class LLMPortfolioEvaluator:
 
 @dataclass
 class MCPPortfolioAgent:
-    opend_mcp: MCPModule
-    finance_metrics_mcp: MCPModule
-    portfolio_sql_mcp: MCPModule
+    gateway: MCPToolGateway
     evaluator: PortfolioEvaluator
     base_currency: str = "USD"
     min_snapshots_for_history: int = 2
@@ -267,12 +270,17 @@ class MCPPortfolioAgent:
             warnings=_result_warnings(portfolio_packet, history_status, evaluation),
         )
 
+    def close(self) -> None:
+        close = getattr(self.gateway, "close", None)
+        if callable(close):
+            close()
+
     def _initialize_sql_if_needed(self, plan: PortfolioContextPlan, emit) -> None:
         if not (plan.needs_sql_history or plan.persist_observation):
             emit("skipping_sql_initialize", "SQL MCP initialization skipped by context plan.")
             return
         emit("initializing_portfolio_agent", "Preparing MCP modules for portfolio analysis.")
-        self._call(PORTFOLIO_SQL_SERVER, self.portfolio_sql_mcp, "portfolio_sql_initialize", {})
+        self._call(PORTFOLIO_SQL_SERVER, "portfolio_sql_initialize", {})
 
     def _read_current_context(
         self,
@@ -285,7 +293,6 @@ class MCPPortfolioAgent:
         emit("retrieving_opend_portfolio", "Reading current portfolio context from OpenD MCP.")
         context = self._call(
             OPEND_SERVER,
-            self.opend_mcp,
             "opend_get_portfolio_context",
             {"portfolio_id": ips.portfolio_id, "base_currency": self.base_currency},
         )
@@ -310,7 +317,6 @@ class MCPPortfolioAgent:
         )
         metric_rows = self._call(
             FINANCE_METRICS_SERVER,
-            self.finance_metrics_mcp,
             "calculate_snapshot_metrics",
             {"snapshot": snapshot_json, "ips": ips_json},
         )
@@ -355,7 +361,6 @@ class MCPPortfolioAgent:
         if "history_status" in plan.history_queries:
             history_status = self._call(
                 PORTFOLIO_SQL_SERVER,
-                self.portfolio_sql_mcp,
                 "portfolio_sql_get_history_status",
                 {
                     "portfolio_id": ips.portfolio_id,
@@ -366,21 +371,18 @@ class MCPPortfolioAgent:
         if "latest_state" in plan.history_queries:
             latest_portfolio_state = self._call(
                 PORTFOLIO_SQL_SERVER,
-                self.portfolio_sql_mcp,
                 "portfolio_sql_get_latest_portfolio_state",
                 {"portfolio_id": ips.portfolio_id},
             )
         if "portfolio_growth" in plan.history_queries:
             portfolio_growth = self._call(
                 PORTFOLIO_SQL_SERVER,
-                self.portfolio_sql_mcp,
                 "portfolio_sql_get_portfolio_growth",
                 {"portfolio_id": ips.portfolio_id, "limit": plan.row_limit},
             )
         if "allocation_history" in plan.history_queries:
             allocation_history = self._call(
                 PORTFOLIO_SQL_SERVER,
-                self.portfolio_sql_mcp,
                 "portfolio_sql_get_allocation_history",
                 {"portfolio_id": ips.portfolio_id, "limit": plan.row_limit},
             )
@@ -419,7 +421,6 @@ class MCPPortfolioAgent:
                 arguments["ticker"] = ticker
             position_change_result = self._call(
                 PORTFOLIO_SQL_SERVER,
-                self.portfolio_sql_mcp,
                 "portfolio_sql_get_position_state_changes",
                 arguments,
             )
@@ -449,7 +450,6 @@ class MCPPortfolioAgent:
         emit("updating_portfolio_history", "Writing lean portfolio-history rows to SQL MCP.")
         self._call(
             PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
             "portfolio_sql_upsert_portfolio",
             {
                 "portfolio_id": ips.portfolio_id,
@@ -458,7 +458,6 @@ class MCPPortfolioAgent:
         )
         account_result = self._call(
             PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
             "portfolio_sql_upsert_broker_account",
             {
                 "portfolio_id": ips.portfolio_id,
@@ -468,13 +467,11 @@ class MCPPortfolioAgent:
         account_id = account_result["account_id"]
         assets_result = self._call(
             PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
             "portfolio_sql_upsert_assets",
             {"snapshot": snapshot_json, "include_cash_assets": True},
         )
         position_state_result = self._call(
             PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
             "portfolio_sql_upsert_position_states",
             {
                 "snapshot": snapshot_json,
@@ -484,7 +481,6 @@ class MCPPortfolioAgent:
         )
         value_snapshot_result = self._call(
             PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
             "portfolio_sql_store_daily_value_snapshot",
             {
                 "snapshot": snapshot_json,
@@ -494,7 +490,6 @@ class MCPPortfolioAgent:
         )
         weight_storage_result = self._call(
             PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
             "portfolio_sql_store_weight_snapshots",
             {
                 "snapshot": snapshot_json,
@@ -505,7 +500,6 @@ class MCPPortfolioAgent:
         )
         data_quality_result = self._call(
             PORTFOLIO_SQL_SERVER,
-            self.portfolio_sql_mcp,
             "portfolio_sql_store_data_quality_events",
             {
                 "snapshot": snapshot_json,
@@ -594,12 +588,16 @@ class MCPPortfolioAgent:
     def _call(
         self,
         server_name: str,
-        module: MCPModule,
         tool_name: str,
         arguments: dict[str, Any],
     ) -> Any:
         self.tool_calls.append(f"{server_name}:{tool_name}")
-        return module.call_tool(tool_name, arguments).structured_content
+        return self.gateway.call_tool(
+            server_name,
+            tool_name,
+            arguments,
+            consumer="portfolio_agent",
+        ).structured_content
 
 
 def build_default_portfolio_agent(
@@ -609,12 +607,28 @@ def build_default_portfolio_agent(
     db_path: str | Path = "data/portfolio-history.sqlite",
     llm_provider: str | None = None,
     evaluator: PortfolioEvaluator | None = None,
+    gateway: MCPToolGateway | None = None,
+    gateway_mode: str = "stdio",
 ) -> MCPPortfolioAgent:
     config = load_opend_config(env_file=env_file)
+    if gateway is None and gateway_mode == "direct":
+        gateway = DirectToolGateway(
+            [
+                build_opend_mcp_module(config=config, env_file=env_file, from_report=from_report),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(db_path=db_path),
+            ]
+        )
+    if gateway is None:
+        gateway = StdioMCPToolGateway(
+            local_stdio_server_configs(
+                env_file=env_file,
+                from_report=from_report,
+                db_path=db_path,
+            )
+        )
     return MCPPortfolioAgent(
-        opend_mcp=build_opend_mcp_module(config=config, env_file=env_file, from_report=from_report),
-        finance_metrics_mcp=build_finance_metrics_mcp_module(),
-        portfolio_sql_mcp=build_portfolio_sql_mcp_module(db_path=db_path),
+        gateway=gateway,
         evaluator=evaluator or LLMPortfolioEvaluator.from_env(
             provider=llm_provider,
             env_file=env_file,
@@ -630,6 +644,8 @@ def build_default_portfolio_agent_with_mock_policy(
     db_path: str | Path = "data/portfolio-history.sqlite",
     llm_provider: str | None = None,
     evaluator: PortfolioEvaluator | None = None,
+    gateway: MCPToolGateway | None = None,
+    gateway_mode: str = "stdio",
 ) -> tuple[MCPPortfolioAgent, InvestmentPolicy]:
     return (
         build_default_portfolio_agent(
@@ -638,6 +654,8 @@ def build_default_portfolio_agent_with_mock_policy(
             db_path=db_path,
             llm_provider=llm_provider,
             evaluator=evaluator,
+            gateway=gateway,
+            gateway_mode=gateway_mode,
         ),
         mock_investment_policy(),
     )

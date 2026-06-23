@@ -177,7 +177,10 @@ def main() -> None:
     )
     server = ThreadingHTTPServer((args.host, args.port), ChatHandler)
     print(f"Serving Finance AI chat at http://{args.host}:{args.port}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        ChatHandler.service.close()
 
 
 if __name__ == "__main__":

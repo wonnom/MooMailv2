@@ -70,7 +70,10 @@ def _make_tool_function(module: MCPModule, spec: MCPToolSpec):
         "    arguments = {}\n"
         f"{assignments}"
         "    result = module.call_tool(tool_name, arguments)\n"
-        "    return CallToolResult.model_validate(result.to_mcp_result())\n"
+        "    payload = result.to_mcp_result()\n"
+        "    if not isinstance(payload.get('structuredContent'), dict):\n"
+        "        payload.pop('structuredContent', None)\n"
+        "    return CallToolResult.model_validate(payload)\n"
     )
     namespace = {
         "Any": Any,

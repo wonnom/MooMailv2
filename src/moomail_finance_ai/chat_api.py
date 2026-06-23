@@ -6,6 +6,11 @@ import traceback
 from typing import Any
 
 from moomail_finance_ai.full_agent import build_default_full_agent
+from moomail_finance_ai.mcp.gateway import (
+    MCPToolGateway,
+    StdioMCPToolGateway,
+    local_stdio_server_configs,
+)
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.portfolio_agent import (
     PortfolioAgentResult,
@@ -39,6 +44,7 @@ class ChatService:
         portfolio_evaluator: PortfolioEvaluator | None = None,
         v2_investment_agent: V2InvestmentAgent | None = None,
         portfolio_data_service: PortfolioDataService | None = None,
+        mcp_gateway: MCPToolGateway | None = None,
         default_agent: str = "investment",
     ):
         self.from_report = from_report
@@ -49,6 +55,7 @@ class ChatService:
         self.portfolio_evaluator = portfolio_evaluator
         self.v2_investment_agent = v2_investment_agent
         self._portfolio_data_service = portfolio_data_service
+        self._mcp_gateway = mcp_gateway
         self.default_agent = default_agent
 
     def run(
@@ -66,6 +73,7 @@ class ChatService:
                 db_path=self.db_path,
                 llm_provider=self.llm_provider,
                 evaluator=self.portfolio_evaluator,
+                gateway=self.mcp_gateway(),
             )
             return portfolio_agent.run(
                 query,
@@ -79,6 +87,7 @@ class ChatService:
                 db_path=self.db_path,
                 llm_provider=self.llm_provider,
                 portfolio_evaluator=self.portfolio_evaluator,
+                gateway=self.mcp_gateway(),
             )
             return v2_agent.run(query, status_callback=status_callback)
         if selected_agent != "investment":
@@ -105,8 +114,25 @@ class ChatService:
                 env_file=self.env_file,
                 from_report=self.from_report,
                 db_path=self.db_path,
+                gateway=self.mcp_gateway(),
             )
         return self._portfolio_data_service
+
+    def mcp_gateway(self) -> MCPToolGateway:
+        if self._mcp_gateway is None:
+            self._mcp_gateway = StdioMCPToolGateway(
+                local_stdio_server_configs(
+                    env_file=self.env_file,
+                    from_report=self.from_report,
+                    db_path=self.db_path,
+                )
+            )
+        return self._mcp_gateway
+
+    def close(self) -> None:
+        close = getattr(self._mcp_gateway, "close", None)
+        if callable(close):
+            close()
 
 
 def chat_response(

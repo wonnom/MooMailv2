@@ -11,11 +11,11 @@ PROTOCOL_VERSION = "2025-06-18"
 
 
 class JsonRpcMCPServer:
-    """Minimal local MCP stdio server for this project.
+    """Legacy minimal local MCP stdio server kept for registry tests only.
 
-    It implements the subset the agents and smoke tests need: initialize,
-    tools/list, tools/call, resources/list, and resources/read. The tool registry
-    underneath stays independent from this transport.
+    V3 runtime server scripts use the official FastMCP adapter instead. This
+    class remains only to protect old registry behavior until those tests are
+    fully retired.
     """
 
     def __init__(self, module: MCPModule):

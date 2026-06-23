@@ -4,6 +4,7 @@ from typing import Any
 
 from moomail_finance_ai.config import OpenDConfig
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
+from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import SERVER_NAME as OPEND_SERVER
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import SERVER_NAME as PORTFOLIO_SQL_SERVER
@@ -146,14 +147,20 @@ def test_named_ticker_change_query_scopes_position_history_tool(
     recorded_opend_client,
 ):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
-    sql_module = RecordingMCPModule(build_portfolio_sql_mcp_module(store=store))
+    gateway = RecordingGateway(
+        DirectToolGateway(
+            [
+                build_opend_mcp_module(
+                    client=recorded_opend_client,
+                    config=OpenDConfig(),
+                ),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        )
+    )
     agent = MCPPortfolioAgent(
-        opend_mcp=build_opend_mcp_module(
-            client=recorded_opend_client,
-            config=OpenDConfig(),
-        ),
-        finance_metrics_mcp=build_finance_metrics_mcp_module(),
-        portfolio_sql_mcp=sql_module,
+        gateway=gateway,
         evaluator=CapturingEvaluator(),
     )
 
@@ -164,8 +171,10 @@ def test_named_ticker_change_query_scopes_position_history_tool(
 
     position_change_calls = [
         arguments
-        for tool_name, arguments in sql_module.calls
-        if tool_name == "portfolio_sql_get_position_state_changes"
+        for server_name, tool_name, arguments, consumer in gateway.calls
+        if server_name == PORTFOLIO_SQL_SERVER
+        and tool_name == "portfolio_sql_get_position_state_changes"
+        and consumer == "portfolio_agent"
     ]
     assert result.context_plan is not None
     assert result.context_plan.tickers == ["AMZN"]
@@ -230,12 +239,16 @@ def test_portfolio_trace_includes_planned_actual_and_skipped_tools(
 
 def _agent(store, recorded_opend_client, evaluator):
     return MCPPortfolioAgent(
-        opend_mcp=build_opend_mcp_module(
-            client=recorded_opend_client,
-            config=OpenDConfig(),
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(
+                    client=recorded_opend_client,
+                    config=OpenDConfig(),
+                ),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
         ),
-        finance_metrics_mcp=build_finance_metrics_mcp_module(),
-        portfolio_sql_mcp=build_portfolio_sql_mcp_module(store=store),
         evaluator=evaluator,
     )
 
@@ -255,22 +268,25 @@ class CapturingEvaluator:
         return PortfolioEvaluation(summary="Portfolio-only evaluation complete.")
 
 
-class RecordingMCPModule:
-    def __init__(self, module):
-        self.module = module
-        self.server_name = module.server_name
-        self.version = module.version
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+class RecordingGateway:
+    def __init__(self, gateway):
+        self.gateway = gateway
+        self.calls: list[tuple[str, str, dict[str, Any], str]] = []
 
-    def list_tools(self):
-        return self.module.list_tools()
+    def call_tool(self, server_name, tool_name, arguments=None, *, consumer):
+        self.calls.append((server_name, tool_name, dict(arguments or {}), consumer))
+        return self.gateway.call_tool(
+            server_name,
+            tool_name,
+            arguments,
+            consumer=consumer,
+        )
 
-    def call_tool(self, name, arguments=None):
-        self.calls.append((name, dict(arguments or {})))
-        return self.module.call_tool(name, arguments)
+    def list_tools(self, server_name, *, consumer):
+        return self.gateway.list_tools(server_name, consumer=consumer)
 
-    def list_resources(self):
-        return self.module.list_resources()
+    def read_resource(self, server_name, uri, *, consumer):
+        return self.gateway.read_resource(server_name, uri, consumer=consumer)
 
-    def read_resource(self, uri):
-        return self.module.read_resource(uri)
+    def list_resources(self, server_name, *, consumer):
+        return self.gateway.list_resources(server_name, consumer=consumer)

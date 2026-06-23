@@ -1,6 +1,6 @@
 # Task V3.4: Agent Gateway Migration
 
-Status: planned.
+Status: complete.
 
 ## Goal
 
@@ -29,16 +29,47 @@ The deterministic dashboard portfolio data lane should already be implemented
 in V3.3. This task moves analytical agents onto the same gateway without
 turning dashboard refresh into an agent call.
 
+Implemented files:
+
+- `src/moomail_finance_ai/portfolio_agent.py`
+- `src/moomail_finance_ai/v2_investment_agent.py`
+- `src/moomail_finance_ai/chat_api.py`
+- `scripts/portfolio_agent_review.py`
+- `scripts/investment_agent_v2_review.py`
+- `scripts/serve_chat.py`
+- `src/moomail_finance_ai/mcp/fastmcp.py`
+- `src/moomail_finance_ai/mcp/gateway.py`
+- `tests/test_portfolio_agent.py`
+- `tests/test_v2_portfolio_planner.py`
+- `tests/test_mcp_stdio_gateway.py`
+- `tests/live/test_portfolio_agent_live.py`
+
 ## Exit Criteria
 
-1. Portfolio Agent constructor and default builder use `MCPToolGateway` instead
+1. Complete. Portfolio Agent constructor and default builder use `MCPToolGateway` instead
    of direct MCP modules.
-2. V2 Investment Agent default builder builds or receives a gateway-backed
+2. Complete. V2 Investment Agent default builder builds or receives a gateway-backed
    Portfolio Agent.
-3. Chat backend and terminal scripts can run through the gateway path.
-4. Agent migration does not disturb the V3.3 deterministic dashboard data lane.
-5. Tests and docs are updated, and old in-process MCP runtime usage is either
+3. Complete. Chat backend and terminal scripts run through the gateway path.
+4. Complete. Agent migration does not disturb the V3.3 deterministic dashboard data lane.
+5. Complete. Tests and docs are updated, and old in-process MCP runtime usage is either
    removed or marked as test-only migration support.
+
+Implementation notes:
+
+- `MCPPortfolioAgent` now has a single `gateway: MCPToolGateway` dependency.
+- `MCPPortfolioAgent._call()` uses `gateway.call_tool(..., consumer="portfolio_agent")`.
+- `build_default_portfolio_agent()` defaults to `StdioMCPToolGateway`.
+- `DirectToolGateway` remains available only for fast deterministic tests and
+  parity/migration fixtures.
+- `ChatService` owns one shared backend gateway and passes it to Portfolio
+  Agent, V2 Investment Agent, and `PortfolioDataService`.
+- CLI scripts close gateway sessions after runs.
+- The custom `JsonRpcMCPServer` is marked legacy/test-only. It is no longer the
+  target runtime path.
+- FastMCP/gateway handling now supports list-valued structured tool payloads
+  such as `calculate_snapshot_metrics` by parsing JSON text fallback when the
+  MCP SDK cannot place a list in `structuredContent`.
 
 ## Dependency Graph
 
@@ -132,16 +163,45 @@ V3.3. Deterministic portfolio data lane
 
 ## Deletion Candidates After This Task
 
-These can be deleted or rewritten once V3.4 is green:
+These were handled in V3.4:
 
-- direct MCP module fields on `MCPPortfolioAgent`
-- `build_default_portfolio_agent` logic that constructs in-process MCP modules
-- in-process module use in `build_default_v2_investment_agent`
-- custom `JsonRpcMCPServer` and `mcp/stdio.py`
+- direct MCP module fields on `MCPPortfolioAgent`: removed
+- `build_default_portfolio_agent` default direct module construction: replaced
+  by gateway construction
+- in-process module use in `build_default_v2_investment_agent`: replaced by
+  gateway-backed Portfolio Agent
+- custom `JsonRpcMCPServer` and `mcp/stdio.py`: quarantined as legacy/test-only
 - custom `_MCPStdioClient` test helpers
 - custom stdio round-trip tests that are replaced by official MCP client tests
 - `agent_access.py` if gateway permission config fully replaces it
 - any docs that describe custom stdio JSON-RPC as the target runtime
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_mcp_stdio_gateway.py \
+  tests/test_portfolio_agent.py \
+  tests/test_v2_portfolio_planner.py \
+  tests/test_v2_investment_agent.py \
+  tests/test_chat_app.py \
+  tests/test_portfolio_data_service.py -q
+```
+
+Latest targeted result during V3.4 implementation:
+
+```text
+39 passed, 1 warning
+```
+
+Full deterministic closeout result:
+
+```text
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+183 passed, 1 warning
+```
+
+The warning is the existing LangGraph dependency deprecation warning.
 
 Keep domain tests:
 

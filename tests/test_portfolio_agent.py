@@ -5,6 +5,7 @@ from typing import Any
 
 from moomail_finance_ai.config import OpenDConfig
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
+from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
 from moomail_finance_ai.metrics import calculate_snapshot_metrics
@@ -29,9 +30,13 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     evaluator = CapturingEvaluator()
     agent = MCPPortfolioAgent(
-        opend_mcp=build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
-        finance_metrics_mcp=build_finance_metrics_mcp_module(),
-        portfolio_sql_mcp=build_portfolio_sql_mcp_module(store=store),
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        ),
         evaluator=evaluator,
     )
 
@@ -103,12 +108,19 @@ def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(
     report = _otc_and_cash_sweep_report()
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     agent = MCPPortfolioAgent(
-        opend_mcp=build_opend_mcp_module(
-            client=RecordedOpenDClient(report),
-            config=OpenDConfig(base_currency="USD", treat_fund_assets_as_cash_sweep=True),
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(
+                    client=RecordedOpenDClient(report),
+                    config=OpenDConfig(
+                        base_currency="USD",
+                        treat_fund_assets_as_cash_sweep=True,
+                    ),
+                ),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
         ),
-        finance_metrics_mcp=build_finance_metrics_mcp_module(),
-        portfolio_sql_mcp=build_portfolio_sql_mcp_module(store=store),
         evaluator=CapturingEvaluator(),
     )
 
@@ -133,9 +145,13 @@ def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(
 def test_portfolio_agent_daily_storage_is_idempotent(tmp_path, recorded_opend_client):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     agent = MCPPortfolioAgent(
-        opend_mcp=build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
-        finance_metrics_mcp=build_finance_metrics_mcp_module(),
-        portfolio_sql_mcp=build_portfolio_sql_mcp_module(store=store),
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        ),
         evaluator=CapturingEvaluator(),
     )
     ips = mock_investment_policy()

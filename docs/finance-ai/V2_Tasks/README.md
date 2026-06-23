@@ -64,8 +64,10 @@ Still mock/stub/not fully developed:
   rule/keyword based. They are not yet guided structured-output LLM planners.
 - Portfolio Agent bounded planning is implemented inside the existing Python
   Portfolio Agent path, not as a separate compiled LangGraph subgraph.
-- MCP modules have stdio JSON-RPC server wrappers, but the agent still calls
-  in-process MCP modules rather than an official MCP client/host runtime.
+- At V2 closeout, MCP modules had stdio JSON-RPC server wrappers, while agents
+  still called in-process MCP modules rather than an official MCP client/host
+  runtime. This was later superseded by V3.4, where Portfolio Agent and V2
+  Investment Agent moved to `MCPToolGateway`.
 - Pinecone memory is not connected.
 - Neo4j GraphRAG and `research-rag-mcp` are not implemented.
 - Crypto account ingestion, OTC quote fallback, scheduled checks, and a richer

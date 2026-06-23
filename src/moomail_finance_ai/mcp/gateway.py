@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import queue
 import sys
 import tempfile
@@ -287,11 +288,12 @@ class StdioMCPToolGateway:
         _authorize_tool(self.permissions, consumer, server_name, tool_name)
         try:
             result = self._run("call_tool", server_name, tool_name, arguments or {})
+            content = [_content_to_dict(item) for item in result.content]
             return MCPGatewayResult(
                 server_name=server_name,
                 tool_name=tool_name,
-                structured_content=result.structuredContent,
-                content=[_content_to_dict(item) for item in result.content],
+                structured_content=_structured_content_from_result(result, content),
+                content=content,
                 is_error=bool(result.isError),
                 duration_ms=_duration_ms(started),
             )
@@ -574,6 +576,21 @@ def _content_to_dict(item: Any) -> dict[str, Any]:
     if isinstance(item, dict):
         return item
     return {"type": "text", "text": str(item)}
+
+
+def _structured_content_from_result(result: Any, content: list[dict[str, Any]]) -> Any:
+    structured_content = getattr(result, "structuredContent", None)
+    if structured_content is not None:
+        return structured_content
+    if not content:
+        return None
+    first = content[0]
+    if first.get("type") != "text" or not isinstance(first.get("text"), str):
+        return None
+    try:
+        return json.loads(first["text"])
+    except json.JSONDecodeError:
+        return None
 
 
 def _duration_ms(started: float) -> float:

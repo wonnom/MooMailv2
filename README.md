@@ -3,10 +3,10 @@
 This repository documents and implements a personal multi-agent finance AI. V1
 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
 portfolio history. V2 added a thin LangGraph Investment Agent with a
-bounded-planning Portfolio Agent path and a Sentiment Agent stub. V3 is moving
-MCP into a backend-owned runtime boundary; gateway modes and the deterministic
-portfolio dashboard data lane are implemented, while agent migration to the
-gateway remains next.
+bounded-planning Portfolio Agent path and a Sentiment Agent stub. V3 moved MCP
+into a backend-owned runtime boundary: gateway modes, the deterministic
+portfolio dashboard data lane, and Portfolio/V2 Investment Agent gateway
+migration are implemented.
 
 The system is designed for one user's portfolio first. It should analyze actual holdings, current market data, portfolio history, curated research, and long-term investment memory. It must produce source-backed portfolio reviews and investment reasoning without ever placing trades.
 
@@ -14,7 +14,7 @@ The system is designed for one user's portfolio first. It should analyze actual 
 
 - [AGENTS.md](docs/finance-ai/AGENTS.md): agent hierarchy, responsibilities, boundaries, and agent-to-agent contracts.
 - [ARCHITECTURE.md](docs/finance-ai/ARCHITECTURE.md): system architecture, data stores, MCP servers, orchestration, and deployment shape.
-- [ACTION_PLAN.md](docs/finance-ai/ACTION_PLAN.md): active V3 plan and current project truth.
+- [ACTION_PLAN.md](docs/finance-ai/ACTION_PLAN.md): current project truth and next work options.
 - [PROTOCOL.md](docs/finance-ai/PROTOCOL.md): runtime protocol, state flow, structured events, schemas, and audit records.
 - [REQUIREMENTS.md](docs/finance-ai/REQUIREMENTS.md): product, engineering, security, data, and acceptance requirements.
 - [ENVIRONMENT.md](docs/finance-ai/ENVIRONMENT.md): project venv, dependency installation, and command conventions.
@@ -44,7 +44,7 @@ portfolio review through the Portfolio Agent path, SQLite persistence,
 deterministic metrics, provider-backed portfolio evaluation, a local chat
 frontend, and a deterministic dashboard refresh/status lane that does not
 invoke agents or LLMs. Pinecone memory, Neo4j GraphRAG, crypto ingestion, OTC
-quote fallback, and agent migration to the gateway remain open.
+quote fallback, richer planning/synthesis, and long-term memory remain open.
 
 The future Budgeting, Expenses, and Savings Agent is acknowledged as part of the
 long-term product, but it is not part of V2.

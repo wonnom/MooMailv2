@@ -31,8 +31,10 @@ The MCP tests do not replace adapter or normalization tests. They prove that the
 MCP boundary calls those layers correctly.
 
 V3 note: the three local MCP server scripts now use the official FastMCP runtime
-over stdio. The deterministic dashboard lane uses `StdioMCPToolGateway` by
-default. The current agents still use in-process modules until V3.4.
+over stdio. The deterministic dashboard lane, Portfolio Agent, and V2
+Investment Agent use `MCPToolGateway`; the default local runtime is
+`StdioMCPToolGateway`, while `DirectToolGateway` remains test/dev parity
+support.
 
 ## SQL Tests
 
@@ -109,10 +111,26 @@ Gateway and deterministic dashboard lane:
   tests/test_chat_app.py -q
 ```
 
-Latest targeted V3.2/V3.3 result on 2026-06-21:
+Latest targeted V3.4 result on 2026-06-23:
 
 ```text
-22 passed, 1 warning
+39 passed, 1 warning
+```
+
+The warning is the existing LangGraph dependency deprecation warning.
+
+## V3 Closeout Test Gate
+
+V3.4 deterministic closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+```
+
+Latest V3.4 closeout result on 2026-06-23:
+
+```text
+183 passed, 1 warning
 ```
 
 The warning is the existing LangGraph dependency deprecation warning.

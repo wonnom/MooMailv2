@@ -4,6 +4,7 @@ from moomail_finance_ai.mcp.finance_metrics_mcp import SERVER_NAME as FINANCE_ME
 from moomail_finance_ai.mcp.gateway import StdioMCPToolGateway, local_stdio_server_configs
 from moomail_finance_ai.mcp.opend_mcp import SERVER_NAME as OPEND_SERVER
 from moomail_finance_ai.mcp.portfolio_sql_mcp import SERVER_NAME as PORTFOLIO_SQL_SERVER
+from moomail_finance_ai.mocks import mock_investment_policy
 
 
 def test_stdio_gateway_calls_fastmcp_servers_and_reuses_sessions(
@@ -30,6 +31,21 @@ def test_stdio_gateway_calls_fastmcp_servers_and_reuses_sessions(
             {"total_value": 1000.0, "cash_value": 125.0},
             consumer="dashboard_refresh",
         )
+        context = gateway.call_tool(
+            OPEND_SERVER,
+            "opend_get_portfolio_context",
+            {"portfolio_id": "portfolio_default", "base_currency": "USD"},
+            consumer="dashboard_refresh",
+        )
+        metric_set = gateway.call_tool(
+            FINANCE_METRICS_SERVER,
+            "calculate_snapshot_metrics",
+            {
+                "snapshot": context.structured_content["snapshot"],
+                "ips": mock_investment_policy().model_dump(mode="json"),
+            },
+            consumer="dashboard_refresh",
+        )
         first_init = gateway.call_tool(
             PORTFOLIO_SQL_SERVER,
             "portfolio_sql_initialize",
@@ -45,6 +61,11 @@ def test_stdio_gateway_calls_fastmcp_servers_and_reuses_sessions(
 
         assert connection.structured_content["ok"] is True
         assert cash.structured_content["value"] == 0.125
+        assert isinstance(metric_set.structured_content, list)
+        assert {row["metric_name"] for row in metric_set.structured_content} >= {
+            "cash_weight",
+            "position_weights",
+        }
         assert first_init.structured_content["initialized"] is True
         assert second_init.structured_content["initialized"] is True
         assert gateway.started_servers == {

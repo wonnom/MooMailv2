@@ -92,10 +92,43 @@ Current V2 non-goals:
 
 - no real GraphRAG retrieval
 - no Pinecone memory retrieval or writes
-- no official MCP client/host runtime inside the agent loop
+- no real research/memory MCP tools inside the agent loop yet
 - no LLM planner for query classification or tool selection
 - no rich LLM synthesis at the Investment Agent layer
 - no trade execution or executable order-preparation path
+
+## V4 Planning Target
+
+V4 should introduce explicit structured planning for the Investment Agent and
+Portfolio Agent while preserving deterministic tool execution.
+
+The target pattern is:
+
+```text
+LLM/guided planner creates a typed plan
+  -> deterministic validator/policy checks scope, permissions, and freshness
+  -> MCP tools execute deterministic reads/calculations/persistence
+  -> LLM synthesis explains evidence where useful
+  -> deterministic guardrails review final output
+```
+
+Investment Agent planning should decide the mission: user intent, mode,
+subagents needed, broad tickers/themes/time horizon, freshness requirement, and
+answer constraints. It should not choose exact SQL/OpenD call sequences or
+perform finance calculations.
+
+Portfolio Agent planning should decide portfolio evidence scope: portfolio task
+type, tickers/assets, history window, SQL history tools, position-state change
+scope, metric groups, current-value dependency, and persistence mode.
+
+Freshness enforcement remains deterministic. The planner may request
+`latest_required`, `cached_ok`, or `history_only`; backend/Portfolio policy
+then decides whether OpenD must be called, whether SQL cached data is fresh
+enough, or whether a stale-data warning should be returned.
+
+Sentiment Agent implementation is out of V4 scope. The Investment Agent may
+still produce a future-compatible `SentimentTask`, but real GraphRAG retrieval
+belongs to a later version.
 
 ## V3 MCP Backend Boundary
 
@@ -131,6 +164,11 @@ Agentic analysis lane
 This split is important: dashboard freshness is an application responsibility,
 while analytical reasoning is an agent responsibility. The dashboard should not
 wait for an LLM or agent planner to decide that OpenD data is needed.
+
+V3.4 implementation note: both lanes now call MCP through
+`MCPToolGateway`. The deterministic lane uses consumer `dashboard_refresh`; the
+Portfolio Agent uses consumer `portfolio_agent`; the Investment Agent still
+does not call OpenD directly by default.
 
 ### V3 Backend API Contracts
 
@@ -219,10 +257,11 @@ trade unlock, withdrawal, transfer, or executable order-preparation tools.
 
 ## MCP Server Boundaries
 
-MCP servers are the backend tool boundary. In V2, agents call in-process
-MCP-shaped modules. In V3, deterministic backend services and agents should call
-FastMCP servers through the backend-owned MCP gateway rather than directly
-integrating with every external service.
+MCP servers are the backend tool boundary. In V3, deterministic backend services
+and analytical agents call FastMCP servers through the backend-owned MCP
+gateway rather than directly integrating with every external service. The old
+V2 in-process module path is retained only where it supports registry adapters,
+FastMCP parity checks, or `DirectToolGateway` tests.
 
 ### `moomail-opend-mcp`
 

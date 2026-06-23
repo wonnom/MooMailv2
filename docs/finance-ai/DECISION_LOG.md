@@ -31,7 +31,7 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-21
+Date: 2026-06-23
 
 Current status:
 
@@ -47,6 +47,9 @@ Current status:
   frontend dashboard can load status, latest SQL-backed dashboard data, manual
   refresh, metrics, canonical SQL updates, and stale fallback without invoking
   agents or LLMs.
+- V3.4 agent gateway migration is complete: Portfolio Agent and V2 Investment
+  Agent now use the backend `MCPToolGateway`; `StdioMCPToolGateway` is the
+  default local runtime and `DirectToolGateway` remains test/dev parity support.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1 task tracking lives under `docs/finance-ai/V1_TASKS/`.
@@ -64,6 +67,7 @@ Current status:
 | V3.1 | Complete | FastMCP server migration for OpenD, portfolio SQL, and finance metrics while preserving Python business logic. |
 | V3.2 | Complete | Gateway modes: direct parity adapter and stdio MCP client runtime with permission profiles. |
 | V3.3 | Complete | Deterministic portfolio data lane for backend APIs and frontend dashboard refresh independent from agent runs. |
+| V3.4 | Complete | Portfolio Agent and V2 Investment Agent migrated to the gateway runtime; legacy custom stdio is test-only. |
 
 ## Timeline
 
@@ -220,12 +224,21 @@ Implemented V1 MCP surfaces:
   - Handles allocation, concentration, liquidity, cash-equivalent treatment,
     and portfolio diagnostics.
 
-Implementation reality:
+V1 implementation reality at the time:
 
 - MCP-style tool modules and stdio JSON-RPC servers exist.
 - The current V1 Portfolio Agent calls the MCP modules in process.
 - The current V1 Portfolio Agent is MCP-backed but not MCP-autonomous.
 - An official MCP SDK/client-host runtime migration is deferred.
+
+Current V3.4 reality:
+
+- The three local MCP server scripts run FastMCP over stdio.
+- Backend consumers call tools through `MCPToolGateway`.
+- `PortfolioDataService` uses the gateway as `dashboard_refresh`.
+- `MCPPortfolioAgent` uses the gateway as `portfolio_agent`.
+- `V2InvestmentAgent` calls a gateway-backed Portfolio Agent by default.
+- The old custom `JsonRpcMCPServer` is legacy/test-only.
 
 Key decision:
 
@@ -737,14 +750,15 @@ Actual implementation:
 Designed versus actual:
 
 - Designed target: all agents use the MCP gateway. Actual V3.3: the
-  deterministic dashboard lane uses the gateway; agents still use in-process
-  modules until V3.4.
+  deterministic dashboard lane used the gateway, while agent migration was
+  intentionally deferred to V3.4. V3.4 later moved Portfolio Agent and V2
+  Investment Agent to the gateway.
 - Designed target: frontend eventually becomes a richer app. Actual V3.3:
   static TypeScript/JavaScript frontend now has the correct backend lane and
   refresh behavior, but it is still not a React app.
 - Designed target: delete old MCP wrappers after migration. Actual V3.3:
-  no MCP tools or legacy wrappers were deleted because agent migration is not
-  complete.
+  no MCP tools or legacy wrappers were deleted because agent migration was not
+  complete yet.
 
 Verification:
 
@@ -764,6 +778,65 @@ Lessons learned:
   - deterministic backend services own refresh/status/dashboard state
   - agents own analytical reasoning
   - MCP servers remain shared read-only/analysis tool boundaries
+
+### 16. V3.4 Agent Gateway Migration / 2026-06-23
+
+Goal:
+
+Complete the V3 MCP runtime migration by moving analytical agents onto the same
+backend gateway used by the deterministic portfolio data lane.
+
+Actual implementation:
+
+- `MCPPortfolioAgent` now receives a single `MCPToolGateway` dependency instead
+  of direct `RegisteredMCPModule` instances.
+- Portfolio Agent tool calls now go through `gateway.call_tool(...,
+  consumer="portfolio_agent")`.
+- `build_default_portfolio_agent()` defaults to `StdioMCPToolGateway` over the
+  local FastMCP server configs.
+- `DirectToolGateway` remains available for deterministic tests and migration
+  parity only.
+- `build_default_v2_investment_agent()` constructs a gateway-backed Portfolio
+  Agent unless a fake/injected subagent is supplied for tests.
+- `ChatService` owns one shared backend gateway for portfolio chat, V2
+  investment chat, and deterministic portfolio dashboard APIs.
+- Terminal scripts close gateway sessions after runs.
+- `JsonRpcMCPServer` is marked legacy/test-only; the runtime boundary is now
+  FastMCP plus the official MCP client through `StdioMCPToolGateway`.
+- FastMCP/gateway handling supports list-valued tool payloads, such as finance
+  metric lists, by parsing JSON text fallback when the MCP SDK cannot place the
+  list in `structuredContent`.
+
+Designed versus actual:
+
+- Designed target: agents consume tools through the gateway. Actual V3.4:
+  Portfolio Agent and V2 Investment Agent now use the gateway path.
+- Designed target: Investment Agent has direct dynamic tool planning. Actual
+  V3.4: the thin V2 Investment Agent still routes to subagents; Portfolio Agent
+  remains the live portfolio retrieval owner.
+- Designed target: retire old custom MCP runtime. Actual V3.4:
+  `JsonRpcMCPServer` is quarantined as legacy/test-only, while the
+  `RegisteredMCPModule` registry remains underneath FastMCP and
+  `DirectToolGateway` parity tests.
+
+Verification:
+
+```text
+.venv/bin/python -m pytest tests/test_mcp_stdio_gateway.py tests/test_portfolio_agent.py tests/test_v2_portfolio_planner.py tests/test_v2_investment_agent.py tests/test_chat_app.py tests/test_portfolio_data_service.py -q
+39 passed, 1 warning
+
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+183 passed, 1 warning
+```
+
+Lessons learned:
+
+- The gateway is now the right dependency boundary for agents and deterministic
+  backend services. Business logic should remain plain Python underneath it.
+- Direct in-process module calls are still useful for parity tests, but they
+  should not be the application runtime dependency.
+- The deterministic portfolio data lane and analytical agent lane can share the
+  same MCP servers without becoming the same workflow.
 
 ## Major Decisions
 
@@ -1098,16 +1171,26 @@ Lessons learned:
 - How much of the current local chat UI should survive the future React
   frontend migration?
 
-## V4 Planning Note: Portfolio Planner Should Own Ticker Scope
+## V4 Planning Note: Structured Agent Planning Boundaries
 
-Date: 2026-06-21
+Date: 2026-06-21, updated 2026-06-23
 
 Decision:
 
 - Treat the current Portfolio Agent regex ticker extraction as a temporary
   bounded-planning fallback, not the intended long-term architecture.
-- V4 should move ticker/asset-scope selection, history-window choice, task type,
-  and SQL history tool scope into explicit planner output.
+- V4 should move ticker/asset-scope selection, history-window choice, task
+  type, freshness requirement, subagent selection, and SQL history tool scope
+  into explicit planner output.
+- Investment Agent owns mission-level planning: user intent, broad scope,
+  subagent selection, freshness requirement, and final synthesis constraints.
+- Portfolio Agent owns portfolio evidence planning: portfolio task type,
+  ticker/asset scope, history window, metric groups, SQL history scope,
+  current-value dependency, and persistence mode.
+- Deterministic policy owns freshness enforcement, MCP permission checks,
+  OpenD/SQL/metric execution, finance math, and persistence.
+- Sentiment Agent implementation is out of V4 scope; V4 may preserve the
+  future-compatible task contract only.
 - After a plan is selected, MCP tool execution remains deterministic and
   auditable.
 
@@ -1119,6 +1202,9 @@ Reasoning:
   planning, just as it decides task type and history requirements.
 - This keeps finance math and SQL reads deterministic while allowing a future
   LangGraph/LangChain planner node to handle less deterministic interpretation.
+- Freshness should not be a free-form LLM decision at execution time. The
+  planner may request `latest_required`, `cached_ok`, or `history_only`, but a
+  deterministic policy should decide whether OpenD must be called.
 
 Follow-up:
 

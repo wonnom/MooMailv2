@@ -185,7 +185,7 @@ class PortfolioSqlStore:
 
     def initialize(self) -> None:
         with self.connect() as conn:
-            _prepare_schema_for_v2(conn)
+            _prepare_schema_for_current_schema(conn)
             conn.executescript(SCHEMA_SQL)
 
     def connect(self) -> sqlite3.Connection:
@@ -1210,7 +1210,7 @@ def _insert_position_state(
     )
 
 
-def _prepare_schema_for_v2(conn: sqlite3.Connection) -> None:
+def _prepare_schema_for_current_schema(conn: sqlite3.Connection) -> None:
     for table_name, required_columns in LEAN_TABLE_REQUIRED_COLUMNS.items():
         existing_columns = _table_columns(conn, table_name)
         if existing_columns is None:

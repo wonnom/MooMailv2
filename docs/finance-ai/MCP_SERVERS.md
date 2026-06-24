@@ -7,14 +7,14 @@ surfaces:
 - `moomail-portfolio-sql-mcp`: local SQLite portfolio history and audit store.
 - `moomail-finance-metrics-mcp`: deterministic finance metric calculations.
 
-V3 decision:
+Current decision:
 
 MCP is backend infrastructure, not only an LLM-agent tool surface. OpenD MCP is
 the standardized backend boundary for MooMoo/OpenD data access. Deterministic
 portfolio dashboard refresh/status flows and agentic analysis flows should use
 the same read-only MCP boundary through a backend-owned gateway.
 
-The V3.1 implementation is split into two layers:
+The implementation is split into two layers:
 
 1. Tool modules in `src/moomail_finance_ai/mcp/` register tools, resources, input
    schemas, and Python handlers.
@@ -37,13 +37,13 @@ Current implementation reality:
 - `PortfolioDataService` uses the gateway with consumer
   `dashboard_refresh` for deterministic status, dashboard, refresh, metrics,
   and SQL update flows.
-- `MCPPortfolioAgent` uses the gateway with consumer `portfolio_agent`.
-- `V2InvestmentAgent` receives a gateway-backed Portfolio Agent through its
+- `PortfolioAgent` uses the gateway with consumer `portfolio_agent`.
+- `InvestmentAgent` receives a gateway-backed Portfolio Agent through its
   default builder.
-- `JsonRpcMCPServer` still exists for legacy/custom-wrapper tests, but it is no
-  longer used by the three server scripts.
-- Agents no longer receive direct `RegisteredMCPModule` objects in the V3.4
-  Portfolio Agent/V2 Investment Agent path.
+- The legacy custom `JsonRpcMCPServer` wrapper has been removed from runtime
+  code; FastMCP plus the MCP client gateway is the supported transport.
+- Agents no longer receive direct `RegisteredMCPModule` objects in the current
+  Portfolio Agent/Investment Agent path.
 
 Remaining target:
 
@@ -90,7 +90,7 @@ Sentiment Agent directly.
 
 ## Gateway Permission Profiles
 
-V3 gateway permissions should include these consumer identities:
+Gateway permissions include these consumer identities:
 
 | Consumer | Allowed MCP servers | Notes |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ free of broker/database side effects.
 assets, and holdings classified as `cash_equivalent`. The portfolio-history
 database should store the resulting overall portfolio weights needed for
 history; it does not need to persist metric version or input-scope details for
-V1.
+the current securities-account scope.
 
 ## Agent Access
 
@@ -256,8 +256,7 @@ moomail-opend-mcp:opend_get_positions
 
 This is the registry layer. The LLM does not need to decide which server exists;
 the runtime binds allowed gateway tools for the consumer before any model sees
-tool choices. Direct module injection into Portfolio Agent has been retired in
-V3.4.
+tool choices. Direct module injection into Portfolio Agent has been retired.
 
 ## Running Servers
 
@@ -304,8 +303,7 @@ The MCP-backed Portfolio Agent calls:
 The LLM evaluator receives the collected portfolio packet but does not decide
 which MCP tools to call.
 
-V2 converts this into a bounded-planning deterministic path inside the
-Portfolio Agent:
+The Portfolio Agent uses a bounded-planning deterministic path:
 
 1. Interpret the portfolio task assigned by the Investment Agent.
 2. Produce a structured context plan.
@@ -330,7 +328,7 @@ Current planner behavior:
 - `PortfolioAgentResult.tool_calls` records planned, actual, and skipped tool
   entries so traces show why a tool did or did not run.
 
-V1 Portfolio Agent sequence:
+Portfolio Agent persistence sequence:
 
 1. Retrieve OpenD context as today.
 2. Normalize holdings, literal cash, optional configured cash sweep, and

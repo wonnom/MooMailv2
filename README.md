@@ -1,12 +1,9 @@
 # Personal Finance AI Design
 
-This repository documents and implements a personal multi-agent finance AI. V1
-is complete as a Portfolio Agent proof of concept with OpenD and local SQL
-portfolio history. V2 added a thin LangGraph Investment Agent with a
-bounded-planning Portfolio Agent path and a Sentiment Agent stub. V3 moved MCP
-into a backend-owned runtime boundary: gateway modes, the deterministic
-portfolio dashboard data lane, and Portfolio/V2 Investment Agent gateway
-migration are implemented.
+This repository documents and implements a personal multi-agent finance AI. The
+current runtime is version-agnostic: a backend API serves the frontend,
+deterministic portfolio services handle fixed dashboard/status/refresh flows,
+and agents handle analytical reasoning through a backend-owned MCP gateway.
 
 The system is designed for one user's portfolio first. It should analyze actual holdings, current market data, portfolio history, curated research, and long-term investment memory. It must produce source-backed portfolio reviews and investment reasoning without ever placing trades.
 
@@ -39,7 +36,7 @@ The target system centers on the Investment Agent branch:
 - Pinecone-backed long-term investment memory
 - Guardrail and audit protocol
 
-The current complete version is narrower than the target system: a live OpenD
+The current implemented system is narrower than the target system: a live OpenD
 portfolio review through the Portfolio Agent path, SQLite persistence,
 deterministic metrics, provider-backed portfolio evaluation, a local chat
 frontend, and a deterministic dashboard refresh/status lane that does not
@@ -47,7 +44,7 @@ invoke agents or LLMs. Pinecone memory, Neo4j GraphRAG, crypto ingestion, OTC
 quote fallback, richer planning/synthesis, and long-term memory remain open.
 
 The future Budgeting, Expenses, and Savings Agent is acknowledged as part of the
-long-term product, but it is not part of V2.
+long-term product, but it is not part of the current runtime.
 
 ## Architecture Diagram
 
@@ -75,7 +72,7 @@ flowchart TD
 ## Core Decisions
 
 - No trade placement, ever.
-- Investment branch first; no main finance orchestrator needed in V2.
+- Investment branch first; no main finance orchestrator in the current runtime.
 - Python agent layer using LangGraph and LangChain components.
 - Local TypeScript/static chatbot frontend exists with streaming status, structured error rendering, report panels, trace output, and a resizable/hideable chat rail.
 - Frontend dashboard refresh calls backend APIs; it never calls MCP directly.
@@ -94,7 +91,7 @@ flowchart TD
   reasoning, or full final responses.
 - Pinecone stores Investment Agent long-term memory, not source-of-truth financial records.
 - Neo4j GraphRAG is separate from Pinecone memory.
-- V2 Sentiment Agent is a stub; future real sentiment retrieval starts with
+- Sentiment Agent is currently a stub; future real sentiment retrieval starts with
   portfolio holdings and Investment Agent-selected scope.
 - Outputs must be source-backed, truthful, and clear about missing data.
 - No confidence scores. Use explicit uncertainty and limitations instead.
@@ -111,7 +108,7 @@ Or call it directly:
 
 ```bash
 .venv/bin/python -m pytest
-.venv/bin/python scripts/run_prototype.py "Review my portfolio"
+.venv/bin/python -m moomail_finance_ai --agent investment "Review my portfolio"
 .venv/bin/python scripts/check_opend.py --env-file config/local.env
 .venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
 .venv/bin/python scripts/opend_health_report.py --env-file config/local.env --expected-holdings-count <N>

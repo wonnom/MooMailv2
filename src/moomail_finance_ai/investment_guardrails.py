@@ -4,10 +4,10 @@ import re
 from typing import Any
 
 from moomail_finance_ai.schemas import FinalReport, GuardrailCheck, InvestmentPolicy
-from moomail_finance_ai.v2_schemas import GuardrailReview, InvestmentAgentState
+from moomail_finance_ai.agent_schemas import GuardrailReview, InvestmentAgentState
 
 
-V2_GUARDRAIL_CHECKS = (
+INVESTMENT_GUARDRAIL_CHECKS = (
     "no_trading",
     "no_exact_share_count_trading",
     "unsupported_research_claims",
@@ -16,7 +16,7 @@ V2_GUARDRAIL_CHECKS = (
     "missing_sentiment_visibility",
 )
 
-V2_GUARDRAIL_SEVERITY = {
+INVESTMENT_GUARDRAIL_SEVERITY = {
     "no_trading": "high",
     "no_exact_share_count_trading": "high",
     "unsupported_research_claims": "high",
@@ -64,9 +64,9 @@ OPTIMIZATION_TERMS = (
 )
 
 
-def review_v2_report(state: InvestmentAgentState) -> GuardrailReview:
+def review_investment_report(state: InvestmentAgentState) -> GuardrailReview:
     if state.final_report is None:
-        raise ValueError("V2 guardrail review requires a final report.")
+        raise ValueError("Investment guardrail review requires a final report.")
 
     checks = [
         _check_no_trading(state.final_report),
@@ -83,9 +83,9 @@ def review_v2_report(state: InvestmentAgentState) -> GuardrailReview:
         output_status="approved" if passed else "blocked",
         checks=checks,
         required_revisions=[check.message for check in failed_checks],
-        blocked_reason=None if passed else "V2 guardrail review failed.",
+        blocked_reason=None if passed else "Investment guardrail review failed.",
         metadata={
-            "check_severity": V2_GUARDRAIL_SEVERITY,
+            "check_severity": INVESTMENT_GUARDRAIL_SEVERITY,
             "failed_checks": [check.check for check in failed_checks],
         },
     )

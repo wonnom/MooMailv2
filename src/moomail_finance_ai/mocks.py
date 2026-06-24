@@ -10,7 +10,6 @@ from moomail_finance_ai.schemas import (
     DataQuality,
     Holding,
     InvestmentPolicy,
-    MemoryRecord,
     Money,
     PerformanceSummary,
     PortfolioAgentPacket,
@@ -46,27 +45,6 @@ def mock_investment_policy() -> InvestmentPolicy:
             "Use research-backed thesis updates rather than price action alone",
         ],
     )
-
-
-def mock_memory_records() -> list[MemoryRecord]:
-    now = fixed_now()
-    return [
-        MemoryRecord(
-            memory_id="mem_long_horizon",
-            memory_type="user_preference",
-            scope={"portfolio_id": "portfolio_default"},
-            content="The user prefers long-term portfolio analysis over short-term trading.",
-            created_at=now,
-            requires_user_approval=True,
-        ),
-        MemoryRecord(
-            memory_id="mem_concentration_watch",
-            memory_type="risk_concern",
-            scope={"portfolio_id": "portfolio_default"},
-            content="Prior reviews should pay attention to mega-cap technology concentration.",
-            created_at=now,
-        ),
-    ]
 
 
 def mock_portfolio_packet() -> PortfolioAgentPacket:
@@ -130,7 +108,7 @@ def mock_portfolio_packet() -> PortfolioAgentPacket:
         holdings=holdings,
         data_quality=DataQuality(
             freshness_status="fresh",
-            warnings=["Mock portfolio data; replace with OpenD in Milestone 2."],
+            warnings=["Mock portfolio data; replace with OpenD for live portfolio runs."],
         ),
     )
     return PortfolioAgentPacket(
@@ -159,7 +137,7 @@ def mock_portfolio_packet() -> PortfolioAgentPacket:
             ),
             periods=[],
             benchmark="SPY",
-            warnings=["No SQL history is available in the static prototype."],
+            warnings=["No SQL history is available in this mock packet."],
         ),
         risk=RiskSummary(
             concentration=[
@@ -273,7 +251,6 @@ def mock_sentiment_packet(scope: list[SentimentScopeItem]) -> SentimentAgentPack
         data_quality=DataQuality(
             freshness_status="unknown",
             missing_fields=["Real research corpus"],
-            warnings=["Mock research packet; replace with GraphRAG retrieval in Milestone 4."],
+            warnings=["Mock research packet; replace with GraphRAG retrieval when available."],
         ),
     )
-

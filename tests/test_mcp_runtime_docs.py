@@ -34,7 +34,7 @@ def test_v3_task0_is_closed_with_backend_contracts_and_permissions():
     assert "PortfolioConnectionStatus" in architecture
     assert "PortfolioDashboardSnapshot" in architecture
     assert "PortfolioRefreshResult" in architecture
-    assert "V3 Portfolio Data Lane Protocol" in protocol
+    assert "Portfolio Data Lane Protocol" in protocol
     assert "dashboard_refresh" in architecture
     assert "investment_agent" in architecture
     assert "complete as of 2026-06-17" in action_plan
@@ -100,4 +100,4 @@ def test_decision_log_records_v3_mcp_backend_boundary():
     assert "MCP is backend infrastructure, not only an LLM-agent tool surface" in decision_log
     assert "deterministic dashboard" in decision_log
     assert "backend APIs only" in decision_log
-    assert "Portfolio Agent and V2 Investment Agent now use the gateway" in decision_log
+    assert "Portfolio Agent and Investment Agent now use the gateway" in decision_log

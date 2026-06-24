@@ -10,7 +10,7 @@ from moomail_finance_ai.mcp.registry import (
 )
 from moomail_finance_ai.metrics import (
     METRIC_VERSION,
-    V1_EQUITY_SCOPE,
+    US_EQUITY_ANALYSIS_SCOPE,
     MetricResult,
     calculate_asset_type_allocation,
     calculate_benchmark_reference,
@@ -83,7 +83,7 @@ def build_finance_metrics_mcp_module() -> RegisteredMCPModule:
     module.add_tool(
         MCPToolSpec(
             name="calculate_snapshot_metrics",
-            description="Calculate the full deterministic v1 metric set for a snapshot and IPS.",
+            description="Calculate the full deterministic metric set for a snapshot and IPS.",
             input_schema=_snapshot_ips_scope_schema(),
         ),
         _calculate_snapshot_metrics,
@@ -110,7 +110,7 @@ def build_finance_metrics_mcp_module() -> RegisteredMCPModule:
             name="Finance Metric Version",
             description="The deterministic metric implementation version.",
         ),
-        lambda: {"metric_version": METRIC_VERSION, "default_scope": V1_EQUITY_SCOPE},
+        lambda: {"metric_version": METRIC_VERSION, "default_scope": US_EQUITY_ANALYSIS_SCOPE},
     )
     return module
 
@@ -118,7 +118,7 @@ def build_finance_metrics_mcp_module() -> RegisteredMCPModule:
 def metric_definitions() -> dict[str, Any]:
     return {
         "metric_version": METRIC_VERSION,
-        "default_scope": V1_EQUITY_SCOPE,
+        "default_scope": US_EQUITY_ANALYSIS_SCOPE,
         "metrics": [
             {
                 "name": "cash_weight",
@@ -127,12 +127,12 @@ def metric_definitions() -> dict[str, Any]:
             },
             {
                 "name": "position_weights",
-                "scope": V1_EQUITY_SCOPE,
-                "description": "Scoped holding weights, defaulting to v1 US equities.",
+                "scope": US_EQUITY_ANALYSIS_SCOPE,
+                "description": "Scoped holding weights, defaulting to US equities.",
             },
             {
                 "name": "single_position_concentration",
-                "scope": V1_EQUITY_SCOPE,
+                "scope": US_EQUITY_ANALYSIS_SCOPE,
                 "description": "Positions whose scoped weight exceeds the IPS limit.",
             },
             {
@@ -142,7 +142,7 @@ def metric_definitions() -> dict[str, Any]:
             },
             {
                 "name": "benchmark_reference",
-                "scope": V1_EQUITY_SCOPE,
+                "scope": US_EQUITY_ANALYSIS_SCOPE,
                 "description": "Benchmark identifier from the IPS; return math is future work.",
             },
         ],
@@ -196,7 +196,7 @@ def _ips(arguments: dict[str, Any]) -> InvestmentPolicy:
 
 
 def _scope(arguments: dict[str, Any]) -> str:
-    return str(arguments.get("scope") or V1_EQUITY_SCOPE)
+    return str(arguments.get("scope") or US_EQUITY_ANALYSIS_SCOPE)
 
 
 def _snapshot_schema() -> dict[str, Any]:
@@ -219,8 +219,8 @@ def _snapshot_scope_schema() -> dict[str, Any]:
             "snapshot": {"type": "object", "description": "PortfolioSnapshot JSON."},
             "scope": {
                 "type": "string",
-                "enum": [V1_EQUITY_SCOPE, "full_portfolio"],
-                "default": V1_EQUITY_SCOPE,
+                "enum": [US_EQUITY_ANALYSIS_SCOPE, "full_portfolio"],
+                "default": US_EQUITY_ANALYSIS_SCOPE,
             },
         },
         required=["snapshot"],
@@ -234,8 +234,8 @@ def _snapshot_ips_scope_schema() -> dict[str, Any]:
             "ips": {"type": "object", "description": "InvestmentPolicy JSON."},
             "scope": {
                 "type": "string",
-                "enum": [V1_EQUITY_SCOPE, "full_portfolio"],
-                "default": V1_EQUITY_SCOPE,
+                "enum": [US_EQUITY_ANALYSIS_SCOPE, "full_portfolio"],
+                "default": US_EQUITY_ANALYSIS_SCOPE,
             },
         },
         required=["snapshot", "ips"],

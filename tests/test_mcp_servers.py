@@ -5,7 +5,6 @@ from moomail_finance_ai.mcp.agent_access import build_agent_manifest
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
-from moomail_finance_ai.mcp.stdio import JsonRpcMCPServer
 from moomail_finance_ai.mocks import mock_investment_policy, mock_portfolio_packet
 from moomail_finance_ai.sql_store import PortfolioSqlStore
 
@@ -24,34 +23,6 @@ def test_finance_metrics_mcp_lists_tools_resources_and_calls_metric():
     assert result.structured_content["metric_name"] == "cash_weight"
     assert result.structured_content["value"] == 0.125
     assert "finance-metrics://version" in resource["contents"][0]["uri"]
-
-
-def test_mcp_stdio_adapter_exposes_tools_and_resources():
-    server = JsonRpcMCPServer(build_finance_metrics_mcp_module())
-
-    initialized = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
-    tools = server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-    called = server.handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "calculate_cash_weight",
-                "arguments": {"total_value": 1000.0, "cash_value": 50.0},
-            },
-        }
-    )
-    resources = server.handle_request({"jsonrpc": "2.0", "id": 4, "method": "resources/list"})
-
-    assert initialized is not None
-    assert initialized["result"]["serverInfo"]["name"] == "moomail-finance-metrics-mcp"
-    assert tools is not None
-    assert tools["result"]["tools"][0]["inputSchema"]["type"] == "object"
-    assert called is not None
-    assert called["result"]["structuredContent"]["value"] == 0.05
-    assert resources is not None
-    assert resources["result"]["resources"]
 
 
 def test_opend_mcp_is_read_only_and_can_normalize_recorded_snapshot(recorded_opend_client):

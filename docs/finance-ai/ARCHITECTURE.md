@@ -2,12 +2,13 @@
 
 ## Overview
 
-The system is a local-first multi-agent investment analysis platform. It uses
-Python for agents, tools, orchestration, analytics, memory, and retrieval. A
-basic local TypeScript/static chatbot frontend exists, while backend contracts
-remain the source of truth.
+The system is a local-first multi-agent investment analysis platform. The
+current runtime is version-agnostic: frontend code calls backend APIs,
+deterministic backend services own fixed portfolio data flows, agents own
+analytical reasoning, and both lanes use MCP through a backend-owned
+`MCPToolGateway`.
 
-V1 is complete as a Portfolio Agent proof of concept:
+Current portfolio-analysis flow:
 
 ```text
 User query
@@ -19,7 +20,7 @@ User query
   -> terminal or local frontend output
 ```
 
-The V2 skeleton is the first real Investment Agent architecture:
+Current investment-analysis flow:
 
 ```text
 User query
@@ -33,12 +34,29 @@ User query
 ```
 
 Neo4j GraphRAG, Pinecone memory, and real research retrieval remain planned
-architecture, but they are not part of the V1 or V2 skeleton implementation.
-They should be built against the V2 contracts rather than ahead of them.
+architecture. They should be built against the current agent contracts rather
+than ahead of them.
+
+## Current Runtime Entrypoints
+
+- Frontend/static assets: `web/index.html`, `web/static/app.js`, and
+  `web/static/styles.css`.
+- Backend API/chat server: `scripts/serve_chat.py`.
+- CLI: `.venv/bin/python -m moomail_finance_ai --agent investment "..."` or the
+  `finance-ai` console script.
+- Deterministic portfolio data service:
+  `src/moomail_finance_ai/portfolio_data_service.py`.
+- Investment Agent: `src/moomail_finance_ai/investment_agent.py`.
+- Portfolio Agent: `src/moomail_finance_ai/portfolio_agent.py`.
+- Sentiment stub: `src/moomail_finance_ai/sentiment_agent_stub.py`.
+- MCP gateway/runtime: `src/moomail_finance_ai/mcp/gateway.py`.
+- FastMCP server scripts: `scripts/mcp_opend_server.py`,
+  `scripts/mcp_portfolio_sql_server.py`, and
+  `scripts/mcp_finance_metrics_server.py`.
 
 ## Local-First Deployment
 
-V1 runs locally:
+The system runs locally:
 
 - Python commands run through the project-local `.venv`.
 - OpenD gateway runs locally and is assumed to already be started by the user.
@@ -47,20 +65,20 @@ V1 runs locally:
 - SQL database runs locally or on a trusted private host.
 - Neo4j will run locally or in a controlled private instance when GraphRAG work
   begins.
-- Pinecone or a local vector store may be used for long-term memory after the V2
-  Investment Agent contracts are stable.
+- Pinecone or a local vector store may be used for long-term memory after the
+  Investment Agent memory contract is implemented.
 - A basic TypeScript/static frontend runs locally; larger frontend work should follow stable backend contracts.
 
 No brokerage credentials, database credentials, or MCP secrets should be exposed to the frontend.
 
-## V2 Orchestration Shape
+## Investment Orchestration Shape
 
-V2 uses LangGraph for the Investment Agent supervisor. The supervisor is thin:
-it owns state, routing, subagent calls, deterministic/template synthesis,
-guardrails, and streaming status. It does not reimplement OpenD, SQL, metrics,
-or GraphRAG logic directly.
+The Investment Agent uses LangGraph as a thin supervisor. It owns state,
+routing, subagent calls, deterministic/template synthesis, guardrails, and
+streaming status. It does not reimplement OpenD, SQL, metrics, or GraphRAG logic
+directly.
 
-Implemented V2 graph:
+Implemented graph:
 
 ```text
 InvestmentAgentGraph
@@ -77,7 +95,7 @@ InvestmentAgentGraph
 
 The Portfolio Agent now has a bounded-planning Python path. It interprets a
 `PortfolioTask`, produces a `PortfolioContextPlan`, then executes selected MCP
-tools deterministically. Full review and deep-dive tasks keep broad V1 context;
+tools deterministically. Full review and deep-dive tasks keep broad review context;
 cash/allocation fact tasks can skip broad SQL history and persistence; and
 what-changed tasks request portfolio growth plus allocation history. This is not
 yet a separate compiled LangGraph subgraph. It should not call the Sentiment
@@ -85,10 +103,11 @@ Agent. It can return candidate sentiment scope such as important tickers, large
 contributors, or concerning allocation changes.
 
 The Investment Agent decides whether sentiment is needed and calls the Sentiment
-Agent. In V2, the Sentiment Agent is a structured stub so the project can lock
-the task and response contracts before building Neo4j ingestion and retrieval.
+Agent. The Sentiment Agent is currently a structured stub so the project can
+lock the task and response contracts before building Neo4j ingestion and
+retrieval.
 
-Current V2 non-goals:
+Current non-goals:
 
 - no real GraphRAG retrieval
 - no Pinecone memory retrieval or writes
@@ -130,18 +149,18 @@ Sentiment Agent implementation is out of V4 scope. The Investment Agent may
 still produce a future-compatible `SentimentTask`, but real GraphRAG retrieval
 belongs to a later version.
 
-## V3 MCP Backend Boundary
+## MCP Backend Boundary
 
-V3 reframes MCP as backend infrastructure, not only as an LLM-agent tool
-surface. OpenD MCP is the standardized backend boundary for MooMoo/OpenD data
-access, and both deterministic app services and agents must use that same
-read-only, permissioned, tested interface.
+MCP is backend infrastructure, not only an LLM-agent tool surface. OpenD MCP
+is the standardized backend boundary for MooMoo/OpenD data access, and both
+deterministic app services and agents must use that same read-only,
+permissioned, tested interface.
 
 The frontend must not call MCP directly. It calls backend APIs. The backend owns
 the MCP host/client runtime, server lifecycle, permissions, timeouts, retries,
 traces, and sanitized errors.
 
-V3 has two portfolio data lanes:
+The runtime has two portfolio data lanes:
 
 ```text
 Deterministic portfolio data lane
@@ -155,7 +174,7 @@ Deterministic portfolio data lane
 
 Agentic analysis lane
   -> user asks analytical query
-  -> V2 Investment Agent plans subagent calls
+  -> Investment Agent plans subagent calls
   -> Portfolio Agent requests current or historical context through gateway
   -> Sentiment Agent stub/future research tools are invoked when relevant
   -> final analysis, guardrails, and trace
@@ -165,14 +184,14 @@ This split is important: dashboard freshness is an application responsibility,
 while analytical reasoning is an agent responsibility. The dashboard should not
 wait for an LLM or agent planner to decide that OpenD data is needed.
 
-V3.4 implementation note: both lanes now call MCP through
+Implementation note: both lanes call MCP through
 `MCPToolGateway`. The deterministic lane uses consumer `dashboard_refresh`; the
 Portfolio Agent uses consumer `portfolio_agent`; the Investment Agent still
 does not call OpenD directly by default.
 
-### V3 Backend API Contracts
+### Backend API Contracts
 
-Implemented in V3.3 through `PortfolioDataService`, `ChatService`, and
+Implemented through `PortfolioDataService`, `ChatService`, and
 `scripts/serve_chat.py`.
 
 `PortfolioConnectionStatus` is returned by `GET /api/portfolio/status`:
@@ -241,7 +260,7 @@ report/table/chart UI shape so the dashboard can render holdings, cash,
 allocation bars/pie, metrics, warnings, and trace metadata without starting a
 chat agent run.
 
-### V3 Gateway Consumers
+### Gateway Consumers
 
 The MCP gateway must enforce consumer-specific permissions:
 
@@ -257,10 +276,10 @@ trade unlock, withdrawal, transfer, or executable order-preparation tools.
 
 ## MCP Server Boundaries
 
-MCP servers are the backend tool boundary. In V3, deterministic backend services
+MCP servers are the backend tool boundary. Deterministic backend services
 and analytical agents call FastMCP servers through the backend-owned MCP
 gateway rather than directly integrating with every external service. The old
-V2 in-process module path is retained only where it supports registry adapters,
+in-process module path is retained only where it supports registry adapters,
 FastMCP parity checks, or `DirectToolGateway` tests.
 
 ### `moomail-opend-mcp`
@@ -366,8 +385,8 @@ Capabilities:
 
 Constraints:
 
-- V2 uses a Sentiment Agent stub only; real retrieval is deferred.
-- The V2 stub lives in `src/moomail_finance_ai/sentiment_agent_stub.py` and
+- The current Sentiment Agent is a stub only; real retrieval is deferred.
+- The stub lives in `src/moomail_finance_ai/sentiment_agent_stub.py` and
   implements the `SentimentTask -> SentimentPacket` boundary.
 - The stub returns `retrieval_status: not_implemented`, explicit missing
   documents, no holdings, no citations, no source metadata, and no sentiment
@@ -406,7 +425,8 @@ Role: live/current read-only source for securities-account holdings, balances,
 cash, and quotes.
 
 Current limitation: historical portfolio data is not assumed to be extractable
-from OpenD. V1 persists useful observations into SQL when portfolio reviews run.
+from OpenD. The portfolio runtime persists useful observations into SQL when
+portfolio reviews run.
 
 Current OpenD behavior:
 
@@ -420,7 +440,7 @@ Current OpenD behavior:
   assets/effective cash-equivalent purchasing power only when enabled through
   `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP`.
 - Crypto accounts require a separate future `OpenCryptoTradeContext` path and
-  are outside the current v1 securities-account workflow.
+  are outside the current securities-account workflow.
 
 ### SQL Portfolio Store
 
@@ -446,7 +466,7 @@ Design review decision, 2026-06-02:
 - Store quote failures and other missing-data problems as data-quality events,
   not as a raw source-observation table.
 
-Implemented V1 tables:
+Implemented tables:
 
 ```text
 portfolios
@@ -491,7 +511,7 @@ created_at
 
 #### `broker_accounts`
 
-Minimal broker account identity. V1 uses the securities account; crypto can be
+Minimal broker account identity. The current runtime uses the securities account; crypto can be
 added later as a separate account type.
 
 ```text
@@ -575,7 +595,7 @@ last_observed_at
 ```
 
 This table stores parsed OpenD funds data without extra margin, risk,
-per-currency, or buying-power fields for V1.
+per-currency, or buying-power fields for the current securities-account scope.
 
 #### `portfolio_weight_snapshots`
 
@@ -669,7 +689,7 @@ path.
 
 Resolved implementation clarifications:
 
-- `broker_accounts.account_id` is an internal stable id in V1
+- `broker_accounts.account_id` is an internal stable id
   (`opend_securities_account` by default), not the raw MooMoo account number.
 - Position states are marked inactive only when a successful normalized
   portfolio observation omits an active asset.
@@ -732,10 +752,10 @@ Some memories should expire or be superseded. Durable policy preferences should 
 
 ## Orchestration
 
-Use LangGraph for the V2 Investment Agent state machine, with LangChain
+Use LangGraph for the Investment Agent state machine, with LangChain
 components inside nodes where useful.
 
-V2 nodes:
+Current nodes:
 
 1. Receive user query
 2. Classify query
@@ -753,13 +773,13 @@ Portfolio Agent has evolved from the fixed deterministic workflow into a
 bounded-planning deterministic Python path. Sentiment Agent begins as a stub
 with the same contract the future Neo4j GraphRAG implementation will satisfy.
 
-V2 guardrails are deterministic and live in
-`src/moomail_finance_ai/v2_guardrails.py`. The active checks are no trading,
+Investment guardrails are deterministic and live in
+`src/moomail_finance_ai/investment_guardrails.py`. The active checks are no trading,
 no exact share-count trading instructions, no unsupported research claims, no
 unsupported portfolio facts, IPS-required optimization/rebalancing checks, and
 missing sentiment limitation visibility.
 
-V2 trace sanitization lives in `src/moomail_finance_ai/v2_trace.py`. The trace
+Agent trace sanitization lives in `src/moomail_finance_ai/agent_trace.py`. The trace
 boundary exposes graph progress, subagent calls, planned/actual/skipped tool
 summaries, sentiment stub status, guardrail outcome, and sanitized errors. It
 does not expose hidden chain-of-thought, raw prompts, secrets, API keys, raw
@@ -790,7 +810,7 @@ Current local UI:
 - Streams status events into the chat rail.
 - Renders portfolio evaluation, allocation, missing data, sentiment, citations,
   and trace panels.
-- Displays V2 guardrail result and sanitized V2 trace events from the final
+- Displays guardrail result and sanitized Agent trace events from the final
   response payload.
 
 Structured panels planned for later:

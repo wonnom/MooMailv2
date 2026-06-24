@@ -10,17 +10,17 @@ from moomail_finance_ai.portfolio_agent import (
     build_effective_cash_summary,
     plan_portfolio_context,
 )
-from moomail_finance_ai.sentiment_agent_stub import V2SentimentAgentStub
-from moomail_finance_ai.v2_investment_agent import V2InvestmentAgent
-from moomail_finance_ai.v2_schemas import PortfolioTask, TraceEvent
-from moomail_finance_ai.v2_trace import sanitize_trace_event, trace_event_to_public_dict
-from scripts.investment_agent_v2_review import v2_terminal_summary_lines
+from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
+from moomail_finance_ai.investment_agent import InvestmentAgent
+from moomail_finance_ai.agent_schemas import PortfolioTask, TraceEvent
+from moomail_finance_ai.agent_trace import sanitize_trace_event, trace_event_to_public_dict
+from scripts.investment_agent_review import investment_terminal_summary_lines
 
 
 def test_trace_sanitizer_removes_sensitive_fields():
     event = TraceEvent(
         event_type="status",
-        run_id="v2_trace_test",
+        run_id="agent_trace_test",
         status="debug",
         message="api_key=sk-secret123456 should not appear",
         metadata={
@@ -40,9 +40,9 @@ def test_trace_sanitizer_removes_sensitive_fields():
 
 def test_trace_includes_graph_tool_sentiment_and_guardrail_events():
     emitted = []
-    agent = V2InvestmentAgent(
+    agent = InvestmentAgent(
         portfolio_agent=TracePortfolioAgent(),
-        sentiment_agent=V2SentimentAgentStub(),
+        sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
     )
 
@@ -72,7 +72,7 @@ def test_trace_sanitizer_runs_before_state_storage():
     event = sanitize_trace_event(
         TraceEvent(
             event_type="status",
-            run_id="v2_trace_test",
+            run_id="agent_trace_test",
             status="debug",
             message="safe message",
             metadata={
@@ -86,11 +86,11 @@ def test_trace_sanitizer_runs_before_state_storage():
     assert event.metadata == {"phase": "debug", "result": "ok"}
 
 
-def test_v2_agent_emits_error_trace_when_graph_fails():
+def test_agent_emits_error_trace_when_graph_fails():
     emitted = []
-    agent = V2InvestmentAgent(
+    agent = InvestmentAgent(
         portfolio_agent=ExplodingPortfolioAgent(),
-        sentiment_agent=V2SentimentAgentStub(),
+        sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
     )
 
@@ -106,15 +106,15 @@ def test_v2_agent_emits_error_trace_when_graph_fails():
     assert "[redacted]" in (error_events[-1].error_message or "")
 
 
-def test_v2_terminal_summary_includes_guardrails_and_trace():
-    agent = V2InvestmentAgent(
+def test_terminal_summary_includes_guardrails_and_trace():
+    agent = InvestmentAgent(
         portfolio_agent=TracePortfolioAgent(),
-        sentiment_agent=V2SentimentAgentStub(),
+        sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
     )
     state = agent.run("Review my portfolio.")
 
-    output = "\n".join(v2_terminal_summary_lines(state, graph_runtime=agent.graph_runtime))
+    output = "\n".join(investment_terminal_summary_lines(state, graph_runtime=agent.graph_runtime))
 
     assert "Guardrails: approved" in output
     assert "Guardrail checks: 6 passed" in output

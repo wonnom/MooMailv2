@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.schemas import GuardrailCheck
-from moomail_finance_ai.v2_schemas import (
+from moomail_finance_ai.agent_schemas import (
     GuardrailReview,
     InvestmentAgentState,
     InvestmentQueryPlan,
@@ -19,18 +19,18 @@ from moomail_finance_ai.v2_schemas import (
     SentimentTask,
     SynthesisInput,
     TraceEvent,
-    V2PortfolioAgentPacket,
+    PortfolioAgentEvidencePacket,
 )
 
 
-FIXTURE_DIR = Path(__file__).parent / "fixtures" / "v2"
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "agent"
 
 
-def test_v2_investment_state_defaults_and_round_trip():
+def test_investment_state_defaults_and_round_trip():
     plan = InvestmentQueryPlan.model_validate(_fixture("investment_query_plan_portfolio_only.json"))
 
     state = InvestmentAgentState(
-        run_id="run_v2_contract",
+        run_id="run_agent_contract",
         user_query="How much effective cash do I have?",
         mode=plan.mode,
         query_plan=plan,
@@ -46,7 +46,7 @@ def test_v2_investment_state_defaults_and_round_trip():
     assert round_tripped.query_plan.portfolio_task.persistence_mode == "skip"
 
 
-def test_v2_query_plan_validates_required_flags():
+def test_query_plan_validates_required_flags():
     full_review = InvestmentQueryPlan.model_validate(
         _fixture("investment_query_plan_full_review.json")
     )
@@ -87,7 +87,7 @@ def test_v2_query_plan_validates_required_flags():
         "unsupported",
     ],
 )
-def test_v2_query_plan_accepts_supported_modes(mode: str):
+def test_query_plan_accepts_supported_modes(mode: str):
     plan = InvestmentQueryPlan(
         mode=mode,
         needs_portfolio_agent=True,
@@ -98,7 +98,7 @@ def test_v2_query_plan_accepts_supported_modes(mode: str):
     assert plan.mode == mode
 
 
-def test_v2_query_plan_rejects_unsupported_mode():
+def test_query_plan_rejects_unsupported_mode():
     with pytest.raises(ValidationError):
         InvestmentQueryPlan(
             mode="rebalance",
@@ -182,7 +182,7 @@ def test_sentiment_candidate_requires_reason_and_asset_context():
 
 
 def test_portfolio_packet_contains_sentiment_candidates():
-    packet = V2PortfolioAgentPacket(
+    packet = PortfolioAgentEvidencePacket(
         portfolio_id="portfolio_default",
         context_plan=PortfolioContextPlan.model_validate(
             _fixture("portfolio_context_plan_what_changed.json")
@@ -286,14 +286,14 @@ def test_synthesis_input_round_trip():
         _fixture("investment_query_plan_full_review.json")
     )
     sentiment_packet = SentimentPacket.model_validate(_fixture("sentiment_packet_stub.json"))
-    portfolio_packet = V2PortfolioAgentPacket(
+    portfolio_packet = PortfolioAgentEvidencePacket(
         portfolio_id="portfolio_default",
         context_plan=PortfolioContextPlan.model_validate(
             _fixture("portfolio_context_plan_what_changed.json")
         ),
     )
     synthesis_input = SynthesisInput(
-        run_id="run_v2_contract",
+        run_id="run_agent_contract",
         user_query="Review my portfolio and market sentiment.",
         query_plan=query_plan,
         ips=mock_investment_policy(),
@@ -346,10 +346,10 @@ def test_guardrail_review_requires_checks():
         )
 
 
-def test_v2_status_event_is_json_compatible():
+def test_status_event_is_json_compatible():
     event = TraceEvent(
         event_type="tool_call",
-        run_id="run_v2_contract",
+        run_id="run_agent_contract",
         status="calling_tool",
         message="Calling finance metrics.",
         subagent="portfolio_agent",
@@ -367,13 +367,13 @@ def test_v2_status_event_is_json_compatible():
     with pytest.raises(ValidationError, match="tool_name"):
         TraceEvent(
             event_type="tool_call",
-            run_id="run_v2_contract",
+            run_id="run_agent_contract",
             status="calling_tool",
             message="Missing tool name.",
         )
 
 
-def test_all_v2_fixtures_validate_and_serialize():
+def test_all_agent_fixtures_validate_and_serialize():
     model_by_fixture = {
         "investment_query_plan_portfolio_only.json": InvestmentQueryPlan,
         "investment_query_plan_full_review.json": InvestmentQueryPlan,
@@ -395,7 +395,7 @@ def test_investment_agent_state_rejects_plan_mode_mismatch():
 
     with pytest.raises(ValidationError, match="mode must match query_plan"):
         InvestmentAgentState(
-            run_id="run_v2_contract",
+            run_id="run_agent_contract",
             user_query="How much cash do I have?",
             mode="review",
             query_plan=plan,

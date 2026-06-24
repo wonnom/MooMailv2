@@ -47,7 +47,7 @@ Current status:
   frontend dashboard can load status, latest SQL-backed dashboard data, manual
   refresh, metrics, canonical SQL updates, and stale fallback without invoking
   agents or LLMs.
-- V3.4 agent gateway migration is complete: Portfolio Agent and V2 Investment
+- V3.4 agent gateway migration is complete: Portfolio Agent and Investment
   Agent now use the backend `MCPToolGateway`; `StdioMCPToolGateway` is the
   default local runtime and `DirectToolGateway` remains test/dev parity support.
 - The root `README.md` is used for GitHub visibility.
@@ -67,7 +67,7 @@ Current status:
 | V3.1 | Complete | FastMCP server migration for OpenD, portfolio SQL, and finance metrics while preserving Python business logic. |
 | V3.2 | Complete | Gateway modes: direct parity adapter and stdio MCP client runtime with permission profiles. |
 | V3.3 | Complete | Deterministic portfolio data lane for backend APIs and frontend dashboard refresh independent from agent runs. |
-| V3.4 | Complete | Portfolio Agent and V2 Investment Agent migrated to the gateway runtime; legacy custom stdio is test-only. |
+| V3.4 | Complete | Portfolio Agent and Investment Agent migrated to the gateway runtime; legacy custom stdio removed from runtime code. |
 
 ## Timeline
 
@@ -236,9 +236,9 @@ Current V3.4 reality:
 - The three local MCP server scripts run FastMCP over stdio.
 - Backend consumers call tools through `MCPToolGateway`.
 - `PortfolioDataService` uses the gateway as `dashboard_refresh`.
-- `MCPPortfolioAgent` uses the gateway as `portfolio_agent`.
-- `V2InvestmentAgent` calls a gateway-backed Portfolio Agent by default.
-- The old custom `JsonRpcMCPServer` is legacy/test-only.
+- `PortfolioAgent` uses the gateway as `portfolio_agent`.
+- `InvestmentAgent` calls a gateway-backed Portfolio Agent by default.
+- The old custom `JsonRpcMCPServer` has been removed from runtime code.
 
 Key decision:
 
@@ -788,7 +788,7 @@ backend gateway used by the deterministic portfolio data lane.
 
 Actual implementation:
 
-- `MCPPortfolioAgent` now receives a single `MCPToolGateway` dependency instead
+- `PortfolioAgent` now receives a single `MCPToolGateway` dependency instead
   of direct `RegisteredMCPModule` instances.
 - Portfolio Agent tool calls now go through `gateway.call_tool(...,
   consumer="portfolio_agent")`.
@@ -796,13 +796,13 @@ Actual implementation:
   local FastMCP server configs.
 - `DirectToolGateway` remains available for deterministic tests and migration
   parity only.
-- `build_default_v2_investment_agent()` constructs a gateway-backed Portfolio
+- `build_default_investment_agent()` constructs a gateway-backed Portfolio
   Agent unless a fake/injected subagent is supplied for tests.
-- `ChatService` owns one shared backend gateway for portfolio chat, V2
-  investment chat, and deterministic portfolio dashboard APIs.
+- `ChatService` owns one shared backend gateway for portfolio chat, investment
+  chat, and deterministic portfolio dashboard APIs.
 - Terminal scripts close gateway sessions after runs.
-- `JsonRpcMCPServer` is marked legacy/test-only; the runtime boundary is now
-  FastMCP plus the official MCP client through `StdioMCPToolGateway`.
+- `JsonRpcMCPServer` has been removed; the runtime boundary is FastMCP plus the
+  official MCP client through `StdioMCPToolGateway`.
 - FastMCP/gateway handling supports list-valued tool payloads, such as finance
   metric lists, by parsing JSON text fallback when the MCP SDK cannot place the
   list in `structuredContent`.
@@ -810,19 +810,18 @@ Actual implementation:
 Designed versus actual:
 
 - Designed target: agents consume tools through the gateway. Actual V3.4:
-  Portfolio Agent and V2 Investment Agent now use the gateway path.
+  Portfolio Agent and Investment Agent now use the gateway path.
 - Designed target: Investment Agent has direct dynamic tool planning. Actual
-  V3.4: the thin V2 Investment Agent still routes to subagents; Portfolio Agent
+  V3.4: the thin Investment Agent still routes to subagents; Portfolio Agent
   remains the live portfolio retrieval owner.
 - Designed target: retire old custom MCP runtime. Actual V3.4:
-  `JsonRpcMCPServer` is quarantined as legacy/test-only, while the
-  `RegisteredMCPModule` registry remains underneath FastMCP and
-  `DirectToolGateway` parity tests.
+  `JsonRpcMCPServer` was later removed, while the `RegisteredMCPModule`
+  registry remains underneath FastMCP and `DirectToolGateway` parity tests.
 
 Verification:
 
 ```text
-.venv/bin/python -m pytest tests/test_mcp_stdio_gateway.py tests/test_portfolio_agent.py tests/test_v2_portfolio_planner.py tests/test_v2_investment_agent.py tests/test_chat_app.py tests/test_portfolio_data_service.py -q
+.venv/bin/python -m pytest tests/test_mcp_stdio_gateway.py tests/test_portfolio_agent.py tests/test_portfolio_planner.py tests/test_investment_agent.py tests/test_chat_app.py tests/test_portfolio_data_service.py -q
 39 passed, 1 warning
 
 .venv/bin/python -m pytest tests --ignore=tests/live -q
@@ -870,8 +869,8 @@ different precedence rules.
 ### Current Backend Contracts Come Before Rich Frontend Work
 
 The frontend should not assume final data shapes before the agent contracts are
-stable. The local chat UI is useful for exercising contracts, but V2 should
-prioritize backend orchestration.
+stable. The local chat UI is useful for exercising contracts, but backend
+orchestration remains the source of truth.
 
 ## Implementation Artifacts
 
@@ -894,20 +893,20 @@ Important current files and areas:
   - Portfolio Agent deterministic orchestration, bounded context planning, and
     LLM evaluator path.
 
-- `src/moomail_finance_ai/v2_investment_agent.py`
+- `src/moomail_finance_ai/investment_agent.py`
   - Thin LangGraph Investment Agent supervisor.
 
-- `src/moomail_finance_ai/v2_schemas.py`
-  - V2 state, task, packet, synthesis, guardrail, and trace contracts.
+- `src/moomail_finance_ai/agent_schemas.py`
+  - Agent state, task, packet, synthesis, guardrail, and trace contracts.
 
 - `src/moomail_finance_ai/sentiment_agent_stub.py`
-  - V2 missing-research Sentiment Agent stub.
+  - Missing-research Sentiment Agent stub.
 
-- `src/moomail_finance_ai/v2_guardrails.py`
-  - Deterministic V2 output guardrails.
+- `src/moomail_finance_ai/investment_guardrails.py`
+  - Deterministic investment output guardrails.
 
-- `src/moomail_finance_ai/v2_trace.py`
-  - Sanitized V2 operational trace helpers.
+- `src/moomail_finance_ai/agent_trace.py`
+  - Sanitized operational trace helpers.
 
 - `src/moomail_finance_ai/opend_adapter.py`
   - Read-only OpenD interaction.
@@ -930,8 +929,8 @@ Important current files and areas:
 - `scripts/portfolio_agent_review.py`
   - Terminal review path.
 
-- `scripts/investment_agent_v2_review.py`
-  - Terminal V2 Investment Agent review path.
+- `scripts/investment_agent_review.py`
+  - Terminal Investment Agent review path.
 
 - `scripts/serve_chat.py`
   - Local chat frontend server.

@@ -111,14 +111,14 @@ def _audit_for_demo(as_of: datetime, snapshot_id: str) -> AuditRecord:
         report.model_copy(
             update={
                 "recommendations": [],
-                "missing_data": ["Sentiment and full review synthesis are outside Milestone 3."],
+                "missing_data": ["Sentiment and full review synthesis are outside this history demo."],
             }
         )
     )
     return AuditRecord(
         run_id=report.run_id,
         timestamp=datetime.now(UTC),
-        user_query="Milestone 3 recorded portfolio history demo",
+        user_query="Recorded portfolio history demo",
         mode="review",
         tools_called=["recorded_opend_client", "portfolio_sql_store_lean_history", "finance_metrics"],
         data_timestamps=[as_of.isoformat()],

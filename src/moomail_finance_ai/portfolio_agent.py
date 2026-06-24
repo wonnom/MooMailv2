@@ -41,7 +41,7 @@ from moomail_finance_ai.schemas import (
     StrictModel,
     StatusEvent,
 )
-from moomail_finance_ai.v2_schemas import PortfolioContextPlan, PortfolioTask
+from moomail_finance_ai.agent_schemas import PortfolioContextPlan, PortfolioTask
 
 
 PORTFOLIO_REVIEW_TERMS = ("review", "analyze", "analyse", "breakdown", "overview")
@@ -176,7 +176,7 @@ class LLMPortfolioEvaluator:
 
 
 @dataclass
-class MCPPortfolioAgent:
+class PortfolioAgent:
     gateway: MCPToolGateway
     evaluator: PortfolioEvaluator
     base_currency: str = "USD"
@@ -609,7 +609,7 @@ def build_default_portfolio_agent(
     evaluator: PortfolioEvaluator | None = None,
     gateway: MCPToolGateway | None = None,
     gateway_mode: str = "stdio",
-) -> MCPPortfolioAgent:
+) -> PortfolioAgent:
     config = load_opend_config(env_file=env_file)
     if gateway is None and gateway_mode == "direct":
         gateway = DirectToolGateway(
@@ -627,7 +627,7 @@ def build_default_portfolio_agent(
                 db_path=db_path,
             )
         )
-    return MCPPortfolioAgent(
+    return PortfolioAgent(
         gateway=gateway,
         evaluator=evaluator or LLMPortfolioEvaluator.from_env(
             provider=llm_provider,
@@ -646,7 +646,7 @@ def build_default_portfolio_agent_with_mock_policy(
     evaluator: PortfolioEvaluator | None = None,
     gateway: MCPToolGateway | None = None,
     gateway_mode: str = "stdio",
-) -> tuple[MCPPortfolioAgent, InvestmentPolicy]:
+) -> tuple[PortfolioAgent, InvestmentPolicy]:
     return (
         build_default_portfolio_agent(
             env_file=env_file,
@@ -1005,7 +1005,7 @@ def _metrics_storage_skip_result(storage_result: dict[str, Any]) -> dict[str, An
         "metrics_stored": 0,
         "weight_rows_stored": storage_result.get("weight_rows_stored", 0),
         "reason": (
-            "Deterministic metric inputs are not persisted in the lean V1 schema; "
+            "Deterministic metric inputs are not persisted in the lean portfolio-history schema; "
             "overall portfolio weights are stored in portfolio_weight_snapshots."
         ),
     }

@@ -7,7 +7,7 @@
     "time_window": "1y",
     "requested_evidence_types": ["earnings_transcript", "annual_report"],
     "key_questions": ["What does recent source-backed research say about material holdings?"],
-    "reason": "V2 contract fixture for future GraphRAG-backed sentiment retrieval.",
+    "reason": "Agent contract fixture for future GraphRAG-backed sentiment retrieval.",
     "candidate_refs": [],
     "warnings": []
   },
@@ -27,14 +27,14 @@
       "ticker": "GOOG",
       "entity": null,
       "document_type": "earnings_transcript",
-      "reason": "Neo4j GraphRAG corpus is not implemented in V2."
+      "reason": "Neo4j GraphRAG corpus is not implemented."
     }
   ],
   "citations": [],
   "data_quality": {
     "freshness_status": "unknown",
     "missing_fields": ["graph_rag_corpus"],
-    "warnings": ["Sentiment Agent is a V2 stub; no research retrieval was performed."]
+    "warnings": ["Sentiment Agent is a stub; no research retrieval was performed."]
   },
-  "warnings": ["Sentiment Agent is a V2 stub."]
+  "warnings": ["Sentiment Agent is a stub."]
 }

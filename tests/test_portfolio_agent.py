@@ -18,7 +18,7 @@ from moomail_finance_ai.opend import (
 )
 from moomail_finance_ai.portfolio_agent import (
     LLMPortfolioEvaluator,
-    MCPPortfolioAgent,
+    PortfolioAgent,
     PortfolioEvaluation,
     _evaluation_from_text,
 )
@@ -29,7 +29,7 @@ from scripts.portfolio_agent_review import portfolio_agent_terminal_summary_line
 def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recorded_opend_client):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     evaluator = CapturingEvaluator()
-    agent = MCPPortfolioAgent(
+    agent = PortfolioAgent(
         gateway=DirectToolGateway(
             [
                 build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
@@ -107,7 +107,7 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
 def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(tmp_path):
     report = _otc_and_cash_sweep_report()
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
-    agent = MCPPortfolioAgent(
+    agent = PortfolioAgent(
         gateway=DirectToolGateway(
             [
                 build_opend_mcp_module(
@@ -144,7 +144,7 @@ def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(
 
 def test_portfolio_agent_daily_storage_is_idempotent(tmp_path, recorded_opend_client):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
-    agent = MCPPortfolioAgent(
+    agent = PortfolioAgent(
         gateway=DirectToolGateway(
             [
                 build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),

@@ -6,7 +6,7 @@ from pathlib import Path
 DOCS = Path(__file__).resolve().parents[1] / "docs" / "finance-ai"
 
 
-def test_v2_readme_records_closeout_and_remaining_stubs():
+def test_readme_records_closeout_and_remaining_stubs():
     text = (DOCS / "V2_Tasks" / "README.md").read_text(encoding="utf-8")
 
     assert "V2 skeleton complete as of 2026-06-15" in text
@@ -18,19 +18,19 @@ def test_v2_readme_records_closeout_and_remaining_stubs():
     assert "Neo4j GraphRAG" in text
 
 
-def test_v2_closeout_docs_name_core_test_files_and_live_opt_in():
+def test_closeout_docs_name_core_test_files_and_live_opt_in():
     testing = (DOCS / "TESTING.md").read_text(encoding="utf-8")
     task6 = (DOCS / "V2_Tasks" / "TASK_6_DOCUMENTATION_AND_TESTS.md").read_text(
         encoding="utf-8"
     )
 
     for test_file in [
-        "tests/test_v2_schemas.py",
-        "tests/test_v2_investment_agent.py",
-        "tests/test_v2_portfolio_planner.py",
+        "tests/test_agent_schemas.py",
+        "tests/test_investment_agent.py",
+        "tests/test_portfolio_planner.py",
         "tests/test_sentiment_agent_stub.py",
-        "tests/test_v2_guardrails.py",
-        "tests/test_v2_trace.py",
+        "tests/test_investment_guardrails.py",
+        "tests/test_agent_trace.py",
     ]:
         assert test_file in testing
         assert test_file in task6

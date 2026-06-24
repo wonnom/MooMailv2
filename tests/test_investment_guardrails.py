@@ -4,16 +4,16 @@ from datetime import UTC, datetime
 
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.schemas import FinalReport, PortfolioLevelSentiment, Recommendation
-from moomail_finance_ai.v2_guardrails import (
-    V2_GUARDRAIL_CHECKS,
-    V2_GUARDRAIL_SEVERITY,
-    review_v2_report,
+from moomail_finance_ai.investment_guardrails import (
+    INVESTMENT_GUARDRAIL_CHECKS,
+    INVESTMENT_GUARDRAIL_SEVERITY,
+    review_investment_report,
 )
-from moomail_finance_ai.v2_schemas import InvestmentAgentState, SentimentPacket
+from moomail_finance_ai.agent_schemas import InvestmentAgentState, SentimentPacket
 
 
-def test_v2_guardrail_check_names_are_stable():
-    assert V2_GUARDRAIL_CHECKS == (
+def test_guardrail_check_names_are_stable():
+    assert INVESTMENT_GUARDRAIL_CHECKS == (
         "no_trading",
         "no_exact_share_count_trading",
         "unsupported_research_claims",
@@ -21,7 +21,7 @@ def test_v2_guardrail_check_names_are_stable():
         "missing_ips_for_optimization",
         "missing_sentiment_visibility",
     )
-    assert set(V2_GUARDRAIL_SEVERITY) == set(V2_GUARDRAIL_CHECKS)
+    assert set(INVESTMENT_GUARDRAIL_SEVERITY) == set(INVESTMENT_GUARDRAIL_CHECKS)
 
 
 def test_guardrail_blocks_order_instruction():
@@ -31,7 +31,7 @@ def test_guardrail_blocks_order_instruction():
         )
     )
 
-    review = review_v2_report(state)
+    review = review_investment_report(state)
 
     assert review.passed is False
     assert review.output_status == "blocked"
@@ -50,7 +50,7 @@ def test_guardrail_blocks_exact_share_count_recommendation():
         )
     )
 
-    review = review_v2_report(state)
+    review = review_investment_report(state)
 
     assert review.passed is False
     assert _check(review, "no_exact_share_count_trading").passed is False
@@ -72,12 +72,12 @@ def test_guardrail_flags_research_claim_without_sentiment():
         sentiment_packet=SentimentPacket(
             retrieval_status="not_implemented",
             portfolio_level_sentiment=PortfolioLevelSentiment(
-                summary="GraphRAG sentiment retrieval is not implemented in V2."
+                summary="GraphRAG sentiment retrieval is not implemented."
             ),
         ),
     )
 
-    review = review_v2_report(state)
+    review = review_investment_report(state)
 
     assert review.passed is False
     assert _check(review, "unsupported_research_claims").passed is False
@@ -96,7 +96,7 @@ def test_guardrail_blocks_optimization_recommendation_without_ips():
         ips=None,
     )
 
-    review = review_v2_report(state)
+    review = review_investment_report(state)
 
     assert review.passed is False
     assert _check(review, "missing_ips_for_optimization").passed is False
@@ -108,7 +108,7 @@ def test_guardrail_requires_missing_sentiment_limitation_visibility():
         sentiment_packet=SentimentPacket(retrieval_status="not_implemented"),
     )
 
-    review = review_v2_report(state)
+    review = review_investment_report(state)
 
     assert review.passed is False
     assert _check(review, "missing_sentiment_visibility").passed is False
@@ -121,7 +121,7 @@ def _state_with_report(
     ips=mock_investment_policy(),
 ) -> InvestmentAgentState:
     return InvestmentAgentState(
-        run_id="v2_guardrail_test",
+        run_id="investment_guardrail_test",
         user_query="Review my portfolio.",
         ips=ips,
         sentiment_packet=sentiment_packet,
@@ -137,9 +137,9 @@ def _report(
     sentiment_analysis: dict | None = None,
 ) -> FinalReport:
     return FinalReport(
-        run_id="v2_guardrail_test",
+        run_id="investment_guardrail_test",
         mode="review",
-        title="V2 Portfolio Review",
+        title="Portfolio Review",
         as_of=datetime(2026, 6, 15, tzinfo=UTC),
         summary=summary,
         portfolio_snapshot={},

@@ -1,9 +1,9 @@
 import json
 from datetime import UTC, datetime, timedelta
 
-from moomail_finance_ai.agents import InvestmentAgentPrototype
 from moomail_finance_ai.mocks import mock_portfolio_packet
 from moomail_finance_ai.opend import OpenDConnectionStatus, OpenDFieldReport, OpenDTableResult
+from moomail_finance_ai.schemas import AuditRecord, GuardrailCheck, GuardrailResult
 from moomail_finance_ai.sql_store import ALLOWED_COUNT_TABLES, PortfolioSqlStore
 
 
@@ -248,17 +248,16 @@ def test_history_status_growth_and_allocation_reads_use_value_snapshots(tmp_path
 
 def test_agent_run_summary_shape_has_no_hidden_or_full_response_columns(tmp_path):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
-    state = InvestmentAgentPrototype().run("Review my portfolio")
-    assert state.audit_record is not None
+    audit_record = _audit_record()
 
     stored = store.store_agent_run(
-        state.audit_record,
+        audit_record,
         portfolio_id="portfolio_default",
         snapshot_refs=["value_snap_test"],
         missing_data=["missing_history"],
     )
     linked = store.link_agent_run_sources(
-        state.audit_record.run_id,
+        audit_record.run_id,
         [{"source_type": "portfolio_value_snapshot", "source_id": "value_snap_test"}],
     )
 
@@ -268,12 +267,37 @@ def test_agent_run_summary_shape_has_no_hidden_or_full_response_columns(tmp_path
 
     assert stored.stored is True
     assert linked.sources_linked == 1
-    assert run["output_summary"] == state.audit_record.output_summary
+    assert run["output_summary"] == audit_record.output_summary
     assert "final_response" not in columns
     assert "hidden_reasoning" not in columns
-    assert json.loads(run["tools_called_json"]) == state.audit_record.tools_called
+    assert json.loads(run["tools_called_json"]) == audit_record.tools_called
     assert json.loads(run["snapshot_refs_json"]) == ["value_snap_test"]
     assert json.loads(run["missing_data_json"]) == ["missing_history"]
+
+
+def _audit_record() -> AuditRecord:
+    return AuditRecord(
+        run_id="run_sql_store_test",
+        timestamp=datetime(2026, 5, 24, tzinfo=UTC),
+        user_query="Review my portfolio",
+        mode="review",
+        tools_called=["portfolio_agent", "portfolio_sql"],
+        data_timestamps=["2026-05-24T00:00:00+00:00"],
+        source_ids=["value_snap_test"],
+        assumptions=["Recorded portfolio snapshot used for SQL-store test."],
+        guardrail_result=GuardrailResult(
+            passed=True,
+            checks=[
+                GuardrailCheck(
+                    check="no_trading",
+                    passed=True,
+                    message="No trade instruction detected.",
+                )
+            ],
+        ),
+        output_summary="Stored portfolio run summary.",
+        memory_updates=[],
+    )
 
 
 def _single_holding_snapshot(

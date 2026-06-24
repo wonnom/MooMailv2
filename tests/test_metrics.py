@@ -71,7 +71,7 @@ def test_cash_weight_keeps_auto_invested_fund_assets_separate_from_literal_cash(
     assert cash.source_inputs["effective_cash_value"] == 350.0
 
 
-def test_position_weights_default_to_v1_us_equities_scope():
+def test_position_weights_default_to_us_equities_scope():
     snapshot = _snapshot()
 
     result = calculate_position_weights(snapshot)
@@ -80,10 +80,10 @@ def test_position_weights_default_to_v1_us_equities_scope():
     assert tickers == ["AAPL", "MSFT"]
     assert result.value[0]["weight_in_scope"] == 0.25
     assert result.value[1]["weight_in_scope"] == 0.75
-    assert result.warnings == ["2 holding(s) excluded from v1 US-equity metrics."]
+    assert result.warnings == ["2 holding(s) excluded from US-equity analysis metrics."]
 
 
-def test_concentration_uses_v1_scope_not_full_account_noise():
+def test_concentration_uses_us_equity_scope_not_full_account_noise():
     snapshot = _snapshot()
     ips = mock_investment_policy().model_copy(update={"max_single_stock_concentration": 0.7})
 

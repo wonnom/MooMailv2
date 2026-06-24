@@ -7,7 +7,7 @@ V1 is complete as of 2026-06-06.
 V2 skeleton is complete as of 2026-06-15.
 
 V3 MCP runtime migration is complete as of 2026-06-23: gateway modes,
-deterministic portfolio data lane, and Portfolio/V2 Investment Agent gateway
+deterministic portfolio data lane, and Portfolio/Investment Agent gateway
 migration are implemented.
 
 V1 is a Portfolio Agent proof of concept with:
@@ -28,7 +28,8 @@ V1 is a Portfolio Agent proof of concept with:
   order-preparation path.
 
 The old milestone task files under `docs/finance-ai/V1_TASKS/` are
-historical implementation tracking. They are not the active plan for V2.
+historical implementation tracking. They are not the active implementation
+plan.
 
 ## Current Truth
 
@@ -45,22 +46,22 @@ Implemented and useful today:
 - `PortfolioDataService`: deterministic backend service for OpenD status,
   latest SQL-backed dashboard snapshots, manual refresh, metrics, and canonical
   SQL history updates without invoking agents or LLMs.
-- `MCPPortfolioAgent`: bounded-planning Python Portfolio Agent that interprets
+- `PortfolioAgent`: bounded-planning Python Portfolio Agent that interprets
   a portfolio task, produces a `PortfolioContextPlan`, executes selected MCP
   tools deterministically, then asks an LLM evaluator to answer portfolio-only
   questions from the collected packet.
-- `V2InvestmentAgent`: thin LangGraph supervisor that routes portfolio-only
-  and portfolio-plus-sentiment queries through structured V2 packets.
-- `V2SentimentAgentStub`: deterministic missing-research Sentiment Agent stub
+- `InvestmentAgent`: thin LangGraph supervisor that routes portfolio-only
+  and portfolio-plus-sentiment queries through structured agent packets.
+- `SentimentAgentStub`: deterministic missing-research Sentiment Agent stub
   that cements the future Neo4j GraphRAG contract without requiring Neo4j.
-- `v2_guardrails`: deterministic V2 output guardrails for no-trading,
+- `investment_guardrails`: deterministic investment output guardrails for no-trading,
   no-exact-share-count instructions, unsupported claims, IPS-gated
   optimization, and missing-sentiment visibility.
-- `v2_trace`: sanitized V2 operational trace for graph progress, subagent
+- `agent_trace`: sanitized operational trace for graph progress, subagent
   calls, Portfolio Agent tool summaries, sentiment stub status, guardrail
   outcome, and errors.
 - `scripts/portfolio_agent_review.py`: terminal Portfolio Agent review.
-- `scripts/investment_agent_v2_review.py`: terminal V2 Investment Agent review.
+- `scripts/investment_agent_review.py`: terminal Investment Agent review.
 - `scripts/serve_chat.py`: local chat frontend server.
 - Local frontend portfolio dashboard flow: page load reads stored dashboard
   data; refresh button calls deterministic backend APIs.
@@ -71,16 +72,16 @@ Important limitations:
 
 - The Portfolio Agent is MCP-backed with a deterministic bounded planner. It
   does not let the LLM decide which OpenD, SQL, or metrics tools to call.
-- The V2 Investment Agent is intentionally thin; richer LLM planning,
+- The Investment Agent is intentionally thin; richer LLM planning,
   checkpointing, and memory are still future work.
-- V2 synthesis is deterministic/template-style. It does not yet perform a rich
+- Investment synthesis is deterministic/template-style. It does not yet perform a rich
   LLM synthesis pass over portfolio, sentiment, memory, and market context.
-- The Sentiment Agent is a V2 stub only. Neo4j GraphRAG is not implemented, and
+- The Sentiment Agent is a stub only. Neo4j GraphRAG is not implemented, and
   the stub must not invent research claims, citations, or sentiment.
 - The Portfolio Agent bounded planner is implemented inside the existing Python
   Portfolio Agent path, not as a separate compiled LangGraph subgraph.
 - Pinecone memory is not connected.
-- The deterministic dashboard lane, Portfolio Agent, and V2 Investment Agent
+- The deterministic dashboard lane, Portfolio Agent, and Investment Agent
   path use the gateway. `RegisteredMCPModule` remains underneath FastMCP and
   DirectToolGateway tests, not as the agent runtime dependency.
 - Crypto holdings and OTC quote fallback are deferred.
@@ -251,7 +252,7 @@ Exit criteria:
 
 Status: complete as of 2026-06-15.
 
-Move guardrail review into the V2 Investment Agent path.
+Move guardrail review into the Investment Agent path.
 
 Guardrails should check:
 
@@ -321,7 +322,7 @@ Closeout verification:
 - Rich React frontend migration.
 
 These are still part of the long-term architecture. They should be built after
-the V2 Investment Agent and subagent contracts are stable.
+the Investment Agent and subagent contracts are stable.
 
 ## V3 Complete Iteration
 
@@ -351,7 +352,7 @@ V3 tasks:
 | V3.1 | complete as of 2026-06-17 | Preserve business logic, replace custom `JsonRpcMCPServer` server scripts with FastMCP servers, and define the gateway contract. |
 | V3.2 | complete as of 2026-06-21 | Implement `DirectToolGateway` for parity tests and `StdioMCPToolGateway` for production-ish local runtime. |
 | V3.3 | complete as of 2026-06-21 | Implement the deterministic backend/frontend portfolio data lane for dashboard status, latest snapshot, manual refresh, SQL update, and no-agent refresh behavior. |
-| V3.4 | complete as of 2026-06-23 | Move Portfolio Agent and V2 Investment Agent to the gateway, then update docs and retirement decisions. |
+| V3.4 | complete as of 2026-06-23 | Move Portfolio Agent and Investment Agent to the gateway, then update docs and retirement decisions. |
 
 V3.0 decisions now accepted:
 
@@ -366,10 +367,10 @@ V3.0 decisions now accepted:
   `investment_agent`, and `sentiment_agent`, each with distinct allowed MCP
   access.
 
-V3 explicitly retired or narrowed the custom V2 MCP-shaped runtime only after
-parity tests passed. `mcp/stdio.py` is legacy/test-only, direct
-`RegisteredMCPModule` injection into agents has been removed, and
-`DirectToolGateway` remains the test/dev parity path.
+The custom MCP-shaped runtime was retired only after parity tests passed.
+`mcp/stdio.py` has been removed, direct `RegisteredMCPModule` injection into
+agents has been removed, and `DirectToolGateway` remains the test/dev parity
+path.
 
 The deterministic portfolio data lane is its own implementation step in V3.3.
 It must update the backend and frontend so page load/manual refresh can show
@@ -385,7 +386,7 @@ V3.1 implementation reality:
 - `src/moomail_finance_ai/mcp/gateway.py` defines the gateway protocol/result
   and error contract for V3.2.
 - Agents still called in-process modules at V3.1; V3.4 moved Portfolio Agent
-  and V2 Investment Agent to the gateway.
+  and Investment Agent to the gateway.
 
 V3.2 implementation reality:
 
@@ -412,23 +413,23 @@ V3.3 implementation reality:
 
 V3.4 implementation reality:
 
-- `MCPPortfolioAgent` receives `MCPToolGateway` and calls tools with
+- `PortfolioAgent` receives `MCPToolGateway` and calls tools with
   `consumer="portfolio_agent"`.
 - `build_default_portfolio_agent()` defaults to `StdioMCPToolGateway`.
-- `build_default_v2_investment_agent()` constructs a gateway-backed Portfolio
+- `build_default_investment_agent()` constructs a gateway-backed Portfolio
   Agent unless a fake/injected Portfolio Agent is supplied at the graph level.
-- `ChatService` owns a shared backend gateway for portfolio chat, V2 investment
+- `ChatService` owns a shared backend gateway for portfolio chat, investment
   chat, and deterministic portfolio data APIs.
 - Terminal scripts close gateway sessions after runs.
-- `JsonRpcMCPServer` is legacy/test-only; FastMCP plus official MCP client is
-  the runtime boundary.
+- The legacy custom `JsonRpcMCPServer` wrapper has been removed; FastMCP plus
+  the official MCP client is the runtime boundary.
 
 ## Next Work Options
 
 V2 is closed as a skeleton and V3 is complete for the MCP runtime boundary. The
 remaining high-value tracks are:
 
-1. Real Neo4j GraphRAG ingestion and retrieval against the V2 Sentiment Agent
+1. Real Neo4j GraphRAG ingestion and retrieval against the Sentiment Agent
    contract.
 2. Bounded structured-output LLM/LangGraph planner for query classification,
    ticker/asset-scope selection, history-window selection, and subagent
@@ -439,7 +440,7 @@ remaining high-value tracks are:
    clear.
 5. Richer React/TypeScript frontend after backend contracts settle.
 
-GraphRAG should be designed against the V2 `SentimentTask` and
+GraphRAG should be designed against the `SentimentTask` and
 `SentimentPacket` contract, not as a separate research demo.
 
 ## V4 Planning Track

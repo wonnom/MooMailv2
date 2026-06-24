@@ -6,15 +6,15 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from moomail_finance_ai.sentiment_agent_stub import V2SentimentAgentStub
-from moomail_finance_ai.v2_schemas import SentimentPacket, SentimentTask
+from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
+from moomail_finance_ai.agent_schemas import SentimentPacket, SentimentTask
 
 
-FIXTURE_DIR = Path(__file__).parent / "fixtures" / "v2"
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "agent"
 
 
 def test_sentiment_stub_accepts_scoped_task_and_preserves_scope():
-    agent = V2SentimentAgentStub()
+    agent = SentimentAgentStub()
     task = SentimentTask(
         tickers=["goog"],
         companies_entities=["Alphabet Inc."],
@@ -45,7 +45,7 @@ def test_sentiment_stub_accepts_scoped_task_and_preserves_scope():
 
 
 def test_sentiment_stub_accepts_dict_payload_and_rejects_malformed_payload():
-    agent = V2SentimentAgentStub()
+    agent = SentimentAgentStub()
 
     packet = agent.run(
         {
@@ -69,7 +69,7 @@ def test_sentiment_stub_requires_no_external_research_config(monkeypatch):
     monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
     monkeypatch.delenv("PINECONE_API_KEY", raising=False)
 
-    packet = V2SentimentAgentStub().run(
+    packet = SentimentAgentStub().run(
         SentimentTask(
             tickers=["MSFT"],
             requested_evidence_types=["quarterly_report"],
@@ -81,7 +81,7 @@ def test_sentiment_stub_requires_no_external_research_config(monkeypatch):
 
 
 def test_sentiment_stub_returns_no_fabricated_research_or_citations():
-    packet = V2SentimentAgentStub().run(
+    packet = SentimentAgentStub().run(
         SentimentTask(tickers=["AAPL"], requested_evidence_types=["filing"])
     )
 
@@ -96,7 +96,7 @@ def test_sentiment_stub_returns_no_fabricated_research_or_citations():
 
 def test_sentiment_stub_fixture_matches_generated_contract_shape():
     task = SentimentTask.model_validate(_fixture("sentiment_task_full_review.json"))
-    packet = V2SentimentAgentStub().run(task)
+    packet = SentimentAgentStub().run(task)
     expected = SentimentPacket.model_validate(_fixture("sentiment_packet_stub.json"))
 
     assert packet.retrieval_status == expected.retrieval_status

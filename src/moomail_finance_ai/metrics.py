@@ -8,7 +8,7 @@ from moomail_finance_ai.schemas import Holding, InvestmentPolicy, PortfolioSnaps
 
 
 METRIC_VERSION = "finance-metrics-v0.1.0"
-V1_EQUITY_SCOPE = "v1_us_equities"
+US_EQUITY_ANALYSIS_SCOPE = "us_equities"
 OPEND_FUND_ASSETS_CASH_SWEEP_ID = "opend_fund_assets_cash_sweep"
 
 
@@ -21,7 +21,7 @@ class MetricResult(StrictModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-def v1_us_equity_holdings(snapshot: PortfolioSnapshot) -> list[Holding]:
+def us_equity_analysis_holdings(snapshot: PortfolioSnapshot) -> list[Holding]:
     return [
         holding
         for holding in snapshot.holdings
@@ -57,7 +57,7 @@ def calculate_cash_weight(snapshot: PortfolioSnapshot) -> MetricResult:
 def calculate_position_weights(
     snapshot: PortfolioSnapshot,
     *,
-    scope: str = V1_EQUITY_SCOPE,
+    scope: str = US_EQUITY_ANALYSIS_SCOPE,
 ) -> MetricResult:
     holdings = _holdings_for_scope(snapshot, scope)
     total_value = _scope_total_market_value(holdings)
@@ -88,7 +88,7 @@ def calculate_single_position_concentration(
     snapshot: PortfolioSnapshot,
     ips: InvestmentPolicy,
     *,
-    scope: str = V1_EQUITY_SCOPE,
+    scope: str = US_EQUITY_ANALYSIS_SCOPE,
 ) -> MetricResult:
     holdings = _holdings_for_scope(snapshot, scope)
     total_value = _scope_total_market_value(holdings)
@@ -151,7 +151,7 @@ def calculate_benchmark_reference(ips: InvestmentPolicy) -> MetricResult:
     return MetricResult(
         metric_name="benchmark_reference",
         value={"benchmark": ips.benchmark},
-        input_scope={"scope": V1_EQUITY_SCOPE},
+        input_scope={"scope": US_EQUITY_ANALYSIS_SCOPE},
         source_inputs={"policy_id": ips.policy_id},
         warnings=[
             "Benchmark return comparison requires historical portfolio snapshots and benchmark prices."
@@ -163,7 +163,7 @@ def calculate_snapshot_metrics(
     snapshot: PortfolioSnapshot,
     ips: InvestmentPolicy,
     *,
-    scope: str = V1_EQUITY_SCOPE,
+    scope: str = US_EQUITY_ANALYSIS_SCOPE,
 ) -> list[MetricResult]:
     return [
         calculate_cash_weight(snapshot),
@@ -175,8 +175,8 @@ def calculate_snapshot_metrics(
 
 
 def _holdings_for_scope(snapshot: PortfolioSnapshot, scope: str) -> list[Holding]:
-    if scope == V1_EQUITY_SCOPE:
-        return v1_us_equity_holdings(snapshot)
+    if scope == US_EQUITY_ANALYSIS_SCOPE:
+        return us_equity_analysis_holdings(snapshot)
     if scope == "full_portfolio":
         return list(snapshot.holdings)
     raise ValueError(f"Unknown metric scope: {scope}")
@@ -191,12 +191,12 @@ def _scope_warnings(
     scoped_holdings: list[Holding],
     scope: str,
 ) -> list[str]:
-    if scope != V1_EQUITY_SCOPE:
+    if scope != US_EQUITY_ANALYSIS_SCOPE:
         return []
     excluded = len(snapshot.holdings) - len(scoped_holdings)
     if excluded <= 0:
         return []
-    return [f"{excluded} holding(s) excluded from v1 US-equity metrics."]
+    return [f"{excluded} holding(s) excluded from US-equity analysis metrics."]
 
 
 def _cash_equivalent_value(snapshot: PortfolioSnapshot) -> float:

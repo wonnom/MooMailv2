@@ -1,7 +1,7 @@
 [project]
 name = "moomail-finance-ai"
 version = "0.1.0"
-description = "Personal multi-agent finance AI prototype."
+description = "Personal multi-agent finance AI."
 requires-python = ">=3.12"
 dependencies = [
   "langchain>=0.3,<1",
@@ -18,7 +18,7 @@ opend = [
   "moomoo-api>=10,<11",
 ]
 [project.scripts]
-finance-ai-prototype = "moomail_finance_ai.cli:main"
+finance-ai = "moomail_finance_ai.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

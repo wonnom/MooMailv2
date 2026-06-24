@@ -8,38 +8,38 @@ from moomail_finance_ai.schemas import StatusEvent
 from scripts.serve_chat import WEB, ChatHandler
 
 
-def test_milestone6_chat_service_returns_full_report(tmp_path):
+def test_chat_service_returns_portfolio_agent_result(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
         db_path=tmp_path / "chat.sqlite",
-        memory_path=tmp_path / "memory.json",
+        portfolio_evaluator=FakePortfolioEvaluator(),
+        default_agent="portfolio",
     )
 
-    state = service.run("Review my portfolio")
+    state = service.run("Review my portfolio", agent="portfolio")
 
-    assert state.final_report is not None
+    assert state.evaluation.summary == "Portfolio evaluator test summary."
     assert state.status_events
-    assert state.final_report.citations
-    assert state.guardrail_result is not None
-    assert state.guardrail_result.passed is True
+    assert state.snapshot.holdings
 
 
-def test_milestone6_stream_endpoint_emits_status_and_final_events(tmp_path):
+def test_stream_endpoint_emits_status_and_final_events(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
         db_path=tmp_path / "chat.sqlite",
-        memory_path=tmp_path / "memory.json",
+        portfolio_evaluator=FakePortfolioEvaluator(),
+        default_agent="portfolio",
     )
-    lines = stream_payloads(service, "Review my portfolio")
+    lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
 
     assert any(line["type"] == "status" for line in lines)
     assert lines[-1]["type"] == "final"
-    assert lines[-1]["state"]["final_report"]["citations"]
+    assert lines[-1]["state"]["final_report"]["summary"] == "Portfolio evaluator test summary."
 
 
-def test_milestone6_stream_endpoint_emits_error_event_when_agent_fails():
+def test_stream_endpoint_emits_error_event_when_agent_fails():
     lines = stream_payloads(ExplodingChatService(), "Review my portfolio", agent="portfolio")
 
     assert lines[-1]["type"] == "error"
@@ -110,20 +110,20 @@ def test_chat_service_portfolio_agent_handles_legacy_chat_db(tmp_path):
     assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
 
 
-def test_chat_service_can_call_v2_investment_agent_with_recorded_portfolio(tmp_path):
+def test_chat_service_can_call_investment_agent_with_recorded_portfolio(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
-        db_path=tmp_path / "investment-v2-chat.sqlite",
+        db_path=tmp_path / "investment-chat.sqlite",
         portfolio_evaluator=FakePortfolioEvaluator(),
-        default_agent="investment_v2",
+        default_agent="investment",
     )
 
-    lines = stream_payloads(service, "Review my portfolio.", agent="investment_v2")
+    lines = stream_payloads(service, "Review my portfolio.", agent="investment")
     final = lines[-1]["state"]
 
     assert any(line["type"] == "status" for line in lines)
-    assert final["agent_type"] == "investment_agent_v2"
+    assert final["agent_type"] == "investment_agent"
     assert final["query_plan"]["needs_sentiment_agent"] is True
     assert final["sentiment_packet"]["retrieval_status"] == "not_implemented"
     assert any(event["event_type"] == "tool_call" for event in final["status_events"])
@@ -133,7 +133,7 @@ def test_chat_service_can_call_v2_investment_agent_with_recorded_portfolio(tmp_p
     )
     assert final["final_report"]["portfolio_analysis"]["allocation"]["by_asset"]
     assert final["final_report"]["portfolio_analysis"]["risk"]
-    assert "Sentiment Agent GraphRAG retrieval is not implemented in V2." in (
+    assert "Sentiment Agent GraphRAG retrieval is not implemented." in (
         final["final_report"]["missing_data"]
     )
     assert final["guardrail_result"]["passed"] is True
@@ -146,11 +146,11 @@ def test_chat_defaults_use_canonical_portfolio_history_db():
 
     assert str(service.db_path) == "data/portfolio-history.sqlite"
     assert 'default="data/portfolio-history.sqlite"' in serve_chat_source
-    assert "investment_v2" in serve_chat_source
+    assert "investment" in serve_chat_source
     assert "data/chat-portfolio-history.sqlite" not in serve_chat_source
 
 
-def test_milestone6_frontend_files_include_streaming_and_citation_controls():
+def test_frontend_files_include_streaming_and_citation_controls():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     static_dir = WEB / "static"
     frontend_source = "\n".join(
@@ -170,7 +170,7 @@ def test_milestone6_frontend_files_include_streaming_and_citation_controls():
 
     assert "/static/app.js" in html
     assert "agentSelect" in html
-    assert 'value="investment_v2">Investment<' in html
+    assert 'value="investment">Investment<' in html
     assert "Investment Legacy" not in html
     assert "chat-controls" in html
     assert 'rows="4"' in html

@@ -157,20 +157,18 @@ def main() -> None:
         default="data/portfolio-history.sqlite",
         help="Portfolio-history SQLite DB path; defaults to the canonical local store.",
     )
-    parser.add_argument("--memory", default="data/chat-investment-memory.json")
     parser.add_argument("--env-file", default="config/local.env")
     parser.add_argument("--llm-provider", default=None, choices=["gemini", "openai"])
     parser.add_argument(
         "--default-agent",
         default="portfolio",
-        choices=["portfolio", "investment", "investment_v2"],
+        choices=["portfolio", "investment"],
     )
     args = parser.parse_args()
 
     ChatHandler.service = ChatService(
         from_report=args.from_report,
         db_path=args.db,
-        memory_path=args.memory,
         env_file=args.env_file,
         llm_provider=args.llm_provider,
         default_agent=args.default_agent,

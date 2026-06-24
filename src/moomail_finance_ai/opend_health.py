@@ -141,7 +141,7 @@ def build_opend_health_report(
         crypto_scope={
             "status": "deferred",
             "message": (
-                "Crypto account discovery is intentionally outside the V1 securities-account "
+                "Crypto account discovery is intentionally outside the securities-account "
                 "OpenD health path; explore it separately with OpenCryptoTradeContext later."
             ),
         },

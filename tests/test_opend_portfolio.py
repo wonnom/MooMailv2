@@ -152,7 +152,7 @@ def test_build_portfolio_snapshot_reports_upstream_warning_when_positions_missin
     assert "get_positions failed: Network interruption" in message
 
 
-def test_build_portfolio_agent_packet_scopes_candidate_issues_to_v1_equities():
+def test_build_portfolio_agent_packet_scopes_candidate_issues_to_us_equities():
     report = _sample_report(cash=-100.0)
     ips = mock_investment_policy().model_copy(update={"max_single_stock_concentration": 0.2})
     snapshot = build_portfolio_snapshot_from_report(

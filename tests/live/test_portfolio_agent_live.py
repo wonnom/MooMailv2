@@ -12,7 +12,7 @@ from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.opend import RecordedOpenDClient
-from moomail_finance_ai.portfolio_agent import LLMPortfolioEvaluator, MCPPortfolioAgent
+from moomail_finance_ai.portfolio_agent import LLMPortfolioEvaluator, PortfolioAgent
 
 
 pytestmark = pytest.mark.live_connector
@@ -31,7 +31,7 @@ def test_live_portfolio_agent_llm_evaluator_round_trip_with_gemini(tmp_path, sam
     if not _env("MOOMAIL_GEMINI_MODEL"):
         pytest.skip("Set MOOMAIL_GEMINI_MODEL.")
 
-    agent = MCPPortfolioAgent(
+    agent = PortfolioAgent(
         gateway=DirectToolGateway(
             [
                 build_opend_mcp_module(

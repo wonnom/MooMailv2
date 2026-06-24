@@ -23,12 +23,12 @@ Task 6 closes the V2 skeleton, not the whole long-term Finance AI.
 
 Implemented and verified:
 
-- schema/fixture tests in `tests/test_v2_schemas.py`
-- Investment Agent graph/routing tests in `tests/test_v2_investment_agent.py`
-- Portfolio Agent bounded-planning tests in `tests/test_v2_portfolio_planner.py`
+- schema/fixture tests in `tests/test_agent_schemas.py`
+- Investment Agent graph/routing tests in `tests/test_investment_agent.py`
+- Portfolio Agent bounded-planning tests in `tests/test_portfolio_planner.py`
 - Sentiment Agent stub tests in `tests/test_sentiment_agent_stub.py`
-- guardrail tests in `tests/test_v2_guardrails.py`
-- trace tests in `tests/test_v2_trace.py`
+- guardrail tests in `tests/test_investment_guardrails.py`
+- trace tests in `tests/test_agent_trace.py`
 - chat/static frontend V2 integration checks in `tests/test_chat_app.py`
 
 Reality captured in docs:

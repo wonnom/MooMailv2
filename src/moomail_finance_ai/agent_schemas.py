@@ -187,7 +187,7 @@ class SentimentCandidate(StrictModel):
         return self
 
 
-class V2PortfolioAgentPacket(StrictModel):
+class PortfolioAgentEvidencePacket(StrictModel):
     portfolio_id: str
     context_plan: PortfolioContextPlan
     base_packet: PortfolioAgentPacket | None = None
@@ -255,7 +255,7 @@ class SentimentPacket(StrictModel):
     holdings: list[SentimentHolding] = Field(default_factory=list)
     portfolio_level_sentiment: PortfolioLevelSentiment = Field(
         default_factory=lambda: PortfolioLevelSentiment(
-            summary="GraphRAG sentiment retrieval is not implemented in V2."
+            summary="GraphRAG sentiment retrieval is not implemented."
         )
     )
     contradictions: list[str] = Field(default_factory=list)
@@ -316,7 +316,7 @@ class SynthesisInput(StrictModel):
     user_query: str
     query_plan: InvestmentQueryPlan
     ips: InvestmentPolicy | None = None
-    portfolio_packet: V2PortfolioAgentPacket | None = None
+    portfolio_packet: PortfolioAgentEvidencePacket | None = None
     sentiment_packet: SentimentPacket | None = None
     memory_context: list[MemoryRecord] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -381,7 +381,7 @@ class InvestmentAgentState(StrictModel):
     ips: InvestmentPolicy | None = None
     query_plan: InvestmentQueryPlan | None = None
     memory_context: list[MemoryRecord] = Field(default_factory=list)
-    portfolio_packet: V2PortfolioAgentPacket | None = None
+    portfolio_packet: PortfolioAgentEvidencePacket | None = None
     sentiment_packet: SentimentPacket | None = None
     synthesis: SynthesisInput | None = None
     guardrail_review: GuardrailReview | None = None

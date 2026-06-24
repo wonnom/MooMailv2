@@ -9,7 +9,7 @@ testing different responsibilities rather than duplicating each other.
 | --- | --- | --- | --- | --- |
 | `tests/test_mcp_tool_contracts.py` | Individual MCP tool contracts for OpenD, portfolio SQL, and metrics | No | No | Proves each tool's structured inputs/outputs without live services |
 | `tests/test_mcp_stdio_round_trips.py` | Starts each local FastMCP server script and calls it through the official MCP stdio client | No | No | Proves process-level FastMCP server wiring works |
-| `tests/test_mcp_fastmcp_parity.py` | Compares representative FastMCP stdio results with direct module results | No | Temp SQLite only | Proves V3.1 preserves V2 structured payload shapes during server migration |
+| `tests/test_mcp_fastmcp_parity.py` | Compares representative FastMCP stdio results with direct module results | No | Temp SQLite only | Proves FastMCP servers preserve the structured payload shapes from direct modules |
 | `tests/test_mcp_gateway_contract.py` | Gateway protocol/result/error contract | No | No | Defines the V3.2 gateway boundary |
 | `tests/test_mcp_gateway.py` | DirectToolGateway permissions, structured results, resource permissions, and global trade/order denial | No | Temp SQLite only | Proves gateway allowlists and direct parity mode |
 | `tests/test_mcp_stdio_gateway.py` | StdioMCPToolGateway calls FastMCP servers through the official MCP client and reuses sessions | No | Temp SQLite only | Proves production-ish local MCP runtime boundary |
@@ -30,9 +30,9 @@ testing different responsibilities rather than duplicating each other.
 The MCP tests do not replace adapter or normalization tests. They prove that the
 MCP boundary calls those layers correctly.
 
-V3 note: the three local MCP server scripts now use the official FastMCP runtime
-over stdio. The deterministic dashboard lane, Portfolio Agent, and V2
-Investment Agent use `MCPToolGateway`; the default local runtime is
+Runtime note: the three local MCP server scripts use the official FastMCP runtime
+over stdio. The deterministic dashboard lane, Portfolio Agent, and Investment
+Agent use `MCPToolGateway`; the default local runtime is
 `StdioMCPToolGateway`, while `DirectToolGateway` remains test/dev parity
 support.
 
@@ -55,27 +55,18 @@ test when that backend exists.
 | `tests/test_llm.py` | Provider-neutral LLM config/client selection for Gemini and OpenAI |
 | `tests/test_research.py` | Local research store and Sentiment Agent contracts |
 | `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, daily SQL idempotency, and LLM evaluator JSON parsing/recovery |
-| `tests/test_full_agent.py` | Full local Investment Agent flow, guardrails, audit, and memory summary writes |
-| `tests/test_v2_schemas.py` | V2 Pydantic contracts, fixtures, guardrail schema, and trace schema |
-| `tests/test_v2_investment_agent.py` | Thin LangGraph Investment Agent routing, fake subagent call counts, missing-research synthesis, and status events |
-| `tests/test_v2_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, history/persistence minimization, and tool trace entries |
-| `tests/test_sentiment_agent_stub.py` | V2 Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
-| `tests/test_v2_guardrails.py` | Deterministic V2 no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
-| `tests/test_v2_trace.py` | V2 trace sanitizer, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |
+| `tests/test_agent_schemas.py` | Agent Pydantic contracts, fixtures, guardrail schema, and trace schema |
+| `tests/test_investment_agent.py` | Thin LangGraph Investment Agent routing, fake subagent call counts, missing-research synthesis, and status events |
+| `tests/test_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, history/persistence minimization, and tool trace entries |
+| `tests/test_sentiment_agent_stub.py` | Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
+| `tests/test_investment_guardrails.py` | Deterministic investment no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
+| `tests/test_agent_trace.py` | Agent trace sanitizer, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |
 | `tests/test_chat_app.py` | Local HTTP/chat API and static frontend expectations |
 | `tests/test_portfolio_data_service.py` | Deterministic backend portfolio data lane: status, SQL-backed dashboard reads, OpenD refresh, metrics, SQL persistence, stale fallback, and API route delegation |
-| `tests/test_prototype.py` | Milestone 1 static Investment Agent prototype contracts |
 
-The current Investment Agent/prototype tests are historical contract coverage
-from the V1 build. They remain useful until the V2 Investment Agent fully
-replaces the older prototype/full-agent paths in CLI/chat/docs. Retirement plan:
-
-- Keep `tests/test_prototype.py` while `src/moomail_finance_ai/agents.py` is
-  still present as historical Milestone 1 coverage.
-- Keep `tests/test_full_agent.py` while `src/moomail_finance_ai/full_agent.py`
-  remains a supported local full-agent path.
-- Delete or merge these only after the V2 Investment Agent owns equivalent
-  memory/audit/sentiment behavior and the older entrypoints are removed.
+Historical prototype/full-agent tests were removed after the canonical
+Investment Agent became the supported chat/CLI path. Historical design context
+remains under `docs/finance-ai/V1_TASKS/` and `docs/finance-ai/V2_Tasks/`.
 
 ## V2 Closeout Test Gate
 

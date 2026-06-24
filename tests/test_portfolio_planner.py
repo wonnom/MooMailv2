@@ -11,13 +11,13 @@ from moomail_finance_ai.mcp.portfolio_sql_mcp import SERVER_NAME as PORTFOLIO_SQ
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.portfolio_agent import (
-    MCPPortfolioAgent,
+    PortfolioAgent,
     PortfolioEvaluation,
     interpret_portfolio_task,
     plan_portfolio_context,
 )
 from moomail_finance_ai.sql_store import PortfolioSqlStore
-from moomail_finance_ai.v2_schemas import PortfolioTask
+from moomail_finance_ai.agent_schemas import PortfolioTask
 
 
 def test_portfolio_task_interpreter_cash_weight():
@@ -70,7 +70,7 @@ def test_purchase_cost_query_routes_to_position_change_history():
     assert "position_state_changes" in plan.history_queries
 
 
-def test_full_review_plan_matches_v1_broad_context():
+def test_full_review_plan_matches_broad_portfolio_context():
     task = interpret_portfolio_task("Review my portfolio risk")
     plan = plan_portfolio_context(task)
 
@@ -159,7 +159,7 @@ def test_named_ticker_change_query_scopes_position_history_tool(
             ]
         )
     )
-    agent = MCPPortfolioAgent(
+    agent = PortfolioAgent(
         gateway=gateway,
         evaluator=CapturingEvaluator(),
     )
@@ -238,7 +238,7 @@ def test_portfolio_trace_includes_planned_actual_and_skipped_tools(
 
 
 def _agent(store, recorded_opend_client, evaluator):
-    return MCPPortfolioAgent(
+    return PortfolioAgent(
         gateway=DirectToolGateway(
             [
                 build_opend_mcp_module(

@@ -38,7 +38,7 @@ Then run:
 
 ```bash
 python -m pytest
-python scripts/run_prototype.py "Review my portfolio"
+python -m moomail_finance_ai --agent investment "Review my portfolio"
 python scripts/check_opend.py --env-file config/local.env
 python scripts/explore_opend_fields.py --env-file config/local.env --output reports/opend/field-report.json
 python scripts/portfolio_agent_review.py --env-file config/local.env --llm-provider gemini
@@ -49,7 +49,7 @@ Or call the venv interpreter directly:
 
 ```bash
 .venv/bin/python -m pytest
-.venv/bin/python scripts/run_prototype.py "Review my portfolio"
+.venv/bin/python -m moomail_finance_ai --agent investment "Review my portfolio"
 .venv/bin/python scripts/check_opend.py --env-file config/local.env
 .venv/bin/python scripts/explore_opend_fields.py --env-file config/local.env --output reports/opend/field-report.json
 .venv/bin/python scripts/portfolio_agent_review.py --env-file config/local.env --llm-provider gemini

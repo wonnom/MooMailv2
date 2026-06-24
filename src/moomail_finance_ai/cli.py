@@ -3,60 +3,85 @@ from __future__ import annotations
 import argparse
 import json
 
-from moomail_finance_ai.agents import InvestmentAgentPrototype
-from moomail_finance_ai.schemas import AgentState
+from moomail_finance_ai.chat_api import chat_response
+from moomail_finance_ai.portfolio_agent import build_default_portfolio_agent
+from moomail_finance_ai.investment_agent import build_default_investment_agent
+from moomail_finance_ai.mocks import mock_investment_policy
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the static Finance AI prototype.")
+    parser = argparse.ArgumentParser(description="Run the local Finance AI runtime.")
     parser.add_argument("query", nargs="*", default=["Review", "my", "portfolio"])
+    parser.add_argument("--agent", choices=["portfolio", "investment"], default="investment")
+    parser.add_argument("--env-file", default="config/local.env")
+    parser.add_argument("--from-report", default="reports/opend/field-report.json")
+    parser.add_argument("--db", default="data/portfolio-history.sqlite")
+    parser.add_argument("--llm-provider", default=None, choices=["gemini", "openai"])
     parser.add_argument("--json", action="store_true", help="Print the full state as JSON.")
     args = parser.parse_args()
 
-    state = InvestmentAgentPrototype().run(" ".join(args.query))
-    if args.json:
-        print(json.dumps(state.model_dump(mode="json"), indent=2))
-    else:
-        print(format_terminal_report(state))
+    query = " ".join(args.query)
+    agent = None
+    try:
+        if args.agent == "portfolio":
+            agent = build_default_portfolio_agent(
+                env_file=args.env_file,
+                from_report=args.from_report,
+                db_path=args.db,
+                llm_provider=args.llm_provider,
+            )
+            state = agent.run(query, mock_investment_policy())
+        else:
+            agent = build_default_investment_agent(
+                env_file=args.env_file,
+                from_report=args.from_report,
+                db_path=args.db,
+                llm_provider=args.llm_provider,
+            )
+            state = agent.run(query)
+
+        if args.json:
+            print(json.dumps(state.model_dump(mode="json"), indent=2))
+        else:
+            print(format_terminal_report(chat_response(state)))
+    finally:
+        close = getattr(agent, "close", None)
+        if callable(close):
+            close()
 
 
-def format_terminal_report(state: AgentState) -> str:
-    if state.final_report is None or state.guardrail_result is None:
-        return "Prototype run did not produce a final report."
-    report = state.final_report
+def format_terminal_report(payload: dict) -> str:
+    report = payload.get("final_report")
+    guardrail = payload.get("guardrail_result")
+    if not report:
+        return "Agent run did not produce a final report."
     lines = [
-        f"# {report.title}",
+        f"# {report['title']}",
         "",
-        f"Mode: {report.mode}",
-        f"As of: {report.as_of.isoformat()}",
+        f"Agent: {payload.get('agent_type', 'unknown')}",
+        f"Mode: {payload.get('mode') or report.get('mode')}",
+        f"As of: {report.get('as_of')}",
         "",
         "## Summary",
-        report.summary,
-        "",
-        "## Recommendations",
+        report["summary"],
     ]
-    for recommendation in report.recommendations:
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        lines.extend(["", "## Recommendations"])
+    for recommendation in recommendations:
         lines.extend(
             [
-                f"- {recommendation.title}",
-                f"  Rationale: {recommendation.rationale}",
+                f"- {recommendation['title']}",
+                f"  Rationale: {recommendation['rationale']}",
             ]
         )
-    lines.extend(["", "## Missing Data"])
-    lines.extend(f"- {item}" for item in report.missing_data)
-    lines.extend(["", "## Citations"])
-    lines.extend(
-        f"- {citation.citation_id}: {citation.title} ({citation.document_id})"
-        for citation in report.citations
-    )
-    lines.extend(
-        [
-            "",
-            "## Guardrails",
-            f"Passed: {state.guardrail_result.passed}",
-        ]
-    )
-    for check in state.guardrail_result.checks:
-        lines.append(f"- {check.check}: {'pass' if check.passed else 'fail'} - {check.message}")
+    missing_data = report.get("missing_data") or []
+    if missing_data:
+        lines.extend(["", "## Missing Data"])
+        lines.extend(f"- {item}" for item in missing_data)
+    if guardrail:
+        lines.extend(["", "## Guardrails", f"Passed: {guardrail.get('passed')}"])
+        for check in guardrail.get("checks", []):
+            status = "pass" if check.get("passed") else "fail"
+            lines.append(f"- {check.get('check')}: {status} - {check.get('message')}")
     return "\n".join(lines)
-

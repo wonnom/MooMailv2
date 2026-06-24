@@ -13,16 +13,16 @@ from moomail_finance_ai.portfolio_agent import (
     build_effective_cash_summary,
     plan_portfolio_context,
 )
-from moomail_finance_ai.sentiment_agent_stub import V2SentimentAgentStub
-from moomail_finance_ai.v2_investment_agent import (
-    V2InvestmentAgent,
+from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
+from moomail_finance_ai.investment_agent import (
+    InvestmentAgent,
     classify_investment_query,
 )
-from moomail_finance_ai.v2_schemas import PortfolioTask, SentimentPacket, SentimentTask
+from moomail_finance_ai.agent_schemas import PortfolioTask, SentimentPacket, SentimentTask
 
 
-def test_v2_dependency_strategy_uses_real_langgraph_runtime():
-    agent = V2InvestmentAgent(
+def test_dependency_strategy_uses_real_langgraph_runtime():
+    agent = InvestmentAgent(
         portfolio_agent=FakePortfolioAgent(),
         sentiment_agent=FakeSentimentAgent(),
         ips=mock_investment_policy(),
@@ -32,7 +32,7 @@ def test_v2_dependency_strategy_uses_real_langgraph_runtime():
     assert hasattr(agent.graph, "invoke")
 
 
-def test_v2_classifier_cash_query_portfolio_only():
+def test_classifier_cash_query_portfolio_only():
     plan = classify_investment_query("How much effective cash do I have?")
 
     assert plan.mode == "portfolio_fact"
@@ -43,10 +43,10 @@ def test_v2_classifier_cash_query_portfolio_only():
     assert plan.sentiment_task is None
 
 
-def test_v2_routing_portfolio_only_skips_sentiment():
+def test_routing_portfolio_only_skips_sentiment():
     portfolio_agent = FakePortfolioAgent()
     sentiment_agent = FakeSentimentAgent()
-    agent = V2InvestmentAgent(
+    agent = InvestmentAgent(
         portfolio_agent=portfolio_agent,
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
@@ -66,10 +66,10 @@ def test_v2_routing_portfolio_only_skips_sentiment():
     assert "Sentiment Agent GraphRAG retrieval" not in state.final_report.missing_data
 
 
-def test_v2_full_review_routes_portfolio_then_sentiment_stub():
+def test_full_review_routes_portfolio_then_sentiment_stub():
     portfolio_agent = FakePortfolioAgent()
     sentiment_agent = FakeSentimentAgent()
-    agent = V2InvestmentAgent(
+    agent = InvestmentAgent(
         portfolio_agent=portfolio_agent,
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
@@ -94,17 +94,17 @@ def test_v2_full_review_routes_portfolio_then_sentiment_stub():
     assert state.sentiment_packet.retrieval_status == "not_implemented"
 
 
-def test_v2_full_review_includes_missing_research_without_fake_citations():
-    agent = V2InvestmentAgent(
+def test_full_review_includes_missing_research_without_fake_citations():
+    agent = InvestmentAgent(
         portfolio_agent=FakePortfolioAgent(),
-        sentiment_agent=V2SentimentAgentStub(),
+        sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
     )
 
     state = agent.run("Review my portfolio.")
 
     assert state.final_report is not None
-    assert "Sentiment Agent GraphRAG retrieval is not implemented in V2." in (
+    assert "Sentiment Agent GraphRAG retrieval is not implemented." in (
         state.final_report.missing_data
     )
     assert state.final_report.citations == []
@@ -114,9 +114,9 @@ def test_v2_full_review_includes_missing_research_without_fake_citations():
     assert state.guardrail_review.passed is True
 
 
-def test_v2_user_named_sentiment_query_scopes_requested_ticker():
+def test_user_named_sentiment_query_scopes_requested_ticker():
     sentiment_agent = FakeSentimentAgent()
-    agent = V2InvestmentAgent(
+    agent = InvestmentAgent(
         portfolio_agent=FakePortfolioAgent(candidate_weights=False),
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
@@ -131,9 +131,9 @@ def test_v2_user_named_sentiment_query_scopes_requested_ticker():
     assert sentiment_agent.last_task.tickers == ["GOOG"]
 
 
-def test_v2_streamed_status_events_include_graph_steps():
+def test_streamed_status_events_include_graph_steps():
     emitted = []
-    agent = V2InvestmentAgent(
+    agent = InvestmentAgent(
         portfolio_agent=FakePortfolioAgent(),
         sentiment_agent=FakeSentimentAgent(),
         ips=mock_investment_policy(),

@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from moomail_finance_ai.metrics import v1_us_equity_holdings
+from moomail_finance_ai.metrics import us_equity_analysis_holdings
 from moomail_finance_ai.opend import OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.schemas import (
     AllocationSlice,
@@ -164,7 +164,7 @@ def build_portfolio_agent_packet(
     for cash in snapshot.cash:
         by_type_values["cash"] += cash.amount
 
-    analysis_holdings = v1_us_equity_holdings(snapshot)
+    analysis_holdings = us_equity_analysis_holdings(snapshot)
     concentration = [
         {
             "ticker": holding.ticker,
@@ -194,11 +194,11 @@ def build_portfolio_agent_packet(
     excluded_holdings = len(snapshot.holdings) - len(analysis_holdings)
     if excluded_holdings:
         warnings.append(
-            f"{excluded_holdings} holding(s) are stored but excluded from v1 US-equity analysis."
+            f"{excluded_holdings} holding(s) are stored but excluded from US-equity analysis analysis."
         )
     if snapshot.cash and snapshot.cash[0].amount < 0:
         warnings.append(
-            "Negative cash or margin balance is stored but not treated as a v1 equity issue."
+            "Negative cash or margin balance is stored but not treated as a US-equity analysis issue."
         )
     if any(holding.asset_type == "cash_equivalent" for holding in snapshot.holdings):
         warnings.append(
@@ -241,7 +241,7 @@ def build_portfolio_agent_packet(
             ),
             periods=[],
             benchmark=ips.benchmark,
-            warnings=["SQL history is not connected in Milestone 2."],
+            warnings=["SQL history is not connected for this packet."],
         ),
         risk=RiskSummary(
             concentration=concentration,

@@ -11,13 +11,13 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from moomail_finance_ai.v2_investment_agent import build_default_v2_investment_agent  # noqa: E402
-from moomail_finance_ai.v2_schemas import InvestmentAgentState  # noqa: E402
-from moomail_finance_ai.v2_trace import sanitize_trace_events  # noqa: E402
+from moomail_finance_ai.investment_agent import build_default_investment_agent  # noqa: E402
+from moomail_finance_ai.agent_schemas import InvestmentAgentState  # noqa: E402
+from moomail_finance_ai.agent_trace import sanitize_trace_events  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the V2 Investment Agent supervisor.")
+    parser = argparse.ArgumentParser(description="Run the Investment Agent supervisor.")
     parser.add_argument("query", nargs="*", default=["Review", "my", "portfolio"])
     parser.add_argument("--env-file", default="config/local.env")
     parser.add_argument("--from-report", default="reports/opend/field-report.json")
@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    agent = build_default_v2_investment_agent(
+    agent = build_default_investment_agent(
         env_file=args.env_file,
         from_report=args.from_report,
         db_path=args.db,
@@ -38,12 +38,12 @@ def main() -> None:
             print(json.dumps(state.model_dump(mode="json"), indent=2))
             return
 
-        print("\n".join(v2_terminal_summary_lines(state, graph_runtime=agent.graph_runtime)))
+        print("\n".join(investment_terminal_summary_lines(state, graph_runtime=agent.graph_runtime)))
     finally:
         agent.close()
 
 
-def v2_terminal_summary_lines(
+def investment_terminal_summary_lines(
     state: InvestmentAgentState,
     *,
     graph_runtime: str = "unknown",
@@ -51,7 +51,7 @@ def v2_terminal_summary_lines(
     final_report = state.final_report
     guardrail = state.guardrail_review
     lines = [
-        "# V2 Investment Agent Review",
+        "# Investment Agent Review",
         "",
         f"Mode: {state.mode}",
         f"Graph runtime: {graph_runtime}",

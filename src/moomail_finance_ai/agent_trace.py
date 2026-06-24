@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from moomail_finance_ai.v2_schemas import TraceEvent
+from moomail_finance_ai.agent_schemas import TraceEvent
 
 
 TRACE_METADATA_ALLOWLIST = {

@@ -247,21 +247,3 @@ class AuditRecord(StrictModel):
     guardrail_result: GuardrailResult
     output_summary: str
     memory_updates: list[MemoryRecord] = Field(default_factory=list)
-
-
-class AgentState(StrictModel):
-    run_id: str
-    user_query: str
-    mode: Mode | None = None
-    portfolio_id: str = "portfolio_default"
-    ips: InvestmentPolicy | None = None
-    memory_context: list[MemoryRecord] = Field(default_factory=list)
-    portfolio_packet: PortfolioAgentPacket | None = None
-    sentiment_scope: list[SentimentScopeItem] = Field(default_factory=list)
-    sentiment_packet: SentimentAgentPacket | None = None
-    guardrail_result: GuardrailResult | None = None
-    final_report: FinalReport | None = None
-    status_events: list[StatusEvent] = Field(default_factory=list)
-    audit_record: AuditRecord | None = None
-    warnings: list[str] = Field(default_factory=list)
-

@@ -2,7 +2,7 @@
 
 ## Runtime Flow
 
-V2 Investment Agent should run as a thin LangGraph state machine. Each run
+The Investment Agent runs as a thin LangGraph state machine. Each run
 receives a user query and produces a structured final report.
 
 ```text
@@ -19,9 +19,8 @@ receives a user query and produces a structured final report.
 11. write_audit_summary
 ```
 
-Memory retrieval and writes remain part of the long-term design, but V2 may keep
-memory as a local placeholder while the orchestration and subagent contracts are
-stabilized.
+Memory retrieval and writes remain part of the long-term design. The current
+runtime does not connect Pinecone or another long-term memory store.
 
 ## Status Events
 
@@ -64,7 +63,7 @@ Status events must not reveal private chain-of-thought. They may reveal tool
 names, high-level steps, bounded input/output summaries, skipped-tool reasons,
 warnings, errors, and operational progress.
 
-V2 public trace metadata is allowlisted. Allowed metadata includes phase,
+Public trace metadata is allowlisted. Allowed metadata includes phase,
 result, guardrail status, check count, tool call kind, retrieval status, missing
 document count, warning count, pass/fail status, output status, and error
 location. Denied metadata includes hidden chain-of-thought, raw prompts,
@@ -98,12 +97,12 @@ The frontend must stop the loading state when it receives `error`, show a failed
 chat status, and render the error details in the trace panel. Traceback lines are
 local operational diagnostics; they must not include hidden model reasoning.
 
-## V3 Portfolio Data Lane Protocol
+## Portfolio Data Lane Protocol
 
-V3 adds a deterministic portfolio data lane for dashboard status, page load, and
+The deterministic portfolio data lane supports dashboard status, page load, and
 manual refresh. This lane is not an agent query and must not call an LLM.
 
-The frontend calls backend APIs only. The backend calls MCP through the V3
+The frontend calls backend APIs only. The backend calls MCP through the
 gateway.
 
 Implemented backend routes:
@@ -208,7 +207,7 @@ High-level state shape:
 }
 ```
 
-## V2 Query Plan
+## Query Plan
 
 The Investment Agent should route from a compact structured plan:
 
@@ -233,7 +232,7 @@ The Investment Agent should route from a compact structured plan:
 The Investment Agent owns this plan. Portfolio Agent may suggest sentiment
 candidates in its response, but it must not call Sentiment Agent directly.
 
-## V2 Portfolio Context Plan
+## Portfolio Context Plan
 
 Portfolio Agent should produce a bounded context plan before executing tools:
 
@@ -298,7 +297,7 @@ Illustrative high-level schema:
 }
 ```
 
-Currency should be stored on every balance, quote, position, transaction, and snapshot, even if v1 analysis defaults to USD.
+Currency should be stored on every balance, quote, position, transaction, and snapshot, even if current analysis defaults to USD.
 
 ## Portfolio Agent Packet
 
@@ -345,7 +344,7 @@ Severity labels are operational triage, not confidence scores.
 
 ## Sentiment Packet
 
-Current V2 stub response:
+Current stub response:
 
 ```json
 {
@@ -369,7 +368,7 @@ Current V2 stub response:
   ],
   "holdings": [],
   "portfolio_level_sentiment": {
-    "summary": "GraphRAG sentiment retrieval is not implemented in V2. No sentiment stance, company claims, or citations were produced.",
+    "summary": "GraphRAG sentiment retrieval is not implemented. No sentiment stance, company claims, or citations were produced.",
     "themes": [],
     "risks": [],
     "citations": []
@@ -382,7 +381,7 @@ Current V2 stub response:
       "ticker": "AAPL",
       "entity": null,
       "document_type": "earnings_transcript",
-      "reason": "Neo4j GraphRAG is not implemented in V2. The V2 stub cannot retrieve earnings transcript evidence."
+      "reason": "Neo4j GraphRAG is not implemented. The sentiment stub cannot retrieve earnings transcript evidence."
     }
   ],
   "citations": [],
@@ -390,17 +389,17 @@ Current V2 stub response:
     "freshness_status": "unknown",
     "missing_fields": ["graph_rag_corpus", "neo4j_research_store"],
     "warnings": [
-      "Sentiment Agent is a V2 stub; no research retrieval was performed.",
-      "Neo4j GraphRAG is not implemented in V2."
+      "Sentiment Agent is a stub; no research retrieval was performed.",
+      "Neo4j GraphRAG is not implemented."
     ]
   },
-  "warnings": ["Sentiment Agent is a V2 stub.", "Neo4j GraphRAG is not implemented in V2."]
+  "warnings": ["Sentiment Agent is a stub.", "Neo4j GraphRAG is not implemented."]
 }
 ```
 
 Sentiment stance is qualitative: `positive`, `mixed`, `negative`, or `unclear`.
 
-In V2, Sentiment Agent returns this shape as a stub. It should use
+The current Sentiment Agent returns this shape as a stub. It should use
 `retrieval_status: "not_implemented"` or `retrieval_status: "missing_corpus"`
 and must not invent research claims, citations, source metadata, or sentiment.
 When GraphRAG is implemented, the same packet can include populated holdings,

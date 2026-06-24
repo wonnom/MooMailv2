@@ -5,7 +5,6 @@ from pathlib import Path
 import traceback
 from typing import Any
 
-from moomail_finance_ai.full_agent import build_default_full_agent
 from moomail_finance_ai.mcp.gateway import (
     MCPToolGateway,
     StdioMCPToolGateway,
@@ -24,12 +23,12 @@ from moomail_finance_ai.portfolio_data_service import (
     PortfolioRefreshResult,
     build_default_portfolio_data_service,
 )
-from moomail_finance_ai.schemas import AgentState, StatusEvent
-from moomail_finance_ai.v2_investment_agent import V2InvestmentAgent
-from moomail_finance_ai.v2_investment_agent import build_default_v2_investment_agent
-from moomail_finance_ai.v2_schemas import InvestmentAgentState as V2InvestmentAgentState
-from moomail_finance_ai.v2_schemas import TraceEvent
-from moomail_finance_ai.v2_trace import sanitize_public_text, trace_event_to_public_dict
+from moomail_finance_ai.schemas import StatusEvent
+from moomail_finance_ai.investment_agent import InvestmentAgent
+from moomail_finance_ai.investment_agent import build_default_investment_agent
+from moomail_finance_ai.agent_schemas import InvestmentAgentState
+from moomail_finance_ai.agent_schemas import TraceEvent
+from moomail_finance_ai.agent_trace import sanitize_public_text, trace_event_to_public_dict
 
 
 class ChatService:
@@ -38,22 +37,20 @@ class ChatService:
         *,
         from_report: str | Path | None = "reports/opend/field-report.json",
         db_path: str | Path = "data/portfolio-history.sqlite",
-        memory_path: str | Path = "data/chat-investment-memory.json",
         env_file: str | Path | None = "config/local.env",
         llm_provider: str | None = None,
         portfolio_evaluator: PortfolioEvaluator | None = None,
-        v2_investment_agent: V2InvestmentAgent | None = None,
+        investment_agent: InvestmentAgent | None = None,
         portfolio_data_service: PortfolioDataService | None = None,
         mcp_gateway: MCPToolGateway | None = None,
         default_agent: str = "investment",
     ):
         self.from_report = from_report
         self.db_path = db_path
-        self.memory_path = memory_path
         self.env_file = env_file
         self.llm_provider = llm_provider
         self.portfolio_evaluator = portfolio_evaluator
-        self.v2_investment_agent = v2_investment_agent
+        self.investment_agent = investment_agent
         self._portfolio_data_service = portfolio_data_service
         self._mcp_gateway = mcp_gateway
         self.default_agent = default_agent
@@ -64,7 +61,7 @@ class ChatService:
         *,
         status_callback=None,
         agent: str | None = None,
-    ) -> AgentState | PortfolioAgentResult | V2InvestmentAgentState:
+    ) -> PortfolioAgentResult | InvestmentAgentState:
         selected_agent = agent or self.default_agent
         if selected_agent == "portfolio":
             portfolio_agent = build_default_portfolio_agent(
@@ -80,8 +77,8 @@ class ChatService:
                 mock_investment_policy(),
                 status_callback=status_callback,
             )
-        if selected_agent in {"investment_v2", "v2_investment"}:
-            v2_agent = self.v2_investment_agent or build_default_v2_investment_agent(
+        if selected_agent == "investment":
+            investment_agent = self.investment_agent or build_default_investment_agent(
                 env_file=self.env_file,
                 from_report=self.from_report,
                 db_path=self.db_path,
@@ -89,15 +86,8 @@ class ChatService:
                 portfolio_evaluator=self.portfolio_evaluator,
                 gateway=self.mcp_gateway(),
             )
-            return v2_agent.run(query, status_callback=status_callback)
-        if selected_agent != "investment":
-            raise ValueError(f"Unsupported chat agent: {selected_agent}")
-        agent = build_default_full_agent(
-            from_report=self.from_report,
-            db_path=self.db_path,
-            memory_path=self.memory_path,
-        )
-        return agent.run(query, status_callback=status_callback)
+            return investment_agent.run(query, status_callback=status_callback)
+        raise ValueError(f"Unsupported chat agent: {selected_agent}")
 
     def portfolio_connection_status(self) -> PortfolioConnectionStatus:
         return self.portfolio_data_service().connection_status()
@@ -136,18 +126,18 @@ class ChatService:
 
 
 def chat_response(
-    state: AgentState | PortfolioAgentResult | V2InvestmentAgentState,
+    state: PortfolioAgentResult | InvestmentAgentState,
 ) -> dict[str, Any]:
-    if isinstance(state, V2InvestmentAgentState):
-        return v2_state_response(state)
+    if isinstance(state, InvestmentAgentState):
+        return investment_state_response(state)
     if isinstance(state, PortfolioAgentResult):
         return portfolio_agent_response(state)
-    return state_response(state)
+    raise TypeError(f"Unsupported chat response state: {type(state).__name__}")
 
 
-def v2_state_response(state: V2InvestmentAgentState) -> dict[str, Any]:
+def investment_state_response(state: InvestmentAgentState) -> dict[str, Any]:
     return {
-        "agent_type": "investment_agent_v2",
+        "agent_type": "investment_agent",
         "run_id": state.run_id,
         "mode": state.mode,
         "status_events": [trace_event_to_public_dict(event) for event in state.status_events],
@@ -164,20 +154,6 @@ def v2_state_response(state: V2InvestmentAgentState) -> dict[str, Any]:
             state.guardrail_review.model_dump(mode="json") if state.guardrail_review else None
         ),
         "audit_record": None,
-    }
-
-
-def state_response(state: AgentState) -> dict[str, Any]:
-    return {
-        "agent_type": "investment_agent",
-        "run_id": state.run_id,
-        "mode": state.mode,
-        "status_events": [event.model_dump(mode="json") for event in state.status_events],
-        "final_report": state.final_report.model_dump(mode="json") if state.final_report else None,
-        "guardrail_result": state.guardrail_result.model_dump(mode="json")
-        if state.guardrail_result
-        else None,
-        "audit_record": state.audit_record.model_dump(mode="json") if state.audit_record else None,
     }
 
 

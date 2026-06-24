@@ -8,7 +8,7 @@ from moomail_finance_ai.schemas import (
     PortfolioLevelSentiment,
     SentimentScopeItem,
 )
-from moomail_finance_ai.v2_schemas import (
+from moomail_finance_ai.agent_schemas import (
     EvidenceType,
     MissingResearchDocument,
     SentimentPacket,
@@ -16,12 +16,12 @@ from moomail_finance_ai.v2_schemas import (
 )
 
 
-STUB_WARNING = "Sentiment Agent is a V2 stub; no research retrieval was performed."
-GRAPHRAG_WARNING = "Neo4j GraphRAG is not implemented in V2."
+STUB_WARNING = "Sentiment Agent is a stub; no research retrieval was performed."
+GRAPHRAG_WARNING = "Neo4j GraphRAG is not implemented."
 
 
 @dataclass
-class V2SentimentAgentStub:
+class SentimentAgentStub:
     """Deterministic contract stub for the future GraphRAG Sentiment Agent."""
 
     calls: int = 0
@@ -42,7 +42,7 @@ def build_missing_research_packet(task: SentimentTask) -> SentimentPacket:
         holdings=[],
         portfolio_level_sentiment=PortfolioLevelSentiment(
             summary=(
-                "GraphRAG sentiment retrieval is not implemented in V2. "
+                "GraphRAG sentiment retrieval is not implemented. "
                 "No sentiment stance, company claims, or citations were produced."
             )
         ),
@@ -56,7 +56,7 @@ def build_missing_research_packet(task: SentimentTask) -> SentimentPacket:
             missing_fields=["graph_rag_corpus", "neo4j_research_store"],
             warnings=[STUB_WARNING, GRAPHRAG_WARNING],
         ),
-        warnings=["Sentiment Agent is a V2 stub.", GRAPHRAG_WARNING],
+        warnings=["Sentiment Agent is a stub.", GRAPHRAG_WARNING],
     )
 
 
@@ -115,6 +115,6 @@ def _missing_documents_for_entities(
 
 def _missing_reason(evidence_type: EvidenceType) -> str:
     return (
-        f"{GRAPHRAG_WARNING} The V2 stub cannot retrieve "
+        f"{GRAPHRAG_WARNING} The sentiment stub cannot retrieve "
         f"{evidence_type.replace('_', ' ')} evidence."
     )

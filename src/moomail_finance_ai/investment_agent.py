@@ -21,10 +21,10 @@ from moomail_finance_ai.schemas import (
     InvestmentPolicy,
     Recommendation,
 )
-from moomail_finance_ai.v2_guardrails import review_v2_report
-from moomail_finance_ai.sentiment_agent_stub import V2SentimentAgentStub
-from moomail_finance_ai.v2_trace import sanitize_trace_event
-from moomail_finance_ai.v2_schemas import (
+from moomail_finance_ai.investment_guardrails import review_investment_report
+from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
+from moomail_finance_ai.agent_trace import sanitize_trace_event
+from moomail_finance_ai.agent_schemas import (
     InvestmentAgentState,
     InvestmentQueryPlan,
     PortfolioContextPlan,
@@ -34,7 +34,7 @@ from moomail_finance_ai.v2_schemas import (
     SentimentTask,
     SynthesisInput,
     TraceEvent,
-    V2PortfolioAgentPacket,
+    PortfolioAgentEvidencePacket,
 )
 
 
@@ -94,9 +94,9 @@ class SentimentAgentProtocol(Protocol):
 
 
 @dataclass
-class V2InvestmentAgent:
+class InvestmentAgent:
     portfolio_agent: PortfolioAgentProtocol
-    sentiment_agent: SentimentAgentProtocol = field(default_factory=V2SentimentAgentStub)
+    sentiment_agent: SentimentAgentProtocol = field(default_factory=SentimentAgentStub)
     ips: InvestmentPolicy = field(default_factory=mock_investment_policy)
     graph_runtime: str = field(init=False)
     _status_callback: Callable[[TraceEvent], None] | None = field(
@@ -110,7 +110,7 @@ class V2InvestmentAgent:
 
     def run(self, query: str, *, status_callback=None) -> InvestmentAgentState:
         state = InvestmentAgentState(
-            run_id=f"v2_run_{uuid4().hex[:12]}",
+            run_id=f"investment_run_{uuid4().hex[:12]}",
             user_query=query,
         )
         self._status_callback = status_callback
@@ -120,7 +120,7 @@ class V2InvestmentAgent:
                 return result
             return InvestmentAgentState.model_validate(result)
         except Exception as exc:
-            self._emit_error(state, exc, status="v2_agent_error")
+            self._emit_error(state, exc, status="investment_agent_error")
             raise
         finally:
             self._status_callback = None
@@ -153,7 +153,7 @@ class V2InvestmentAgent:
         return graph.compile()
 
     def _classify_query_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
-        self._emit(state, "classifying_query", "Classifying the V2 investment query.")
+        self._emit(state, "classifying_query", "Classifying the investment query.")
         state.query_plan = classify_investment_query(state.user_query)
         state.mode = state.query_plan.mode
         self._emit(
@@ -168,7 +168,7 @@ class V2InvestmentAgent:
         return state
 
     def _load_ips_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
-        self._emit(state, "loading_policy", "Loading the V2 Investment Policy Statement.")
+        self._emit(state, "loading_policy", "Loading the Investment Policy Statement.")
         state.ips = self.ips
         state.portfolio_id = self.ips.portfolio_id
         return state
@@ -184,7 +184,7 @@ class V2InvestmentAgent:
         self._emit(
             state,
             "calling_portfolio_agent",
-            "Calling the V1 Portfolio Agent through the V2 adapter.",
+            "Calling the Portfolio Agent.",
             event_type="subagent_call",
             subagent="portfolio_agent",
         )
@@ -193,7 +193,7 @@ class V2InvestmentAgent:
             state.ips,
             portfolio_task=state.query_plan.portfolio_task,
         )
-        state.portfolio_packet = adapt_portfolio_result_to_v2(result, state.ips)
+        state.portfolio_packet = adapt_portfolio_result_to_evidence_packet(result, state.ips)
         self._emit_portfolio_tool_trace(state, state.portfolio_packet.tool_calls)
         return state
 
@@ -233,7 +233,7 @@ class V2InvestmentAgent:
         self._emit(
             state,
             "calling_sentiment_agent",
-            "Calling the V2 Sentiment Agent stub.",
+            "Calling the Sentiment Agent stub.",
             event_type="subagent_call",
             subagent="sentiment_agent",
         )
@@ -254,7 +254,7 @@ class V2InvestmentAgent:
 
     def _synthesize_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
         assert state.query_plan is not None
-        self._emit(state, "synthesizing_report", "Synthesizing the V2 Investment Agent report.")
+        self._emit(state, "synthesizing_report", "Synthesizing the Investment Agent report.")
         state.synthesis = SynthesisInput(
             run_id=state.run_id,
             user_query=state.user_query,
@@ -270,8 +270,8 @@ class V2InvestmentAgent:
 
     def _guardrail_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
         assert state.final_report is not None
-        self._emit(state, "checking_guardrails", "Running V2 output guardrails.")
-        state.guardrail_review = review_v2_report(state)
+        self._emit(state, "checking_guardrails", "Running investment output guardrails.")
+        state.guardrail_review = review_investment_report(state)
         self._emit(
             state,
             (
@@ -279,7 +279,7 @@ class V2InvestmentAgent:
                 if state.guardrail_review.passed
                 else "guardrails_blocked"
             ),
-            "V2 output guardrails completed.",
+            "Investment output guardrails completed.",
             event_type="status",
             subagent="guardrails",
             metadata={
@@ -291,7 +291,7 @@ class V2InvestmentAgent:
         return state
 
     def _final_output_node(self, state: InvestmentAgentState) -> InvestmentAgentState:
-        self._emit(state, "complete", "V2 Investment Agent run complete.")
+        self._emit(state, "complete", "Investment Agent run complete.")
         return state
 
     def _emit(
@@ -340,12 +340,12 @@ class V2InvestmentAgent:
         self._emit(
             state,
             status,
-            "V2 Investment Agent run failed.",
+            "Investment Agent run failed.",
             event_type="error",
             subagent="investment_agent",
             error_type=exc.__class__.__name__,
             error_message=str(exc) or exc.__class__.__name__,
-            metadata={"error_location": "v2_investment_agent.run"},
+            metadata={"error_location": "investment_agent.run"},
         )
 
     def _emit_portfolio_tool_trace(
@@ -381,7 +381,7 @@ def classify_investment_query(query: str) -> InvestmentQueryPlan:
             mode="unsupported",
             needs_portfolio_agent=False,
             needs_sentiment_agent=False,
-            route_reason="Trade execution requests are outside the allowed V2 scope.",
+            route_reason="Trade execution requests are outside the allowed investment-analysis scope.",
             plan_warnings=["Trade execution is not supported."],
         )
 
@@ -430,10 +430,10 @@ def classify_investment_query(query: str) -> InvestmentQueryPlan:
     )
 
 
-def adapt_portfolio_result_to_v2(
+def adapt_portfolio_result_to_evidence_packet(
     result: PortfolioAgentResult,
     ips: InvestmentPolicy,
-) -> V2PortfolioAgentPacket:
+) -> PortfolioAgentEvidencePacket:
     sentiment_candidates = _sentiment_candidates_from_portfolio(result, ips)
     context_plan = result.context_plan or PortfolioContextPlan(
         needs_current_snapshot=True,
@@ -450,7 +450,7 @@ def adapt_portfolio_result_to_v2(
         history_window="30d",
         row_limit=100,
     )
-    return V2PortfolioAgentPacket(
+    return PortfolioAgentEvidencePacket(
         portfolio_id=result.portfolio_id,
         context_plan=context_plan,
         base_packet=result.portfolio_packet,
@@ -469,9 +469,9 @@ def synthesize_final_report(state: InvestmentAgentState) -> FinalReport:
     missing_data = _missing_data(state)
     recommendations = [
         Recommendation(
-            title="Use V2 as an orchestration check, not a trading engine",
+            title="Use the Investment Agent as an orchestration check, not a trading engine",
             rationale=(
-                "The V2 Investment Agent has routed the query through portfolio evidence"
+                "The Investment Agent has routed the query through portfolio evidence"
                 " and any available sentiment stub output, while keeping trade execution"
                 " out of scope."
             ),
@@ -480,7 +480,7 @@ def synthesize_final_report(state: InvestmentAgentState) -> FinalReport:
                     "No trade placement, order entry, exact share-count instruction, "
                     "or execution path."
                 ),
-                "Sentiment output is limited to the V2 stub until GraphRAG is implemented.",
+                "Sentiment output is limited to the stub until GraphRAG is implemented.",
             ],
             missing_data=missing_data,
         )
@@ -500,7 +500,7 @@ def synthesize_final_report(state: InvestmentAgentState) -> FinalReport:
         recommendations=recommendations,
         missing_data=missing_data,
         assumptions=[
-            "Task 2 uses a thin V2 Investment Agent supervisor with a V1 Portfolio Agent adapter.",
+            "The Investment Agent uses a thin LangGraph supervisor with a Portfolio Agent subagent.",
             "Neo4j GraphRAG and Pinecone memory are intentionally not connected in Task 2.",
         ],
         citations=[],
@@ -511,7 +511,7 @@ def synthesize_final_report(state: InvestmentAgentState) -> FinalReport:
     )
 
 
-def build_default_v2_investment_agent(
+def build_default_investment_agent(
     *,
     env_file: str | Path | None = "config/local.env",
     from_report: str | Path | None = "reports/opend/field-report.json",
@@ -521,8 +521,8 @@ def build_default_v2_investment_agent(
     ips: InvestmentPolicy | None = None,
     gateway: MCPToolGateway | None = None,
     gateway_mode: str = "stdio",
-) -> V2InvestmentAgent:
-    return V2InvestmentAgent(
+) -> InvestmentAgent:
+    return InvestmentAgent(
         portfolio_agent=build_default_portfolio_agent(
             env_file=env_file,
             from_report=from_report,
@@ -532,7 +532,7 @@ def build_default_v2_investment_agent(
             gateway=gateway,
             gateway_mode=gateway_mode,
         ),
-        sentiment_agent=V2SentimentAgentStub(),
+        sentiment_agent=SentimentAgentStub(),
         ips=ips or mock_investment_policy(),
     )
 
@@ -653,7 +653,7 @@ def _portfolio_summary(state: InvestmentAgentState) -> str:
     packet = state.portfolio_packet
     base_packet = packet.base_packet
     if base_packet is None:
-        return "Portfolio Agent returned a V2 packet without a V1 base packet."
+        return "Portfolio Agent returned an evidence packet without a base portfolio packet."
     total_value = base_packet.snapshot.total_value.amount
     currency = base_packet.snapshot.total_value.currency
     holdings = len(base_packet.snapshot.holdings)
@@ -685,7 +685,7 @@ def _missing_data(state: InvestmentAgentState) -> list[str]:
         "not_implemented",
         "missing_corpus",
     }:
-        missing.append("Sentiment Agent GraphRAG retrieval is not implemented in V2.")
+        missing.append("Sentiment Agent GraphRAG retrieval is not implemented.")
         missing.extend(state.sentiment_packet.data_quality.missing_fields)
     return _dedupe(missing)
 
@@ -748,7 +748,7 @@ def _report_title(mode: str) -> str:
         "deep_dive": "Investment Deep Dive",
         "compare": "Investment Comparison",
         "unsupported": "Unsupported Request",
-    }.get(mode, "V2 Portfolio Review")
+    }.get(mode, "Portfolio Review")
 
 
 def _final_report_mode(mode: str) -> str:

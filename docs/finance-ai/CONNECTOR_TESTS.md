@@ -122,7 +122,7 @@ For faster manual diagnosis, run:
 .venv/bin/python scripts/debug_opend_trade_calls.py --env-file config/local.env
 ```
 
-For the V1 OpenD hardening gate, run:
+For the V1.1 OpenD hardening gate, run:
 
 ```bash
 .venv/bin/python scripts/opend_health_report.py \
@@ -143,7 +143,7 @@ manual verification/unlock is pending in the MooMoo/OpenD UI.
 
 The health report is the higher-level pass/warn/fail check. It treats
 unsupported OTC quote snapshots as warnings when position rows remain available,
-and it keeps crypto account discovery outside the V1 securities path.
+and it keeps crypto account discovery outside the V1.1 securities path.
 
 ### OpenD
 

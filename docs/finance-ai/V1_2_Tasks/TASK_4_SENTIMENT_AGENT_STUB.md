@@ -14,12 +14,12 @@ The stub must not fabricate sentiment, citations, documents, or company facts.
 ## Implementation Notes
 
 Implemented in `src/moomail_finance_ai/sentiment_agent_stub.py` as
-`V2SentimentAgentStub`.
+`SentimentAgentStub`.
 
 The stub:
 
 - accepts `SentimentTask` or a strict task payload dictionary
-- validates and normalizes tickers through the V2 Pydantic contract
+- validates and normalizes tickers through the V1.2 Pydantic contract
 - preserves requested tickers, entities, themes, key questions, evidence types,
   and time window on the returned packet
 - returns `retrieval_status: not_implemented`
@@ -71,7 +71,7 @@ A. Task 1 SentimentTask and SentimentPacket contracts
 | --- | --- | --- | --- |
 | D | Return `retrieval_status: not_implemented` by default. | B | Done |
 | D1 | Include `missing_documents` for requested evidence types when available in task. | D | Done |
-| D2 | Include clear warnings such as `Neo4j GraphRAG is not implemented in V2`. | D | Done |
+| D2 | Include clear warnings such as `Neo4j GraphRAG is not implemented in V1.2`. | D | Done |
 | E | Preserve requested tickers, companies, themes, and questions in output scope. | C, D | Done |
 | H | Ensure Investment Agent synthesis consumes stub status and writes a limitation in final output. | G, Task 2 | Done |
 | H1 | Synthesis should not treat stub as a failure when portfolio-only answer can proceed. | H | Done |
@@ -88,9 +88,9 @@ A. Task 1 SentimentTask and SentimentPacket contracts
 ## Tests To Add
 
 - `tests/test_sentiment_agent_stub.py`
-- `tests/fixtures/v2/sentiment_task_full_review.json`
-- `tests/fixtures/v2/sentiment_packet_stub.json`
-- Optional `tests/fixtures/v2/sentiment_packet_future_success.json`
+- `tests/fixtures/agent/sentiment_task_full_review.json`
+- `tests/fixtures/agent/sentiment_packet_stub.json`
+- Optional `tests/fixtures/agent/sentiment_packet_future_success.json`
 
 Minimum cases:
 
@@ -108,6 +108,6 @@ Minimum cases:
 ## Risks
 
 - Stub language must be honest. Avoid fake positive/mixed/negative stance.
-- Do not leak future Neo4j schema complexity into V2 beyond the task/packet
+- Do not leak future Neo4j schema complexity into V1.2 beyond the task/packet
   shape.
 - Keep stub deterministic.

@@ -1,4 +1,4 @@
-# Task V3.3: Deterministic Portfolio Data Lane
+# Task V1.3.3: Deterministic Portfolio Data Lane
 
 Status: complete.
 
@@ -13,7 +13,7 @@ without asking Portfolio Agent or Investment Agent to decide whether OpenD data
 is needed.
 
 This task proves the non-agent MCP consumer path before moving agents to the
-gateway in V3.4.
+gateway in V1.3.4.
 
 Implemented files:
 
@@ -80,9 +80,9 @@ Current route behavior:
 ## Dependency Graph
 
 ```text
-V3.0. MCP backend boundary
-  └── V3.1. FastMCP servers and gateway contract
-      └── V3.2. Gateway modes and permissions
+V1.3.0. MCP backend boundary
+  └── V1.3.1. FastMCP servers and gateway contract
+      └── V1.3.2. Gateway modes and permissions
           ├── A. Backend response models
           ├── B. PortfolioDataService
           │   ├── C. Connection status flow
@@ -92,7 +92,7 @@ V3.0. MCP backend boundary
           ├── G. Backend API routes
           ├── H. Frontend dashboard refresh UI
           └── I. Tests and docs
-              └── V3.4. Agent gateway migration
+              └── V1.3.4. Agent gateway migration
 ```
 
 ## Task Breakdown By Exit Criteria
@@ -101,10 +101,10 @@ V3.0. MCP backend boundary
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| A | Add response models for `PortfolioConnectionStatus`, `PortfolioDashboardSnapshot`, and `PortfolioRefreshResult`. | V3.0 | Schema/unit tests. |
+| A | Add response models for `PortfolioConnectionStatus`, `PortfolioDashboardSnapshot`, and `PortfolioRefreshResult`. | V1.3.0 | Schema/unit tests. |
 | A1 | Ensure models include `as_of`, `last_updated_at`, `freshness_status`, warnings, errors, and source summary. | A | Model validation tests. |
 | A2 | Ensure models are frontend-safe and exclude secrets, raw account IDs, API keys, credentials, tokens, and hidden backend config. | A | Redaction/security tests. |
-| B | Add `PortfolioDataService` or equivalent backend service. | A, V3.2 | Service tests with fake gateway. |
+| B | Add `PortfolioDataService` or equivalent backend service. | A, V1.3.2 | Service tests with fake gateway. |
 | B1 | Inject a gateway dependency and canonical portfolio/db config. | B | Construction test. |
 | B2 | Expose service methods for `connection_status()`, `latest_snapshot()`, and `refresh()`. | B | Method tests. |
 
@@ -119,7 +119,7 @@ V3.0. MCP backend boundary
 | D1 | Do not call OpenD during a pure latest-snapshot read unless explicit refresh is requested. | D | Fake gateway call-count test. |
 | E | Implement manual refresh flow. | B, C | Refresh success test. |
 | E1 | Call OpenD context retrieval, finance metrics calculation, SQL upsert/store tools, and return dashboard snapshot. | E | Tool sequence test. |
-| E2 | Do not instantiate or call `MCPPortfolioAgent`, `V2InvestmentAgent`, LLM evaluator, or sentiment agent. | E | Fake/spies prove no agent/LLM calls. |
+| E2 | Do not instantiate or call `MCPPortfolioAgent`, `InvestmentAgent`, LLM evaluator, or sentiment agent. | E | Fake/spies prove no agent/LLM calls. |
 
 ### EC3: Backend API routes exist
 
@@ -129,7 +129,7 @@ V3.0. MCP backend boundary
 | G1 | Add backend route for latest dashboard snapshot, for example `GET /api/portfolio/dashboard`. | D | HTTP test. |
 | G2 | Add backend route for manual refresh, for example `POST /api/portfolio/refresh`. | E | HTTP test. |
 | G3 | Return structured errors with non-200 or explicit failure payloads according to the existing chat API style. | G through G2 | HTTP error test. |
-| G4 | Ensure API routes reuse backend gateway/session management rather than creating one gateway per frontend poll if a shared manager exists. | V3.2, G | Lifecycle test. |
+| G4 | Ensure API routes reuse backend gateway/session management rather than creating one gateway per frontend poll if a shared manager exists. | V1.3.2, G | Lifecycle test. |
 
 ### EC4: Frontend uses deterministic refresh flow
 
@@ -188,7 +188,7 @@ Implemented verification:
 .venv/bin/python -m pytest tests/test_portfolio_data_service.py tests/test_chat_app.py -q
 ```
 
-Latest targeted result during V3.3 implementation:
+Latest targeted result during V1.3.3 implementation:
 
 ```text
 15 passed
@@ -207,11 +207,11 @@ dashboard refresh as an agent run:
 - duplicated frontend state derived from old portfolio-agent-only responses
 
 Do not remove the Portfolio Agent itself. It remains the analytical subagent for
-chat queries and V3.4 migration.
+chat queries and V1.3.4 migration.
 
-No MCP tools were deleted in V3.3. The deterministic service still uses the
+No MCP tools were deleted in V1.3.3. The deterministic service still uses the
 same OpenD, metrics, and SQL MCP surfaces as the agents use through the
-gateway. V3.4 later proved the agent path is gateway-backed; the remaining
+gateway. V1.3.4 later proved the agent path is gateway-backed; the remaining
 registry/custom-stdio code is kept only where it still protects the FastMCP
 adapter, DirectToolGateway parity mode, or legacy registry behavior.
 

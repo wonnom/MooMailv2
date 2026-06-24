@@ -2,27 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from moomail_finance_ai.config import load_opend_config  # noqa: E402
-from moomail_finance_ai.guardrails import review_report  # noqa: E402
-from moomail_finance_ai.metrics import calculate_snapshot_metrics  # noqa: E402
-from moomail_finance_ai.mocks import mock_investment_policy  # noqa: E402
-from moomail_finance_ai.opend import MoomooOpenDClient, RecordedOpenDClient  # noqa: E402
-from moomail_finance_ai.opend_portfolio import (  # noqa: E402
+from moomail_finance_ai.config import load_opend_config
+from moomail_finance_ai.guardrails import review_report
+from moomail_finance_ai.metrics import calculate_snapshot_metrics
+from moomail_finance_ai.mocks import mock_investment_policy
+from moomail_finance_ai.opend import MoomooOpenDClient, RecordedOpenDClient
+from moomail_finance_ai.opend_portfolio import (
     build_portfolio_agent_packet,
     build_portfolio_snapshot_from_report,
 )
-from moomail_finance_ai.schemas import AuditRecord, FinalReport  # noqa: E402
-from moomail_finance_ai.sql_store import PortfolioSqlStore  # noqa: E402
+from moomail_finance_ai.schemas import AuditRecord, FinalReport
+from moomail_finance_ai.sql_store import PortfolioSqlStore
 
 
 def main() -> None:

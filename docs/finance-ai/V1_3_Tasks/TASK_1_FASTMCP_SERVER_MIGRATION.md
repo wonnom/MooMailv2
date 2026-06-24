@@ -1,4 +1,4 @@
-# Task V3.1: FastMCP Server Migration
+# Task V1.3.1: FastMCP Server Migration
 
 Status: complete as of 2026-06-17.
 
@@ -7,9 +7,9 @@ Status: complete as of 2026-06-17.
 Preserve OpenD, SQL, and metrics business logic as plain Python code while
 replacing the custom `JsonRpcMCPServer` runtime with real FastMCP servers.
 
-This task creates the server side of the V3 runtime. It should not move agents
-or build frontend refresh behavior yet. V3.3 implements the deterministic
-portfolio data lane after gateway modes are ready; agents move in V3.4.
+This task creates the server side of the V1.3 runtime. It should not move agents
+or build frontend refresh behavior yet. V1.3.3 implements the deterministic
+portfolio data lane after gateway modes are ready; agents move in V1.3.4.
 
 ## Target Shape
 
@@ -26,7 +26,7 @@ FastMCP server layer
 
 Gateway contract
   -> MCPToolGateway.call_tool(server, tool, args)
-  -> same structured payloads as V2 where possible
+  -> same structured payloads as V1.2 where possible
 ```
 
 ## Exit Criteria
@@ -36,8 +36,8 @@ Gateway contract
 2. `moomail-opend-mcp`, `moomail-portfolio-sql-mcp`, and
    `moomail-finance-metrics-mcp` have FastMCP server entrypoints.
 3. FastMCP tool names, argument schemas, resources, and structured outputs
-   preserve V2 contracts unless deliberately changed and documented.
-4. A gateway contract exists, even if V3.2 implements the concrete modes.
+   preserve V1.2 contracts unless deliberately changed and documented.
+4. A gateway contract exists, even if V1.3.2 implements the concrete modes.
 5. Deterministic parity tests prove FastMCP servers return the same payload
    shapes as the old custom module path for representative calls.
 
@@ -51,7 +51,7 @@ Implemented:
 - Rewired `scripts/mcp_portfolio_sql_server.py` to run FastMCP over stdio.
 - Promoted `mcp>=1,<2` to a normal project dependency in `pyproject.toml`.
 - Added `src/moomail_finance_ai/mcp/gateway.py` with `MCPToolGateway`,
-  `MCPGatewayResult`, and gateway error types for V3.2.
+  `MCPGatewayResult`, and gateway error types for V1.3.2.
 - Updated deterministic and live MCP stdio tests to use the official MCP client
   instead of the custom `_MCPStdioClient`.
 - Added FastMCP parity tests.
@@ -66,7 +66,7 @@ Reality checks:
 - `JsonRpcMCPServer` still exists for legacy/custom wrapper coverage, but the
   three MCP server scripts no longer use it.
 - Agents still call in-process modules. Gateway runtime modes and agent
-  migration are V3.2 and V3.4 work.
+  migration are V1.3.2 and V1.3.4 work.
 - FastMCP `initialize` reports the SDK implementation version, not the
   MooMail module version. MooMail versions remain exposed in module resources
   and payloads where already available.
@@ -91,8 +91,8 @@ A. Audit current tool handlers and domain logic
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| A | Audit current domain logic in `opend.py`, `opend_portfolio.py`, `sql_store.py`, and `metrics.py`. | V3.0 | Done. Existing adapter/store/metric tests remain separate. |
-| A1 | Identify logic currently embedded in `mcp/opend_mcp.py`, `mcp/portfolio_sql_mcp.py`, or `mcp/finance_metrics_mcp.py` that should become reusable service functions. | A | Done. No broad extraction needed for V3.1; wrappers stay thin. |
+| A | Audit current domain logic in `opend.py`, `opend_portfolio.py`, `sql_store.py`, and `metrics.py`. | V1.3.0 | Done. Existing adapter/store/metric tests remain separate. |
+| A1 | Identify logic currently embedded in `mcp/opend_mcp.py`, `mcp/portfolio_sql_mcp.py`, or `mcp/finance_metrics_mcp.py` that should become reusable service functions. | A | Done. No broad extraction needed for V1.3.1; wrappers stay thin. |
 | B | Keep tool handlers thin: parse args, call domain/service function, return structured data. | A1 | Done via FastMCP adapter over existing modules. |
 | B1 | Avoid putting non-trivial finance logic inside FastMCP decorators. | B | Done. FastMCP adapter delegates to existing handlers. |
 | B2 | Keep `PortfolioSqlStore` as the database implementation, not a FastMCP-only class. | B | Done. |
@@ -112,7 +112,7 @@ A. Audit current tool handlers and domain logic
 | E2 | Support recorded report mode to avoid unnecessary live pulls during tests. | E | Done. |
 | E3 | Preserve read-only tool surface and no trade/order tools. | E | Done. |
 
-### EC3: Tool contracts preserve V2 shapes
+### EC3: Tool contracts preserve V1.2 shapes
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
@@ -120,16 +120,16 @@ A. Audit current tool handlers and domain logic
 | G1 | Compare old direct module output and FastMCP server output for metrics calls. | C, G | Done in `tests/test_mcp_fastmcp_parity.py`. |
 | G2 | Compare old direct module output and FastMCP output for SQL initialize, value snapshot store, latest state, and schema/status resource. | D, G | Done with representative SQL calls. |
 | G3 | Compare old direct module output and FastMCP output for OpenD recorded connection, positions, funds, normalized snapshot, and context. | E, G | Done with recorded normalized snapshot. |
-| G4 | Document any intentional shape changes and update V2/V3 schemas if needed. | G1 through G3 | Done. No structured payload shape change found for representative calls. |
+| G4 | Document any intentional shape changes and update V1.2/V1.3 schemas if needed. | G1 through G3 | Done. No structured payload shape change found for representative calls. |
 
 ### EC4: Gateway contract exists
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| F | Define `MCPToolGateway` protocol with `call_tool(server_name, tool_name, arguments, consumer=...)`. | V3.0 | Done in `src/moomail_finance_ai/mcp/gateway.py`. |
+| F | Define `MCPToolGateway` protocol with `call_tool(server_name, tool_name, arguments, consumer=...)`. | V1.3.0 | Done in `src/moomail_finance_ai/mcp/gateway.py`. |
 | F1 | Define result shape: structured content, textual content if needed, `is_error`, server/tool metadata, duration, and sanitized error. | F | Done in `MCPGatewayResult`. |
 | F2 | Define resource methods if needed: `list_tools`, `read_resource`, and health/capability checks. | F | Done at protocol level. |
-| F3 | Define timeout, retry, and error policy at contract level. | F | Partially done through gateway error classes in V3.1; concrete gateway behavior was implemented in V3.2. |
+| F3 | Define timeout, retry, and error policy at contract level. | F | Partially done through gateway error classes in V1.3.1; concrete gateway behavior was implemented in V1.3.2. |
 
 ### EC5: Parity tests exist
 
@@ -150,14 +150,14 @@ A. Audit current tool handlers and domain logic
   - compares current module path against FastMCP server path
   - focuses on structured content shape, not incidental JSON ordering
 - `tests/test_mcp_gateway_contract.py`
-  - captures the gateway result/error contract V3.2 will implement
+  - captures the gateway result/error contract V1.3.2 will implement
 - updated `tests/live/test_connector_targets.py`
   - opt-in OpenD live connection through FastMCP server
   - no hosted LLM required
 
 ## Deletion Candidates After This Task
 
-Do not delete these during V3.1 unless all V3.1 parity tests and V3.2 gateway
+Do not delete these during V1.3.1 unless all V1.3.1 parity tests and V1.3.2 gateway
 tests are already green:
 
 - `src/moomail_finance_ai/mcp/stdio.py`

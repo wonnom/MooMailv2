@@ -2,19 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from moomail_finance_ai.config import load_opend_config  # noqa: E402
-from moomail_finance_ai.mocks import mock_investment_policy  # noqa: E402
-from moomail_finance_ai.opend import MoomooOpenDClient, RecordedOpenDClient  # noqa: E402
-from moomail_finance_ai.opend_portfolio import (  # noqa: E402
+from moomail_finance_ai.config import load_opend_config
+from moomail_finance_ai.mocks import mock_investment_policy
+from moomail_finance_ai.opend import MoomooOpenDClient, RecordedOpenDClient
+from moomail_finance_ai.opend_portfolio import (
     build_portfolio_agent_packet,
     build_portfolio_snapshot_from_report,
 )

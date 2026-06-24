@@ -1,4 +1,4 @@
-# Task V3.2: Gateway Modes
+# Task V1.3.2: Gateway Modes
 
 Status: complete.
 
@@ -7,7 +7,7 @@ Status: complete.
 Implement the backend MCP gateway modes that both deterministic services and
 agents will use.
 
-V3 uses two modes:
+V1.3 uses two modes:
 
 - `DirectToolGateway`: test/dev parity adapter only. It wraps current in-process
   tool handlers so tests can compare old and new behavior.
@@ -53,13 +53,13 @@ Backend shutdown
 4. Complete. Gateway permissions support deterministic backend consumers and agent
    consumers.
 5. Complete for backend service use. Gateway lifecycle is reusable by the
-   deterministic portfolio data service and remains the target for V3.4 agent
+   deterministic portfolio data service and remains the target for V1.3.4 agent
    migration.
 
 ## Dependency Graph
 
 ```text
-V3.1. FastMCP server migration and gateway contract
+V1.3.1. FastMCP server migration and gateway contract
   ├── A. Gateway result and config models
   │   ├── B. Permission profiles
   │   ├── C. DirectToolGateway
@@ -68,8 +68,8 @@ V3.1. FastMCP server migration and gateway contract
   │       └── F. Trace/error handling
   └── G. Gateway tests
       ├── H. Deterministic portfolio data lane can use gateway
-      ├── V3.3. Deterministic portfolio data lane can be implemented
-      └── V3.4. Agents can move to gateway
+      ├── V1.3.3. Deterministic portfolio data lane can be implemented
+      └── V1.3.4. Agents can move to gateway
 ```
 
 ## Task Breakdown By Exit Criteria
@@ -78,7 +78,7 @@ V3.1. FastMCP server migration and gateway contract
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| A | Add `MCPToolGateway` protocol or abstract base. | V3.1-F | Type/unit test. |
+| A | Add `MCPToolGateway` protocol or abstract base. | V1.3.1-F | Type/unit test. |
 | A1 | Add gateway config models for server name, command, args, env, cwd, timeout, and startup mode. | A | Config validation test. |
 | A2 | Add gateway result model with `server_name`, `tool_name`, `structured_content`, `content`, `is_error`, `duration_ms`, and sanitized error fields. | A | Result validation test. |
 | A3 | Add gateway exception hierarchy for denied tool, timeout, server unavailable, protocol error, and tool error. | A | Error mapping tests. |
@@ -91,14 +91,14 @@ V3.1. FastMCP server migration and gateway contract
 | C | Implement `DirectToolGateway` over current tool handlers or `RegisteredMCPModule` builders. | A | Direct gateway tests. |
 | C1 | Ensure DirectToolGateway returns the same gateway result model as StdioMCPToolGateway. | C | Shared contract tests. |
 | C2 | Mark DirectToolGateway as test/dev only in docs and code comments. | C | Docs review. |
-| C3 | Use DirectToolGateway for parity tests against FastMCP output. | C, V3.1-H1 | Parity tests. |
+| C3 | Use DirectToolGateway for parity tests against FastMCP output. | C, V1.3.1-H1 | Parity tests. |
 | C4 | Avoid wiring DirectToolGateway as the default app runtime. | C | Backend factory test. |
 
 ### EC3: StdioMCPToolGateway uses official MCP client
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| D | Implement `StdioMCPToolGateway` using the official MCP Python client/session APIs. | V3.1 FastMCP servers | Stdio gateway round-trip test. |
+| D | Implement `StdioMCPToolGateway` using the official MCP Python client/session APIs. | V1.3.1 FastMCP servers | Stdio gateway round-trip test. |
 | D1 | Launch or connect to `opend-mcp`, `portfolio-sql-mcp`, and `finance-metrics-mcp` server processes. | D | Startup test with recorded/temp mode. |
 | D2 | Reuse sessions across multiple calls instead of spawning per tool call. | D1 | Call-count/lifecycle test. |
 | D3 | Close sessions/processes cleanly on shutdown. | D1 | Shutdown test. |
@@ -109,7 +109,7 @@ V3.1. FastMCP server migration and gateway contract
 
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
-| B | Define permission profiles for `dashboard_refresh`, `portfolio_agent`, `investment_agent`, and `sentiment_agent`. | V3.0-G | Permission tests. |
+| B | Define permission profiles for `dashboard_refresh`, `portfolio_agent`, `investment_agent`, and `sentiment_agent`. | V1.3.0-G | Permission tests. |
 | B1 | Allow `dashboard_refresh` to call OpenD status/context, metrics snapshot, and SQL update tools. | B | Allow test. |
 | B2 | Allow `portfolio_agent` to call OpenD, SQL, and metrics tools needed for portfolio analysis. | B | Allow test. |
 | B3 | Deny direct OpenD tools to `investment_agent` by default. | B | Deny test. |
@@ -121,8 +121,8 @@ V3.1. FastMCP server migration and gateway contract
 | Task | Description | Depends on | Test or check |
 | --- | --- | --- | --- |
 | E | Add `GatewayManager` or backend factory that owns gateway startup/shutdown. | D | Lifecycle test. |
-| E1 | Support chat/backend startup with StdioMCPToolGateway. | E | Backend factory tests in V3.3 and V3.4. |
-| E2 | Support CLI script startup with StdioMCPToolGateway. | E | CLI smoke test in V3.4. |
+| E1 | Support chat/backend startup with StdioMCPToolGateway. | E | Backend factory tests in V1.3.3 and V1.3.4. |
+| E2 | Support CLI script startup with StdioMCPToolGateway. | E | CLI smoke test in V1.3.4. |
 | E3 | Support deterministic dashboard refresh service with the same gateway. | E | Data lane test. |
 | F | Standardize gateway trace/error events. | A3, E | Trace tests. |
 | F1 | Sanitize errors before returning to frontend. | F | Error response test. |
@@ -155,7 +155,7 @@ Implemented verification:
   tests/test_mcp_gateway_contract.py -q
 ```
 
-Latest targeted result during V3.2/V3.3 implementation:
+Latest targeted result during V1.3.2/V1.3.3 implementation:
 
 ```text
 7 passed
@@ -163,7 +163,7 @@ Latest targeted result during V3.2/V3.3 implementation:
 
 ## Deletion Candidates After This Task
 
-These become real deletion candidates only after V3.2, V3.3, and V3.4 are green:
+These become real deletion candidates only after V1.3.2, V1.3.3, and V1.3.4 are green:
 
 - `_MCPStdioClient` helper classes in deterministic and live tests
 - `src/moomail_finance_ai/mcp/stdio.py`

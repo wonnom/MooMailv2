@@ -1,12 +1,12 @@
-# Task 1: Define V2 Contracts
+# Task 1: Define V1.2 Contracts
 
 ## Goal
 
-Create stable Pydantic contracts for the V2 Investment Agent supervisor,
+Create stable Pydantic contracts for the V1.2 Investment Agent supervisor,
 Portfolio Agent bounded planner, Sentiment Agent stub, synthesis, guardrails,
 and trace output.
 
-These contracts are the foundation for the rest of V2. They should be small,
+These contracts are the foundation for the rest of V1.2. They should be small,
 JSON-compatible, and strict enough that the Investment Agent can route using
 structured fields instead of parsing prose.
 
@@ -16,13 +16,13 @@ Complete as of 2026-06-08.
 
 Implemented in:
 
-- `src/moomail_finance_ai/v2_schemas.py`
-- `tests/test_v2_schemas.py`
-- `tests/fixtures/v2/`
+- `src/moomail_finance_ai/agent_schemas.py`
+- `tests/test_agent_schemas.py`
+- `tests/fixtures/agent/`
 
 Verification:
 
-- `python3 -m pytest tests/test_v2_schemas.py -q`
+- `python3 -m pytest tests/test_agent_schemas.py -q`
 - `PYTHONPATH=src python3 -m pytest tests --ignore=tests/live -q`
 
 ## Exit Criteria
@@ -36,8 +36,8 @@ Verification:
 ## Dependency Graph
 
 ```text
-A. Audit current V1 schemas and outputs
-   ├── B. Decide V2 model module layout
+A. Audit current V1.1 schemas and outputs
+   ├── B. Decide V1.2 model module layout
    │   ├── C. Define InvestmentAgentState
    │   │   ├── D. Define InvestmentQueryPlan
    │   │   ├── E. Define PortfolioTask
@@ -58,9 +58,9 @@ A. Audit current V1 schemas and outputs
 | Task | Description | Depends on | Test |
 | --- | --- | --- | --- |
 | A | Inventory current `AgentState`, `FinalReport`, `PortfolioAgentResult`, `PortfolioAgentPacket`, `GuardrailResult`, and citation schemas. | None | None, documentation/audit task |
-| B | Decide module layout, likely `src/moomail_finance_ai/v2_schemas.py` or a `v2/` package. | A | Import smoke test |
-| C | Define `InvestmentAgentState` with run id, query, mode, IPS, query plan, portfolio packet, sentiment packet, synthesis, guardrail result, status events, warnings, and audit refs. | B | `test_v2_investment_state_defaults_and_round_trip` |
-| D | Define `InvestmentQueryPlan` with mode, needs flags, routed tasks, missing data, and plan warnings. | C | `test_v2_query_plan_validates_required_flags` |
+| B | Decide module layout, likely `src/moomail_finance_ai/agent_schemas.py` or a `v2/` package. | A | Import smoke test |
+| C | Define `InvestmentAgentState` with run id, query, mode, IPS, query plan, portfolio packet, sentiment packet, synthesis, guardrail result, status events, warnings, and audit refs. | B | `test_agent_investment_state_defaults_and_round_trip` |
+| D | Define `InvestmentQueryPlan` with mode, needs flags, routed tasks, missing data, and plan warnings. | C | `test_agent_query_plan_validates_required_flags` |
 | D1 | Add enums/literals for mode: `review`, `portfolio_fact`, `risk_check`, `what_changed`, `deep_dive`, `compare`, `unsupported`. | D | Parametrized enum validation test |
 | D2 | Add routing invariants: if `needs_sentiment_agent=true`, a `SentimentTask` must be present; if `needs_portfolio_agent=true`, a `PortfolioTask` must be present. | D | Invalid fixture raises validation error |
 
@@ -85,15 +85,15 @@ A. Audit current V1 schemas and outputs
 | H1 | Add retrieval statuses: `not_implemented`, `missing_corpus`, `empty_result`, `partial`, `sufficient`. | H | Status validation |
 | H2 | Ensure stub packets can be empty without becoming an error when status is `not_implemented`. | H | Empty stub packet validation |
 | I | Define `SynthesisInput` combining query plan, portfolio packet, sentiment packet, IPS, memory context placeholder, and warnings. | C, F4, H | `test_synthesis_input_round_trip` |
-| J | Define/extend `GuardrailReview` for V2 final checks and blocked/revised output metadata. | C, I | `test_guardrail_review_requires_checks` |
-| K | Define trace/status event extensions for graph nodes, subagent calls, and tool-call summary. | C | `test_v2_status_event_is_json_compatible` |
+| J | Define/extend `GuardrailReview` for V1.2 final checks and blocked/revised output metadata. | C, I | `test_guardrail_review_requires_checks` |
+| K | Define trace/status event extensions for graph nodes, subagent calls, and tool-call summary. | C | `test_agent_status_event_is_json_compatible` |
 | L | Add JSON fixtures for portfolio-only route, portfolio-plus-sentiment route, and missing-research route. | C through K | Fixture validation test |
-| M | Add schema tests that validate all fixtures and reject invalid nested states. | L | `tests/test_v2_schemas.py` |
+| M | Add schema tests that validate all fixtures and reject invalid nested states. | L | `tests/test_agent_schemas.py` |
 
 ## Tests To Add
 
-- `tests/test_v2_schemas.py`
-- Fixture files under `tests/fixtures/v2/` if useful:
+- `tests/test_agent_schemas.py`
+- Fixture files under `tests/fixtures/agent/` if useful:
   - `investment_query_plan_portfolio_only.json`
   - `investment_query_plan_full_review.json`
   - `portfolio_context_plan_cash_only.json`
@@ -102,7 +102,7 @@ A. Audit current V1 schemas and outputs
 
 Minimum assertions:
 
-- All V2 models serialize with `model_dump(mode="json")`.
+- All V1.2 models serialize with `model_dump(mode="json")`.
 - Invalid plan combinations fail validation.
 - Sentiment stub can represent missing GraphRAG without fake citations.
 - Portfolio sentiment candidates require ticker/asset context and reason.
@@ -116,8 +116,8 @@ Minimum assertions:
 
 ## Risks
 
-- Over-modeling too early can slow implementation. Keep V2 contracts useful,
+- Over-modeling too early can slow implementation. Keep V1.2 contracts useful,
   not exhaustive.
-- Reusing V1 model names without clear V2 suffixes may blur current and future
+- Reusing V1.1 model names without clear V1.2 suffixes may blur current and future
   behavior.
 - Contracts should avoid raw SQL or raw OpenD payload fields.

@@ -1,8 +1,8 @@
-# V1 Closeout
+# V1.1 Closeout
 
-V1 is complete as of 2026-06-06.
+V1.1 is complete as of 2026-06-06.
 
-V1 is a Portfolio Agent proof of concept with OpenD and local SQL portfolio
+V1.1 is a Portfolio Agent proof of concept with OpenD and local SQL portfolio
 history. It is intentionally narrower than the long-term multi-agent investment
 system.
 
@@ -48,12 +48,12 @@ Latest live OpenD-only connector gate:
 The warning is from the MooMoo SDK deprecation warning seen during live tests,
 not from a failed project assertion.
 
-## V1 Definition
+## V1.1 Definition
 
-V1 is complete when the local app can run a portfolio-only review from OpenD and
+V1.1 is complete when the local app can run a portfolio-only review from OpenD and
 show the result in terminal and web UI.
 
-V1 includes:
+V1.1 includes:
 
 - Live OpenD securities account read path.
 - Current portfolio snapshot with holdings, literal cash, optional
@@ -81,13 +81,13 @@ V1 includes:
 - Scheduled daily checks.
 - Rich React frontend migration.
 
-## V2 Direction
+## V1.2 Direction
 
-V2 starts from this V1 base and builds:
+V1.2 starts from this V1.1 base and builds:
 
 - a thin LangGraph Investment Agent supervisor
 - a bounded-planning Portfolio Agent subgraph
 - a Sentiment Agent stub with the future GraphRAG contract
 - Investment Agent synthesis and guardrails over those subagent outputs
 
-See [ACTION_PLAN.md](../ACTION_PLAN.md) for the active V2 plan.
+See [ACTION_PLAN.md](../ACTION_PLAN.md) for the active V1.2 plan.

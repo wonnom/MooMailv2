@@ -2,18 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from moomail_finance_ai.investment_agent import build_default_investment_agent  # noqa: E402
-from moomail_finance_ai.agent_schemas import InvestmentAgentState  # noqa: E402
-from moomail_finance_ai.agent_trace import sanitize_trace_events  # noqa: E402
+from moomail_finance_ai.agent_schemas import InvestmentAgentState
+from moomail_finance_ai.agent_trace import sanitize_trace_events
+from moomail_finance_ai.investment_agent import build_default_investment_agent
 
 
 def main() -> None:

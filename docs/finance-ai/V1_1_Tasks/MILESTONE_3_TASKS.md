@@ -21,7 +21,7 @@ Design review decision, 2026-06-02:
   changes.
 - Use `average_cost` as canonical cost basis.
 - Preserve options, cash-equivalent funds, future crypto rows, literal cash, and
-  configured cash-sweep rows in allocation history even when V1 analysis scopes
+  configured cash-sweep rows in allocation history even when V1.1 analysis scopes
   down to US equities.
 - Store unsupported quotes and other missing-data issues as
   `data_quality_events`.
@@ -166,7 +166,7 @@ Latest local run shape:
 - Position states: compact active/inactive ownership state
 - Data-quality events: unsupported quote, missing data, and cash-sweep warnings
 - Calculated metrics: computed deterministically for agent use, while metric
-  internals are not persisted in SQL V1
+  internals are not persisted in SQL V1.1
 - History status: fresh/stale/empty plus `historical_depth` warning when fewer
   than the configured minimum snapshots exist
 

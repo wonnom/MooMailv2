@@ -2,24 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-WEB = ROOT / "web"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from moomail_finance_ai.chat_api import (  # noqa: E402
+from moomail_finance_ai.chat_api import (
     ChatService,
     chat_response,
     error_event_payload,
     status_event_payload,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
+WEB = ROOT / "web"
 
 
 class _ClientDisconnected(Exception):

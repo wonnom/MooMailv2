@@ -19,9 +19,11 @@ The system is designed for one user's portfolio first. It should analyze actual 
 - [MCP_SERVERS.md](docs/finance-ai/MCP_SERVERS.md): local MCP server boundaries, tool/resource lists, agent allowlists, and run commands.
 - [TESTING.md](docs/finance-ai/TESTING.md): test responsibility map and why similarly named OpenD, SQL, and MCP tests are not redundant.
 - [DECISION_LOG.md](docs/finance-ai/DECISION_LOG.md): project history, design decisions, implementation reality, lessons learned, and future update template.
-- [V1_FINALIZATION_PLAN.md](docs/finance-ai/V1_TASKS/V1_FINALIZATION_PLAN.md): V1 closeout record and release gate summary.
-- [V1_TASKS/](docs/finance-ai/V1_TASKS/): historical implementation tracking from the V1 build.
-- [V3_Tasks/](docs/finance-ai/V3_Tasks/): current MCP runtime, deterministic data lane, and agent-gateway migration task maps.
+- [V1_1_FINALIZATION_PLAN.md](docs/finance-ai/V1_1_Tasks/V1_1_FINALIZATION_PLAN.md): V1.1 closeout record and release gate summary.
+- [V1_1_Tasks/](docs/finance-ai/V1_1_Tasks/): historical implementation tracking from the V1.1 build.
+- [V1_2_Tasks/](docs/finance-ai/V1_2_Tasks/): Investment Agent skeleton, bounded Portfolio Agent planning, sentiment stub, guardrails, and trace task maps.
+- [V1_3_Tasks/](docs/finance-ai/V1_3_Tasks/): MCP runtime, deterministic data lane, and agent-gateway migration task maps.
+- [V1_4_Tasks/](docs/finance-ai/V1_4_Tasks/): current structured planning notes for the Investment Agent and Portfolio Agent.
 
 ## Scope
 

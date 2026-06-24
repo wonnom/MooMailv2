@@ -2,18 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from moomail_finance_ai.research import LocalSentimentAgent  # noqa: E402
-from moomail_finance_ai.research_fixtures import build_sample_research_store  # noqa: E402
-from moomail_finance_ai.schemas import SentimentScopeItem  # noqa: E402
+from moomail_finance_ai.research import LocalSentimentAgent
+from moomail_finance_ai.research_fixtures import build_sample_research_store
+from moomail_finance_ai.schemas import SentimentScopeItem
 
 
 def main() -> None:
@@ -37,4 +30,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

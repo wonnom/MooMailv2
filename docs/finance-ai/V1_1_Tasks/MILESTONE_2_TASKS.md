@@ -141,7 +141,7 @@ not:
 It probes `get_acc_list`, `accinfo_query`, and `position_list_query` separately
 with cached/refresh variants. It never calls trade unlock or order APIs.
 
-Use this as the V1 live health gate after OpenD is logged in:
+Use this as the V1.1 live health gate after OpenD is logged in:
 
 ```bash
 .venv/bin/python scripts/opend_health_report.py \

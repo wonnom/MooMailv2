@@ -22,8 +22,11 @@ Installed project extras:
 - `dev`: pytest and test tooling
 - `opend`: MooMoo OpenAPI SDK and its dependencies
 
-The official MCP SDK is a normal project dependency as of V3.1. The local MCP
-server scripts run through FastMCP over stdio. V3.2/V3.3 add a backend MCP
+The editable install is required for direct `python scripts/...` commands. The
+scripts import `moomail_finance_ai` normally and do not patch `sys.path`.
+
+The official MCP SDK is a normal project dependency as of V1.3.1. The local MCP
+server scripts run through FastMCP over stdio. V1.3.2/V1.3.3 add a backend MCP
 gateway and deterministic dashboard APIs to the local chat server.
 
 ## Recommended Command Style

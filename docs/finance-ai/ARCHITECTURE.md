@@ -116,9 +116,9 @@ Current non-goals:
 - no rich LLM synthesis at the Investment Agent layer
 - no trade execution or executable order-preparation path
 
-## V4 Planning Target
+## V1.4 Planning Target
 
-V4 should introduce explicit structured planning for the Investment Agent and
+V1.4 should introduce explicit structured planning for the Investment Agent and
 Portfolio Agent while preserving deterministic tool execution.
 
 The target pattern is:
@@ -132,20 +132,28 @@ LLM/guided planner creates a typed plan
 ```
 
 Investment Agent planning should decide the mission: user intent, mode,
-subagents needed, broad tickers/themes/time horizon, freshness requirement, and
-answer constraints. It should not choose exact SQL/OpenD call sequences or
+subagents needed, broad logical tickers/themes/time horizon, bounded portfolio
+request, freshness requirement, and answer constraints. It should not choose
+exact SQL/OpenD call sequences, broker-specific symbols, SQL asset ids, or
 perform finance calculations.
 
-Portfolio Agent planning should decide portfolio evidence scope: portfolio task
-type, tickers/assets, history window, SQL history tools, position-state change
-scope, metric groups, current-value dependency, and persistence mode.
+Portfolio Agent planning should decide portfolio evidence scope: resolve
+logical asset hints to actual portfolio assets and OpenD-compatible symbols,
+refine the bounded request into evidence subtasks, choose SQL history tools,
+position-state change scope, metric groups, current-value dependency, and
+persistence mode.
+
+The Portfolio Agent should return an evidence packet that separates facts,
+derived metrics, detected patterns, portfolio-only interpretation, and
+limitations that require sentiment or fundamental context. It should not decide
+whether the Sentiment Agent is needed or produce the final investment thesis.
 
 Freshness enforcement remains deterministic. The planner may request
 `latest_required`, `cached_ok`, or `history_only`; backend/Portfolio policy
 then decides whether OpenD must be called, whether SQL cached data is fresh
 enough, or whether a stale-data warning should be returned.
 
-Sentiment Agent implementation is out of V4 scope. The Investment Agent may
+Sentiment Agent implementation is out of V1.4 scope. The Investment Agent may
 still produce a future-compatible `SentimentTask`, but real GraphRAG retrieval
 belongs to a later version.
 

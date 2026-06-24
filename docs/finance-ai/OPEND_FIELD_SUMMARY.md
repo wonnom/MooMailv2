@@ -212,7 +212,7 @@ Likely next checks:
 - Enable `MOOMAIL_MOOMOO_TREAT_FUND_ASSETS_AS_CASH_SWEEP=true` only if
   `fund_assets` represents automatic MooMoo money-market fund assets that can
   be auto-redeemed/auto-invested as purchasing power.
-- Run `.venv/bin/python scripts/opend_health_report.py --env-file config/local.env --expected-holdings-count <N>` as the V1 live OpenD hardening gate.
+- Run `.venv/bin/python scripts/opend_health_report.py --env-file config/local.env --expected-holdings-count <N>` as the V1.1 live OpenD hardening gate.
 - Decide whether OTC holdings should use a fallback quote provider in a later milestone.
 - Explore `OpenCryptoTradeContext` separately for crypto holdings under the
   same account number.

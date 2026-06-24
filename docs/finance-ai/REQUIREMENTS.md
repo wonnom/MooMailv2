@@ -24,7 +24,7 @@ The system must adapt to the user's query and select suitable analysis modes, to
 
 ### PR-6: Portfolio Review Workflow
 
-The completed V1 workflow is a portfolio-only `review my portfolio` path.
+The completed V1.1 workflow is a portfolio-only `review my portfolio` path.
 
 It includes:
 
@@ -37,7 +37,7 @@ It includes:
 - Missing data
 - Portfolio-data source context
 
-The V2 Investment Agent workflow adds:
+The V1.2 Investment Agent workflow adds:
 
 - Query-aware routing
 - Portfolio Agent bounded-planning calls
@@ -45,7 +45,7 @@ The V2 Investment Agent workflow adds:
 - Investment Agent synthesis
 - Guardrail review
 
-The V3 deterministic dashboard lane adds:
+The V1.3 deterministic dashboard lane adds:
 
 - Backend OpenD connection status
 - Latest SQL-backed portfolio dashboard snapshot
@@ -99,7 +99,7 @@ The Portfolio Agent must return structured portfolio diagnostics and performance
 
 ### FR-6: Sentiment Agent
 
-V2 must include a Sentiment Agent stub with the same task and response shape
+V1.2 must include a Sentiment Agent stub with the same task and response shape
 expected from the future GraphRAG-backed Sentiment Agent. It must not fabricate
 research.
 
@@ -112,7 +112,7 @@ documents only. Daily checks and event-triggered ingestion are future features.
 
 The future research system must use Neo4j for entity and relationship metadata,
 plus vector retrieval for semantic document chunks. Neo4j GraphRAG is deferred
-until after the V2 Investment Agent and Sentiment Agent contracts are stable.
+until after the V1.2 Investment Agent and Sentiment Agent contracts are stable.
 
 ### FR-9: Separate Memory and Research Stores
 
@@ -122,7 +122,7 @@ Pinecone long-term memory must remain separate from Neo4j GraphRAG research retr
 
 The future Investment Agent must use long-term memory for durable context such
 as preferences, theses, prior recommendations, review summaries, risk concerns,
-and agent observations. V2 may keep local/file-backed memory placeholders.
+and agent observations. V1.2 may keep local/file-backed memory placeholders.
 
 ### FR-11: Memory Scope
 
@@ -149,17 +149,17 @@ position row is available, are non-critical warnings.
 
 ### FR-16: Guardrail Node
 
-The V2 Investment Agent must run a final guardrail/review node before producing
+The V1.2 Investment Agent must run a final guardrail/review node before producing
 the final response.
 
-### FR-17: V2 Investment Agent Routing
+### FR-17: V1.2 Investment Agent Routing
 
-The V2 Investment Agent must decide whether to call Portfolio Agent, Sentiment
+The V1.2 Investment Agent must decide whether to call Portfolio Agent, Sentiment
 Agent stub, or both. Portfolio Agent must not directly call Sentiment Agent.
 
-### FR-18: V2 Bounded Portfolio Planning
+### FR-18: V1.2 Bounded Portfolio Planning
 
-The V2 Portfolio Agent must produce a bounded context plan before executing
+The V1.2 Portfolio Agent must produce a bounded context plan before executing
 portfolio tools. Execution of OpenD, SQL, and metric tools remains deterministic
 after the plan is selected.
 
@@ -262,7 +262,7 @@ Store system timestamps in UTC and preserve source timestamps separately.
 
 ### DR-6: Snapshot Frequency
 
-V1 stores snapshots on demand when portfolio reviews run. Scheduled daily snapshots are future work.
+V1.1 stores snapshots on demand when portfolio reviews run. Scheduled daily snapshots are future work.
 
 ### DR-7: Transactions Optional
 
@@ -290,7 +290,7 @@ dictionary or full stock-price history table.
 
 ### DR-8C: Raw Source Storage
 
-Portfolio-history must not store broad raw OpenD source-observation blobs in V1
+Portfolio-history must not store broad raw OpenD source-observation blobs in V1.1
 when the same information is already parsed into first-class tables. Missing
 data and unsupported quote problems should be stored as data-quality events.
 
@@ -366,9 +366,9 @@ The local chat frontend must surface backend stream failures in the chat rail an
 technical trace so the user does not need to inspect the terminal traceback to
 understand that a run failed.
 
-## V1 Acceptance Criteria
+## V1.1 Acceptance Criteria
 
-V1 is complete when the system can run a local portfolio-only
+V1.1 is complete when the system can run a local portfolio-only
 review that uses:
 
 - Live read-only MooMoo/OpenD securities account data
@@ -383,22 +383,22 @@ review that uses:
 - Clear missing-data warnings
 - Terminal output and the local TypeScript/static chatbot frontend
 
-V1 intentionally does not require a LangGraph Investment Agent, Pinecone, Neo4j
+V1.1 intentionally does not require a LangGraph Investment Agent, Pinecone, Neo4j
 GraphRAG, real research document ingestion, crypto account ingestion, scheduled
 checks, or OTC quote fallback.
 
-See [V1_FINALIZATION_PLAN.md](V1_TASKS/V1_FINALIZATION_PLAN.md) for the V1 closeout.
+See [V1_1_FINALIZATION_PLAN.md](V1_1_Tasks/V1_1_FINALIZATION_PLAN.md) for the V1.1 closeout.
 
-## V2 Acceptance Criteria
+## V1.2 Acceptance Criteria
 
-V2 is complete when the system can run a local Investment Agent flow that:
+V1.2 is complete when the system can run a local Investment Agent flow that:
 
 - Uses a thin LangGraph supervisor.
 - Routes portfolio-only questions to Portfolio Agent.
 - Routes full review or research-sensitive questions to Portfolio Agent plus
   Sentiment Agent stub.
 - Converts Portfolio Agent from a fixed pipeline into a bounded-planning path
-  while preserving V1 behavior as the broad-review default.
+  while preserving V1.1 behavior as the broad-review default.
 - Synthesizes Portfolio Agent output and Sentiment Agent stub output without
   fabricating research.
 - Runs guardrails before final output.

@@ -1,6 +1,6 @@
 [project]
 name = "moomail-finance-ai"
-version = "0.1.0"
+version = "1.4.0"
 description = "Personal multi-agent finance AI."
 requires-python = ">=3.12"
 dependencies = [

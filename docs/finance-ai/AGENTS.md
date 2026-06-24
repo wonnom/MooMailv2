@@ -66,7 +66,7 @@ Current limitations:
 - Query classification is deterministic and keyword/rule based, not an
   LLM-guided structured-output planner.
 - Ticker extraction is also deterministic in the current bounded-planning path.
-  V4 should move ticker/asset-scope selection into explicit planner output
+  V1.4 should move ticker/asset-scope selection into explicit planner output
   rather than relying on inline regex helpers.
 - The final Investment Agent synthesis is deterministic/template-style. The
   Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
@@ -79,22 +79,25 @@ Current limitations:
 Target planning ownership:
 
 - Investment Agent planner: user intent, mode, subagent needs, broad
-  ticker/theme/time-horizon scope, freshness requirement, and final synthesis
-  constraints.
-- Portfolio Agent planner: portfolio task type, portfolio ticker/asset scope,
-  history window, SQL history scope, metric groups, current-value dependency,
-  and persistence mode.
+  logical ticker/theme/time-horizon scope, bounded portfolio request, freshness
+  requirement, and final synthesis constraints.
+- Portfolio Agent planner: portfolio evidence planning, deterministic asset
+  resolution, canonical portfolio ticker/asset scope, SQL history scope, metric
+  groups, current-value dependency, persistence mode, and portfolio-only pattern
+  detection.
 - Deterministic policy: freshness enforcement, OpenD connection checks, SQL
   freshness checks, permission validation, tool execution, finance math, and
   persistence.
 - Sentiment Agent planner: future research scope and evidence strategy. This is
-  not implemented in V4.
+  not implemented in V1.4.
 
 Investment Agent should plan enough to decide which subagents are needed and
-what evidence to request. It should not micromanage exact SQL/OpenD/metric tool
-calls. Portfolio Agent should plan only inside the portfolio evidence domain.
-Sentiment Agent should eventually plan research retrieval, but it should not
-make portfolio allocation or trade decisions.
+what bounded evidence request to send. It should not micromanage exact
+SQL/OpenD/metric tool calls, and it should not need to know broker-specific
+symbols such as `US.AAPL` or SQL asset ids. Portfolio Agent should resolve
+logical asset hints against actual portfolio data and plan only inside the
+portfolio evidence domain. Sentiment Agent should eventually plan research
+retrieval, but it should not make portfolio allocation or trade decisions.
 
 ### Supported Modes
 
@@ -182,6 +185,8 @@ responsibility boundary.
 The Portfolio Agent has a bounded-planning path. The planner decides
 which portfolio context is needed for the assigned task:
 
+- deterministic resolution from logical asset hints to canonical portfolio
+  symbols, SQL asset ids, and OpenD-compatible symbols
 - current OpenD snapshot
 - SQL history status
 - latest portfolio state
@@ -197,9 +202,16 @@ LangGraph subgraph. The Portfolio Agent returns structured portfolio evidence
 and candidate sentiment scope, not final investment advice.
 
 The current bounded planner still uses hardcoded keyword/rule logic and a
-temporary regex ticker extractor. V4 should replace this with a planner node
-that chooses task type, relevant tickers/assets, history window, and tool scope
-as structured plan fields before deterministic execution.
+temporary regex ticker extractor. V1.4 should replace this with a planner node
+that receives a bounded request from the Investment Agent, resolves the actual
+portfolio assets, chooses evidence subtasks, history window, and tool scope as
+structured plan fields, then hands execution to deterministic policy.
+
+The Portfolio Agent should add value as a portfolio analyst assistant: it should
+surface concentration, allocation drift, cash/cash-equivalent effects,
+position-state changes, outliers, stale data, and other portfolio-only patterns
+the Investment Agent should consider. It must label those as portfolio-only
+observations and avoid inventing sentiment, fundamentals, or a final thesis.
 
 Current behavior:
 

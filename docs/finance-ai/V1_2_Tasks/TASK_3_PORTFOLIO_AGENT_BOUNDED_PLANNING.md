@@ -13,7 +13,7 @@ The key change is not "make it fully autonomous." The key change is:
 portfolio task -> structured context plan -> deterministic tool execution
 ```
 
-V1 broad-review behavior must remain available as the safe default.
+V1.1 broad-review behavior must remain available as the safe default.
 
 Implemented shape:
 
@@ -23,14 +23,14 @@ Implemented shape:
   `PortfolioContextPlan`.
 - `MCPPortfolioAgent.run(..., portfolio_task=...)` can now accept the
   Investment Agent's planned task or interpret a direct query itself.
-- Full review and deep-dive tasks preserve broad V1 context: OpenD snapshot,
+- Full review and deep-dive tasks preserve broad V1.1 context: OpenD snapshot,
   deterministic metrics, SQL history status, latest state, growth history,
   allocation history, and persistence.
 - Narrow portfolio-fact tasks such as cash-weight/effective-cash questions use
   current OpenD plus selected metrics and skip broad SQL history/persistence by
   default.
 - `PortfolioAgentResult.tool_calls` now includes planned, actual, and skipped
-  tool entries. The V2 portfolio packet also carries this trace.
+  tool entries. The V1.2 portfolio packet also carries this trace.
 
 Reality note: this is implemented inside the existing Python Portfolio Agent,
 not as a separate compiled LangGraph subgraph.
@@ -39,7 +39,7 @@ not as a separate compiled LangGraph subgraph.
 
 1. A cash-weight query can avoid unnecessary broad history reads.
 2. A "what changed" query can request portfolio growth/allocation history.
-3. A full review can preserve the existing V1 broad context behavior.
+3. A full review can preserve the existing V1.1 broad context behavior.
 4. Tool calls are visible in trace output.
 
 ## Dependency Graph
@@ -66,7 +66,7 @@ A. Task 1 PortfolioTask and PortfolioContextPlan
 | Task | Description | Depends on | Test |
 | --- | --- | --- | --- |
 | A | Complete Task 1 portfolio contracts. | None | Covered by Task 1 |
-| B | Extract current V1 operations into smaller functions/nodes without changing behavior: initialize SQL, OpenD context, metrics, writes, reads, evaluator. | A | Existing `tests/test_portfolio_agent.py` still pass |
+| B | Extract current V1.1 operations into smaller functions/nodes without changing behavior: initialize SQL, OpenD context, metrics, writes, reads, evaluator. | A | Existing `tests/test_portfolio_agent.py` still pass |
 | C | Implement deterministic `interpret_portfolio_task(query)` or adapter from Investment Agent `PortfolioTask`. | A, B | `test_portfolio_task_interpreter_cash_weight` |
 | D | Implement `plan_portfolio_context(task)` returning `PortfolioContextPlan`. | C | `test_cash_weight_plan_minimal_context` |
 | D1 | Cash/current allocation facts should set `needs_current_snapshot=true`, `needs_sql_history=false`, metric groups limited to needed groups. | D | Assert no growth/allocation history queries |
@@ -84,14 +84,14 @@ A. Task 1 PortfolioTask and PortfolioContextPlan
 | G2 | History read limits should be plan-controlled, for example 30 days or task-specified limit. | D3 | Limit propagated test |
 | I1 | Portfolio packet includes history context relevant to the plan. | G1 | Packet includes growth/allocation rows |
 
-### EC3: Full review preserves V1 broad behavior
+### EC3: Full review preserves V1.1 broad behavior
 
 | Task | Description | Depends on | Test |
 | --- | --- | --- | --- |
-| D4 | Full review default plan mirrors V1: current snapshot, persistence, all key metrics, history status, latest state, growth, allocation history. | D | `test_full_review_plan_matches_v1_broad_context` |
+| D4 | Full review default plan mirrors V1.1: current snapshot, persistence, all key metrics, history status, latest state, growth, allocation history. | D | `test_full_review_plan_matches_v1_broad_context` |
 | F | Persistence node writes portfolio/account/assets/position states/daily value/weights/data-quality events only when plan says `persist_observation=true`. | D4, B | Existing idempotency tests plus persist false test |
 | F1 | Non-review queries may choose `persist_observation=false` to avoid writing history for purely historical reads. | F | `test_non_review_can_skip_persistence` |
-| I | Assemble V2-compatible packet from snapshot, metrics, storage result, history context, effective cash, and candidate issues. | E, F, G, H | Packet validation test |
+| I | Assemble V1.2-compatible packet from snapshot, metrics, storage result, history context, effective cash, and candidate issues. | E, F, G, H | Packet validation test |
 | J | LLM portfolio evaluator receives only plan-selected context and still answers query directly. | I | Fake evaluator prompt/context test |
 | J1 | Preserve malformed JSON recovery tests for evaluator. | J | Existing evaluator tests |
 
@@ -101,12 +101,12 @@ A. Task 1 PortfolioTask and PortfolioContextPlan
 | --- | --- | --- | --- |
 | K | Record planned tools before execution and actual MCP calls after execution. | D, E, F, G, H | `test_portfolio_trace_includes_planned_and_actual_tools` |
 | K1 | Include skipped tool reasons, such as `sql_history_skipped: not_needed_for_cash_query`. | K | Trace skipped reason test |
-| K2 | Expose trace through `PortfolioAgentResult.tool_calls` or a V2 trace field. | K | Chat trace contains planned/actual calls |
-| L | Update tests to assert fewer calls for narrow queries and broad calls for full review. | K | `tests/test_v2_portfolio_planner.py` |
+| K2 | Expose trace through `PortfolioAgentResult.tool_calls` or a V1.2 trace field. | K | Chat trace contains planned/actual calls |
+| L | Update tests to assert fewer calls for narrow queries and broad calls for full review. | K | `tests/test_portfolio_planner.py` |
 
 ## Tests To Add
 
-- `tests/test_v2_portfolio_planner.py`
+- `tests/test_portfolio_planner.py`
 - Updates to `tests/test_portfolio_agent.py` for backward compatibility.
 
 Minimum cases:
@@ -114,7 +114,7 @@ Minimum cases:
 - Cash-weight plan avoids SQL history tools.
 - Current holding weight plan avoids SQL history tools.
 - What-changed plan requests growth and allocation history.
-- Full review plan mirrors V1 broad behavior.
+- Full review plan mirrors V1.1 broad behavior.
 - Persist false does not write a daily value snapshot.
 - Tool trace includes planned, actual, and skipped tools.
 
@@ -128,6 +128,6 @@ Minimum cases:
 
 - Planner autonomy can creep too far. Keep outputs bounded and schema-validated.
 - Skipping persistence by default would lose useful history. Full review should
-  keep V1 persistence behavior.
-- Query-specific metrics may require new finance metric MCP tools later. V2 can
+  keep V1.1 persistence behavior.
+- Query-specific metrics may require new finance metric MCP tools later. V1.2 can
   record broad metric execution as a temporary implementation detail.

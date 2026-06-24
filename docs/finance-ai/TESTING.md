@@ -10,7 +10,7 @@ testing different responsibilities rather than duplicating each other.
 | `tests/test_mcp_tool_contracts.py` | Individual MCP tool contracts for OpenD, portfolio SQL, and metrics | No | No | Proves each tool's structured inputs/outputs without live services |
 | `tests/test_mcp_stdio_round_trips.py` | Starts each local FastMCP server script and calls it through the official MCP stdio client | No | No | Proves process-level FastMCP server wiring works |
 | `tests/test_mcp_fastmcp_parity.py` | Compares representative FastMCP stdio results with direct module results | No | Temp SQLite only | Proves FastMCP servers preserve the structured payload shapes from direct modules |
-| `tests/test_mcp_gateway_contract.py` | Gateway protocol/result/error contract | No | No | Defines the V3.2 gateway boundary |
+| `tests/test_mcp_gateway_contract.py` | Gateway protocol/result/error contract | No | No | Defines the V1.3.2 gateway boundary |
 | `tests/test_mcp_gateway.py` | DirectToolGateway permissions, structured results, resource permissions, and global trade/order denial | No | Temp SQLite only | Proves gateway allowlists and direct parity mode |
 | `tests/test_mcp_stdio_gateway.py` | StdioMCPToolGateway calls FastMCP servers through the official MCP client and reuses sessions | No | Temp SQLite only | Proves production-ish local MCP runtime boundary |
 | `tests/test_mcp_servers.py` | Registry behavior, resources, manifests, and basic module smoke tests | No | No | Proves agent allowlists and common MCP module mechanics |
@@ -23,7 +23,7 @@ testing different responsibilities rather than duplicating each other.
 | --- | --- | --- | --- |
 | `tests/test_opend_config.py` | Env parsing and `OpenDConfig` defaults | No | Bad config loading would break live OpenD before MCP gets involved |
 | `tests/test_opend_adapter.py` | Low-level `MoomooOpenDClient` and `RecordedOpenDClient` behavior | Partially | Covers missing SDK handling, batch quote fallback, read-only method surface, and recorded report behavior |
-| `tests/test_opend_health.py` | One-command OpenD health report and CLI recorded mode | Partially | Proves the V1 live gate can surface pass/warn/fail, expected holding mismatches, OTC quote gaps, and fund-assets cash sweep without requiring live OpenD |
+| `tests/test_opend_health.py` | One-command OpenD health report and CLI recorded mode | Partially | Proves the V1.1 live gate can surface pass/warn/fail, expected holding mismatches, OTC quote gaps, and fund-assets cash sweep without requiring live OpenD |
 | `tests/test_opend_portfolio.py` | Normalizing OpenD field reports into portfolio snapshots and packets | Partially | Covers portfolio accounting edge cases such as options, missing funds, cash-equivalent funds, opt-in fund-assets effective-cash handling, negative cash, and v1 US-equity scoping |
 | `tests/test_mcp_tool_contracts.py` | MCP wrapper around OpenD tools | Yes | Verifies the wrapper exposes the adapter safely and returns JSON-compatible results |
 
@@ -66,17 +66,17 @@ test when that backend exists.
 
 Historical prototype/full-agent tests were removed after the canonical
 Investment Agent became the supported chat/CLI path. Historical design context
-remains under `docs/finance-ai/V1_TASKS/` and `docs/finance-ai/V2_Tasks/`.
+remains under `docs/finance-ai/V1_1_Tasks/` and `docs/finance-ai/V1_2_Tasks/`.
 
-## V2 Closeout Test Gate
+## V1.2 Closeout Test Gate
 
-V2 deterministic closeout uses:
+V1.2 deterministic closeout uses:
 
 ```bash
 .venv/bin/python -m pytest tests --ignore=tests/live -q
 ```
 
-Latest V2 closeout result on 2026-06-15:
+Latest V1.2 closeout result on 2026-06-15:
 
 ```text
 156 passed, 1 warning
@@ -89,7 +89,7 @@ suite does not require live OpenD, Neo4j, Pinecone, hosted LLM calls, or
 Live tests remain opt-in under `tests/live/`; see
 [CONNECTOR_TESTS.md](CONNECTOR_TESTS.md).
 
-## V3 Targeted Gates
+## V1.3 Targeted Gates
 
 Gateway and deterministic dashboard lane:
 
@@ -102,7 +102,7 @@ Gateway and deterministic dashboard lane:
   tests/test_chat_app.py -q
 ```
 
-Latest targeted V3.4 result on 2026-06-23:
+Latest targeted V1.3.4 result on 2026-06-23:
 
 ```text
 39 passed, 1 warning
@@ -110,15 +110,15 @@ Latest targeted V3.4 result on 2026-06-23:
 
 The warning is the existing LangGraph dependency deprecation warning.
 
-## V3 Closeout Test Gate
+## V1.3 Closeout Test Gate
 
-V3.4 deterministic closeout uses:
+V1.3.4 deterministic closeout uses:
 
 ```bash
 .venv/bin/python -m pytest tests --ignore=tests/live -q
 ```
 
-Latest V3.4 closeout result on 2026-06-23:
+Latest V1.3.4 closeout result on 2026-06-23:
 
 ```text
 183 passed, 1 warning

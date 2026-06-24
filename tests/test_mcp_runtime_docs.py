@@ -4,27 +4,27 @@ from pathlib import Path
 
 
 DOCS = Path(__file__).resolve().parents[1] / "docs" / "finance-ai"
-V3 = DOCS / "V3_Tasks"
+V1_3 = DOCS / "V1_3_Tasks"
 
 
-def test_v3_readme_records_backend_mcp_boundary_and_task_map():
-    text = (V3 / "README.md").read_text(encoding="utf-8")
+def test_v1_3_readme_records_backend_mcp_boundary_and_task_map():
+    text = (V1_3 / "README.md").read_text(encoding="utf-8")
 
-    assert "V3.0 through V3.4 are complete" in text
-    assert "V3 is complete for the MCP runtime migration" in text
+    assert "V1.3.0 through V1.3.4 are complete" in text
+    assert "V1.3 is complete for the MCP runtime migration" in text
     assert "MCP becomes shared backend" in text
     assert "infrastructure for deterministic app flows" in text
     assert "deterministic app flows and agentic analysis flows" in text
     assert "The frontend calls backend APIs" in text
-    assert "V3.0" in text
-    assert "V3.1" in text
-    assert "V3.2" in text
-    assert "V3.3" in text
-    assert "V3.4" in text
+    assert "V1.3.0" in text
+    assert "V1.3.1" in text
+    assert "V1.3.2" in text
+    assert "V1.3.3" in text
+    assert "V1.3.4" in text
 
 
-def test_v3_task0_is_closed_with_backend_contracts_and_permissions():
-    task0 = (V3 / "TASK_0_MCP_BACKEND_BOUNDARY.md").read_text(encoding="utf-8")
+def test_v1_3_task0_is_closed_with_backend_contracts_and_permissions():
+    task0 = (V1_3 / "TASK_0_MCP_BACKEND_BOUNDARY.md").read_text(encoding="utf-8")
     architecture = (DOCS / "ARCHITECTURE.md").read_text(encoding="utf-8")
     protocol = (DOCS / "PROTOCOL.md").read_text(encoding="utf-8")
     action_plan = (DOCS / "ACTION_PLAN.md").read_text(encoding="utf-8")
@@ -40,9 +40,9 @@ def test_v3_task0_is_closed_with_backend_contracts_and_permissions():
     assert "complete as of 2026-06-17" in action_plan
 
 
-def test_v3_docs_capture_gateway_modes_and_fastmcp_migration():
-    task1 = (V3 / "TASK_1_FASTMCP_SERVER_MIGRATION.md").read_text(encoding="utf-8")
-    task2 = (V3 / "TASK_2_GATEWAY_MODES.md").read_text(encoding="utf-8")
+def test_v1_3_docs_capture_gateway_modes_and_fastmcp_migration():
+    task1 = (V1_3 / "TASK_1_FASTMCP_SERVER_MIGRATION.md").read_text(encoding="utf-8")
+    task2 = (V1_3 / "TASK_2_GATEWAY_MODES.md").read_text(encoding="utf-8")
     action_plan = (DOCS / "ACTION_PLAN.md").read_text(encoding="utf-8")
     mcp_servers = (DOCS / "MCP_SERVERS.md").read_text(encoding="utf-8")
 
@@ -58,11 +58,11 @@ def test_v3_docs_capture_gateway_modes_and_fastmcp_migration():
     assert "official MCP client" in task2
 
 
-def test_v3_docs_record_retirement_candidates_without_premature_deletion():
-    readme = (V3 / "README.md").read_text(encoding="utf-8")
-    task4 = (V3 / "TASK_4_AGENT_GATEWAY_MIGRATION.md").read_text(encoding="utf-8")
+def test_v1_3_docs_record_retirement_candidates_without_premature_deletion():
+    readme = (V1_3 / "README.md").read_text(encoding="utf-8")
+    task4 = (V1_3 / "TASK_4_AGENT_GATEWAY_MIGRATION.md").read_text(encoding="utf-8")
 
-    assert "V3 parity is proven for the Portfolio Agent" in readme
+    assert "V1.3 parity is proven for the Portfolio Agent" in readme
     assert "src/moomail_finance_ai/mcp/stdio.py" in readme
     assert "RegisteredMCPModule" in readme
     assert "_MCPStdioClient" in readme
@@ -70,9 +70,9 @@ def test_v3_docs_record_retirement_candidates_without_premature_deletion():
     assert "Keep domain tests" in task4
 
 
-def test_v3_docs_include_deterministic_portfolio_data_lane_implementation_task():
-    readme = (V3 / "README.md").read_text(encoding="utf-8")
-    task3 = (V3 / "TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md").read_text(
+def test_v1_3_docs_include_deterministic_portfolio_data_lane_implementation_task():
+    readme = (V1_3 / "README.md").read_text(encoding="utf-8")
+    task3 = (V1_3 / "TASK_3_DETERMINISTIC_PORTFOLIO_DATA_LANE.md").read_text(
         encoding="utf-8"
     )
     action_plan = (DOCS / "ACTION_PLAN.md").read_text(encoding="utf-8")
@@ -85,18 +85,18 @@ def test_v3_docs_include_deterministic_portfolio_data_lane_implementation_task()
     assert "does not call Portfolio Agent, Investment Agent, an LLM" in task3
     assert "page-load behavior to request dashboard/status API" in task3
     assert "no-agent refresh behavior" in action_plan
-    assert "V3.4" in action_plan
+    assert "V1.3.4" in action_plan
 
 
-def test_decision_log_records_v3_mcp_backend_boundary():
+def test_decision_log_records_v1_3_mcp_backend_boundary():
     decision_log = (DOCS / "DECISION_LOG.md").read_text(encoding="utf-8")
 
-    assert "V3.0 MCP Backend Boundary / 2026-06-17" in decision_log
-    assert "V3.1 FastMCP Server Migration / 2026-06-17" in decision_log
-    assert "V3.2 And V3.3 Closeout / 2026-06-21" in decision_log
-    assert "V3.4 Agent Gateway Migration / 2026-06-23" in decision_log
-    assert "V3 Planning Adjustment / 2026-06-17" in decision_log
-    assert "Insert V3.3 as `Deterministic Portfolio Data Lane`" in decision_log
+    assert "V1.3.0 MCP Backend Boundary / 2026-06-17" in decision_log
+    assert "V1.3.1 FastMCP Server Migration / 2026-06-17" in decision_log
+    assert "V1.3.2 And V1.3.3 Closeout / 2026-06-21" in decision_log
+    assert "V1.3.4 Agent Gateway Migration / 2026-06-23" in decision_log
+    assert "V1.3 Planning Adjustment / 2026-06-17" in decision_log
+    assert "Insert V1.3.3 as `Deterministic Portfolio Data Lane`" in decision_log
     assert "MCP is backend infrastructure, not only an LLM-agent tool surface" in decision_log
     assert "deterministic dashboard" in decision_log
     assert "backend APIs only" in decision_log

@@ -57,7 +57,8 @@ test when that backend exists.
 | `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, daily SQL idempotency, and LLM evaluator JSON parsing/recovery |
 | `tests/test_agent_schemas.py` | Agent Pydantic contracts, V1.4 planner/evidence fixtures, guardrail schema, and trace schema |
 | `tests/test_asset_resolver.py` | V1.4 deterministic asset resolver behavior, candidate precedence, explicit failure statuses, non-blocking warnings, and sanitized trace |
-| `tests/test_investment_agent.py` | Thin LangGraph Investment Agent routing, fake subagent call counts, missing-research synthesis, and status events |
+| `tests/test_investment_planner.py` | V1.4 Investment Agent fallback planner, bounded PortfolioRequest output, logical asset hints, sentiment-task ownership, golden prompts, and plan fixtures |
+| `tests/test_investment_agent.py` | Thin LangGraph Investment Agent planning/validation, fake subagent call counts, sentiment routing, missing-research synthesis, and status events |
 | `tests/test_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, V1.4 portfolio request validation, history/persistence minimization, and tool trace entries |
 | `tests/test_sentiment_agent_stub.py` | Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
 | `tests/test_investment_guardrails.py` | Deterministic investment no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
@@ -157,17 +158,32 @@ tests/test_asset_resolver.py tests/test_agent_schemas.py: 67 passed
 tests/test_portfolio_planner.py: 14 passed
 ```
 
-Latest deterministic non-live regression after V1.4.0 and V1.4.1 on
-2026-06-24:
+V1.4.2 Investment Agent planner closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_investment_agent.py -q
+.venv/bin/python -m pytest tests/test_chat_app.py -q
+.venv/bin/python -m pytest tests/test_agent_schemas.py tests/test_agent_trace.py -q
+```
+
+Latest V1.4.2 result on 2026-06-25:
+
+```text
+tests/test_investment_planner.py tests/test_investment_agent.py: 22 passed, 1 warning
+tests/test_chat_app.py: 10 passed, 1 warning
+tests/test_agent_schemas.py tests/test_agent_trace.py: 60 passed, 1 warning
+```
+
+Latest deterministic non-live regression after V1.4.2 on 2026-06-25:
 
 ```text
 .venv/bin/python -m pytest tests --ignore=tests/live -q
-202 passed, 1 warning
+218 passed, 1 warning
 ```
 
 The warning is the existing LangGraph dependency deprecation warning. Live
-connector tests remain opt-in and were not required for deterministic V1.4.0 or
-V1.4.1 completion.
+connector tests remain opt-in and were not required for deterministic V1.4.0,
+V1.4.1, or V1.4.2 completion.
 
 ## When To Delete A Test
 

@@ -12,7 +12,38 @@ broker-specific symbols.
 
 ## Status
 
-Planned.
+Complete as of 2026-06-25.
+
+## Implemented In
+
+- `src/moomail_finance_ai/investment_planner.py`
+  - Added the `InvestmentPlanner` protocol, deterministic fallback planner,
+    planner validation, and adapter from V1.4 `InvestmentPlan` to the existing
+    `InvestmentQueryPlan`/`PortfolioTask` runtime path.
+  - Planner emits logical `AssetHint` values, not OpenD-prefixed symbols or SQL
+    asset ids.
+  - Planner maps cash/fact, recent purchase/history, full review, risk,
+    comparison, and sentiment/research prompts into bounded `PortfolioRequest`
+    and optional `SentimentTask` contracts.
+- `src/moomail_finance_ai/investment_agent.py`
+  - Replaced the graph's classifier entry with `load_ips -> plan_investment ->
+    validate_plan -> call_portfolio`.
+  - Stores `InvestmentAgentState.investment_plan` before subagent calls,
+    validates planner output before Portfolio Agent/Sentiment Agent routing,
+    and emits sanitized planner/validator trace phases.
+  - Keeps the existing `query_plan`/`PortfolioTask` adapter so the current
+    Portfolio Agent runtime remains stable until V1.4.3/V1.4.4.
+- `src/moomail_finance_ai/chat_api.py`, `scripts/serve_chat.py`,
+  `web/index.html`, and frontend trace types/rendering
+  - Chat responses now include `investment_plan`.
+  - The frontend selector now sends `investment_agent`/`portfolio_agent`, and
+    backend alias normalization accepts both old and new names.
+- Tests and fixtures
+  - Added `tests/test_investment_planner.py`.
+  - Updated `tests/test_investment_agent.py`, `tests/test_chat_app.py`,
+    `tests/test_agent_trace.py`, and `tests/test_agent_schemas.py`.
+  - Added `tests/fixtures/agent/investment_plan_cash_query.json` and
+    `tests/fixtures/agent/investment_plan_recent_purchase.json`.
 
 ## Exit Criteria
 
@@ -90,9 +121,43 @@ V1.4.0 contracts
 .venv/bin/python -m pytest tests/test_chat_app.py -q
 ```
 
+## Verification
+
+Run on 2026-06-25:
+
+```text
+.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_investment_agent.py -q
+22 passed, 1 warning in 0.38s
+
+.venv/bin/python -m pytest tests/test_chat_app.py -q
+10 passed, 1 warning in 5.08s
+
+.venv/bin/python -m pytest tests/test_agent_schemas.py tests/test_agent_trace.py -q
+60 passed, 1 warning in 0.28s
+
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+218 passed, 1 warning in 8.31s
+```
+
+The warning is the existing LangGraph dependency deprecation warning.
+
+Not run yet in this closeout section:
+
+- `tests/live`: opt-in live connector/OpenD tests are not required because this
+  task uses deterministic fake/recorded Portfolio Agent paths.
+
+## Remaining
+
+No remaining exit criteria for V1.4.2. Later V1.4 tasks still need to replace
+the Portfolio Agent side of the adapter with `PortfolioEvidencePlan` and
+deterministic evidence-packet execution.
+
 ## Notes
 
 - The Investment Agent should send logical scope. It should not know or produce
   OpenD-specific symbols.
 - This task does not implement rich final LLM synthesis. It only creates better
   planning and routing.
+- Closeout note: the expected `references/finance-ai-grounding.md` file was not
+  present in this checkout. Grounding used this task file, the sibling V1.4
+  README, and the current finance AI architecture/agent/testing/protocol docs.

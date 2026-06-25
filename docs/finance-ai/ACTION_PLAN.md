@@ -64,6 +64,9 @@ Implemented and useful today:
   `AssetHint`, `AssetResolution`, `PortfolioEvidencePlan`,
   `PortfolioEvidencePacket`, and planner/policy trace phases in
   `agent_schemas.py`.
+- `investment_planner`: deterministic V1.4 Investment Agent fallback planner
+  that emits typed `InvestmentPlan` output, validates it before subagent calls,
+  and adapts it to the current Portfolio Agent runtime.
 - `asset_resolver`: deterministic V1.4 resolver/validator primitives for
   supplied SQL/current-snapshot/fixture candidates, explicit resolution
   statuses, unsafe request blocking, and sanitized asset-resolution trace.
@@ -87,10 +90,9 @@ Important limitations:
   the stub must not invent research claims, citations, or sentiment.
 - The Portfolio Agent bounded planner is implemented inside the existing Python
   Portfolio Agent path, not as a separate compiled LangGraph subgraph.
-- V1.4 contracts and resolver/validator primitives exist, but the live
-  Investment Agent and Portfolio Agent runtime has not yet migrated to emit and
-  consume `InvestmentPlan`, `PortfolioRequest`, `PortfolioEvidencePlan`, or
-  `PortfolioEvidencePacket`.
+- The live Investment Agent now emits and validates `InvestmentPlan`, but the
+  Portfolio Agent still receives an adapted `PortfolioTask` until V1.4.3 and
+  V1.4.4 migrate portfolio evidence planning and execution.
 - Pinecone memory is not connected.
 - The deterministic dashboard lane, Portfolio Agent, and Investment Agent
   path use the gateway. `RegisteredMCPModule` remains underneath FastMCP and
@@ -464,21 +466,25 @@ V1.4 task maps:
 | --- | --- | --- |
 | V1.4.0 | complete as of 2026-06-24 | Define planner contracts for Investment plans, Portfolio requests, asset resolution, Portfolio evidence plans, and evidence packets. |
 | V1.4.1 | complete as of 2026-06-24 | Implement deterministic asset resolution and validation before tool execution. |
-| V1.4.2 | planned | Move Investment Agent routing into a structured planner that emits bounded subagent requests. |
+| V1.4.2 | complete as of 2026-06-25 | Move Investment Agent routing into a structured planner that emits bounded subagent requests. |
 | V1.4.3 | planned | Move Portfolio Agent planning into bounded portfolio evidence planning over resolved assets and requested output goals. |
 | V1.4.4 | planned | Execute Portfolio evidence plans deterministically and return separated evidence packets. |
 | V1.4.5 | planned | Add trace/evaluation coverage, update docs, and close the V1.4 gate. |
 
-V1.4.0 and V1.4.1 implementation reality:
+V1.4.0 through V1.4.2 implementation reality:
 
 - `agent_schemas.py` now defines the typed planner vocabulary and separated
   evidence packet contracts used by later V1.4 tasks.
 - `asset_resolver.py` resolves logical symbols/display names against supplied
   candidate assets without live OpenD, returns explicit failure statuses, and
   validates bounded portfolio requests before tool execution.
-- Runtime migration remains planned. Current chat/CLI flows still use the
-  existing `InvestmentQueryPlan`, `PortfolioTask`, and `PortfolioContextPlan`
-  path until V1.4.2 through V1.4.4 wire in the new contracts.
+- `investment_planner.py` drives the live Investment Agent graph through a
+  typed deterministic fallback planner. Chat/CLI Investment Agent runs now
+  expose `investment_plan` and still expose the older `query_plan` compatibility
+  adapter for current frontend/report rendering.
+- Portfolio Agent runtime migration remains planned. Current Portfolio Agent
+  calls still receive adapted `PortfolioTask`/`PortfolioContextPlan` inputs
+  until V1.4.3 through V1.4.4 wire in portfolio evidence planning and execution.
 
 V1.4 should focus on structured planning for the Investment Agent and Portfolio
 Agent:

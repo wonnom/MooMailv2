@@ -9,6 +9,12 @@ from moomail_finance_ai.agent_schemas import TraceEvent
 TRACE_METADATA_ALLOWLIST = {
     "phase",
     "result",
+    "mode",
+    "needs_portfolio_agent",
+    "needs_sentiment_agent",
+    "portfolio_task_intent",
+    "asset_hint_count",
+    "answer_constraint_count",
     "guardrail_status",
     "check_count",
     "tool_call_kind",

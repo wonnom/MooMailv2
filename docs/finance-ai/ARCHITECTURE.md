@@ -83,9 +83,9 @@ Implemented graph:
 ```text
 InvestmentAgentGraph
   -> receive_user_query
-  -> classify_query
   -> load_investment_policy
-  -> plan_subagent_calls
+  -> plan_investment with typed InvestmentPlan
+  -> validate_investment_plan
   -> portfolio_agent_bounded_path when portfolio context is needed
   -> sentiment_agent_stub when research context is needed
   -> synthesize_answer
@@ -107,6 +107,9 @@ Agent. The Sentiment Agent is currently a structured stub so the project can
 lock the task and response contracts before building Neo4j ingestion and
 retrieval.
 
+The Investment Agent still adapts its V1.4 `PortfolioRequest` to the existing
+`PortfolioTask` path until the Portfolio Agent evidence planner is implemented.
+
 Current non-goals:
 
 - no real GraphRAG retrieval
@@ -121,12 +124,12 @@ Current non-goals:
 V1.4 should introduce explicit structured planning for the Investment Agent and
 Portfolio Agent while preserving deterministic tool execution.
 
-Implementation status as of 2026-06-24: V1.4.0 and V1.4.1 have landed the
-additive planner contracts and deterministic asset resolver/validator
-primitives. The current runtime still uses the existing thin Investment Agent
-supervisor and Portfolio Agent bounded-planning path; later V1.4 tasks must
-wire the new `InvestmentPlan`, `PortfolioRequest`, `PortfolioEvidencePlan`, and
-`PortfolioEvidencePacket` contracts into execution.
+Implementation status as of 2026-06-25: V1.4.0 through V1.4.2 have landed the
+additive planner contracts, deterministic asset resolver/validator primitives,
+and live Investment Agent `InvestmentPlan` planner/validator node. The current
+Portfolio Agent runtime still uses the existing bounded-planning path through
+an adapter; later V1.4 tasks must wire `PortfolioEvidencePlan` and
+`PortfolioEvidencePacket` into Portfolio Agent planning and execution.
 
 The target pattern is:
 

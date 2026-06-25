@@ -86,6 +86,7 @@ function renderTrace(state: ChatState, report: FinalReport): void {
       agent_type: state.agent_type,
       mode: state.mode,
       status_events: state.status_events,
+      investment_plan: state.investment_plan ?? null,
       query_plan: state.query_plan ?? null,
       portfolio_packet: state.portfolio_packet ?? null,
       sentiment_packet: state.sentiment_packet ?? report.sentiment_analysis ?? null,

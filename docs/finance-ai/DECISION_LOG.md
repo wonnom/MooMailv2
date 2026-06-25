@@ -1269,6 +1269,46 @@ Reasoning:
 - Version-neutral code names avoid carrying historical labels into long-lived
   runtime APIs.
 
+## V1.4.2 Closeout: Investment Agent Planner
+
+Date: 2026-06-25
+
+Decision:
+
+- Move the live Investment Agent graph from hidden query classification to a
+  typed `InvestmentPlan` planner/validator step before any subagent calls.
+- Keep deterministic fallback planning as the implemented planner for local
+  tests/offline use, while preserving a planner interface for a future
+  structured-output LLM planner.
+- Normalize frontend/backend chat agent names so the website may send
+  `investment_agent` or `portfolio_agent` while the backend still routes through
+  canonical `investment` and `portfolio` values.
+
+Actual implementation:
+
+- Added `src/moomail_finance_ai/investment_planner.py`.
+- Stored `InvestmentAgentState.investment_plan` and exposed it in chat final
+  payloads and sanitized trace summaries.
+- Adapted the new V1.4 `PortfolioRequest` back to the existing
+  `PortfolioTask` runtime path until the Portfolio Agent evidence-planning tasks
+  are implemented.
+
+Verification:
+
+- `.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_investment_agent.py -q`
+  passed with `22 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests/test_chat_app.py -q` passed with
+  `10 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests/test_agent_schemas.py tests/test_agent_trace.py -q`
+  passed with `60 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests --ignore=tests/live -q` passed with
+  `218 passed, 1 warning`.
+
+Remaining:
+
+- V1.4.3 and V1.4.4 must replace the Portfolio Agent adapter path with
+  structured evidence planning and deterministic evidence-packet execution.
+
 ## Future Update Template
 
 ### Version X / Date

@@ -1,0 +1,27 @@
+{
+  "mode": "portfolio_fact",
+  "needs_portfolio_agent": true,
+  "needs_sentiment_agent": false,
+  "portfolio_request": {
+    "task_intent": "portfolio_fact",
+    "asset_hints": [],
+    "time_range": "30d",
+    "freshness_requirement": "latest_required",
+    "output_goals": ["snapshot", "effective_cash"],
+    "source_query": "How much effective cash do I have?",
+    "warnings": []
+  },
+  "sentiment_task": null,
+  "logical_asset_hints": [],
+  "themes": ["portfolio_fact"],
+  "time_horizon": "30d",
+  "freshness_requirement": "latest_required",
+  "answer_constraints": [
+    "no_trade_execution",
+    "no_order_preparation",
+    "no_exact_share_count",
+    "source_backed",
+    "portfolio_only"
+  ],
+  "warnings": []
+}

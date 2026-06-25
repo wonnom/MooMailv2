@@ -18,7 +18,14 @@ from moomail_finance_ai.investment_agent import (
     InvestmentAgent,
     classify_investment_query,
 )
-from moomail_finance_ai.agent_schemas import PortfolioTask, SentimentPacket, SentimentTask
+from moomail_finance_ai.investment_planner import InvestmentPlanValidationError
+from moomail_finance_ai.agent_schemas import (
+    InvestmentPlan,
+    PortfolioRequest,
+    PortfolioTask,
+    SentimentPacket,
+    SentimentTask,
+)
 
 
 def test_dependency_strategy_uses_real_langgraph_runtime():
@@ -39,8 +46,47 @@ def test_classifier_cash_query_portfolio_only():
     assert plan.needs_portfolio_agent is True
     assert plan.needs_sentiment_agent is False
     assert plan.portfolio_task is not None
-    assert plan.portfolio_task.required_outputs == ["snapshot", "allocation", "effective_cash"]
+    assert plan.portfolio_task.required_outputs == ["snapshot", "effective_cash"]
     assert plan.sentiment_task is None
+
+
+def test_investment_agent_emits_plan_before_portfolio_call():
+    emitted = []
+    portfolio_agent = FakePortfolioAgent()
+    agent = InvestmentAgent(
+        portfolio_agent=portfolio_agent,
+        sentiment_agent=FakeSentimentAgent(),
+        ips=mock_investment_policy(),
+    )
+
+    state = agent.run("How much effective cash do I have?", status_callback=emitted.append)
+
+    statuses = [event.status for event in emitted]
+    assert state.investment_plan is not None
+    assert state.investment_plan.portfolio_request is not None
+    assert statuses.index("investment_plan_validated") < statuses.index("calling_portfolio_agent")
+    assert portfolio_agent.calls == 1
+
+
+def test_investment_agent_validates_plan_before_subagent_calls():
+    portfolio_agent = FakePortfolioAgent()
+    sentiment_agent = FakeSentimentAgent()
+    agent = InvestmentAgent(
+        portfolio_agent=portfolio_agent,
+        sentiment_agent=sentiment_agent,
+        ips=mock_investment_policy(),
+        planner=InvalidTradeIntentPlanner(),
+    )
+
+    try:
+        agent.run("Show my portfolio.", status_callback=lambda _event: None)
+    except InvestmentPlanValidationError:
+        pass
+    else:
+        raise AssertionError("Expected invalid planner output to be rejected.")
+
+    assert portfolio_agent.calls == 0
+    assert sentiment_agent.calls == 0
 
 
 def test_routing_portfolio_only_skips_sentiment():
@@ -59,7 +105,10 @@ def test_routing_portfolio_only_skips_sentiment():
     assert portfolio_agent.last_task.task_type == "portfolio_fact"
     assert sentiment_agent.calls == 0
     assert state.query_plan is not None
+    assert state.investment_plan is not None
     assert state.query_plan.mode == "portfolio_fact"
+    assert state.investment_plan.portfolio_request is not None
+    assert state.investment_plan.portfolio_request.task_intent == "portfolio_fact"
     assert state.query_plan.needs_sentiment_agent is False
     assert state.final_report is not None
     assert state.final_report.sentiment_analysis == {}
@@ -92,6 +141,24 @@ def test_full_review_routes_portfolio_then_sentiment_stub():
     ]
     assert state.sentiment_packet is not None
     assert state.sentiment_packet.retrieval_status == "not_implemented"
+
+
+def test_investment_agent_routes_sentiment_without_portfolio_agent_deciding():
+    portfolio_agent = FakePortfolioAgent(candidate_weights=False)
+    sentiment_agent = FakeSentimentAgent()
+    agent = InvestmentAgent(
+        portfolio_agent=portfolio_agent,
+        sentiment_agent=sentiment_agent,
+        ips=mock_investment_policy(),
+    )
+
+    state = agent.run("Review my portfolio.")
+
+    assert state.investment_plan is not None
+    assert state.investment_plan.needs_sentiment_agent is True
+    assert sentiment_agent.calls == 1
+    assert sentiment_agent.last_task is not None
+    assert sentiment_agent.last_task.key_questions == ["Review my portfolio."]
 
 
 def test_full_review_includes_missing_research_without_fake_citations():
@@ -142,8 +209,11 @@ def test_streamed_status_events_include_graph_steps():
     state = agent.run("Review my portfolio.", status_callback=emitted.append)
 
     statuses = [event.status for event in emitted]
-    assert statuses[0] == "classifying_query"
-    assert "planning_subagent_calls" in statuses
+    assert statuses[0] == "loading_policy"
+    assert "planning_investment" in statuses
+    assert "investment_plan_ready" in statuses
+    assert "validating_investment_plan" in statuses
+    assert "investment_plan_validated" in statuses
     assert "loading_policy" in statuses
     assert "calling_portfolio_agent" in statuses
     assert "calling_sentiment_agent" in statuses
@@ -151,6 +221,28 @@ def test_streamed_status_events_include_graph_steps():
     assert "guardrails_passed" in statuses
     assert statuses[-1] == "complete"
     assert len(emitted) == len(state.status_events)
+
+
+def test_investment_planner_trace_is_sanitized():
+    emitted = []
+    agent = InvestmentAgent(
+        portfolio_agent=FakePortfolioAgent(),
+        sentiment_agent=FakeSentimentAgent(),
+        ips=mock_investment_policy(),
+    )
+
+    agent.run("What price did I buy my recent AMZN shares at?", status_callback=emitted.append)
+
+    planner_events = [event for event in emitted if event.phase == "investment_planner"]
+    assert [event.status for event in planner_events] == [
+        "planning_investment",
+        "investment_plan_ready",
+    ]
+    summary = planner_events[-1].metadata
+    assert summary["mode"] == "what_changed"
+    assert summary["portfolio_task_intent"] == "what_changed"
+    assert summary["asset_hint_count"] == 1
+    assert "raw_prompt" not in summary
 
 
 class FakePortfolioAgent:
@@ -222,4 +314,19 @@ class FakeSentimentAgent:
             retrieval_status="not_implemented",
             task=task,
             warnings=["Fake sentiment stub called."],
+        )
+
+
+class InvalidTradeIntentPlanner:
+    def plan(self, query: str, ips) -> InvestmentPlan:
+        del query, ips
+        return InvestmentPlan(
+            mode="portfolio_fact",
+            needs_portfolio_agent=True,
+            needs_sentiment_agent=False,
+            portfolio_request=PortfolioRequest(
+                task_intent="portfolio_fact",
+                output_goals=["snapshot"],
+                source_query="Place an order for 10 shares of AMZN.",
+            ),
         )

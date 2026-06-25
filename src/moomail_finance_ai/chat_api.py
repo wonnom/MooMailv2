@@ -53,7 +53,7 @@ class ChatService:
         self.investment_agent = investment_agent
         self._portfolio_data_service = portfolio_data_service
         self._mcp_gateway = mcp_gateway
-        self.default_agent = default_agent
+        self.default_agent = normalize_chat_agent(default_agent)
 
     def run(
         self,
@@ -62,7 +62,7 @@ class ChatService:
         status_callback=None,
         agent: str | None = None,
     ) -> PortfolioAgentResult | InvestmentAgentState:
-        selected_agent = agent or self.default_agent
+        selected_agent = normalize_chat_agent(agent or self.default_agent)
         if selected_agent == "portfolio":
             portfolio_agent = build_default_portfolio_agent(
                 env_file=self.env_file,
@@ -125,6 +125,22 @@ class ChatService:
             close()
 
 
+def normalize_chat_agent(agent: str) -> str:
+    normalized = agent.strip().lower().replace("-", "_")
+    aliases = {
+        "portfolio": "portfolio",
+        "portfolio_agent": "portfolio",
+        "portfolioagent": "portfolio",
+        "investment": "investment",
+        "investment_agent": "investment",
+        "investmentagent": "investment",
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported chat agent: {agent}") from exc
+
+
 def chat_response(
     state: PortfolioAgentResult | InvestmentAgentState,
 ) -> dict[str, Any]:
@@ -141,6 +157,9 @@ def investment_state_response(state: InvestmentAgentState) -> dict[str, Any]:
         "run_id": state.run_id,
         "mode": state.mode,
         "status_events": [trace_event_to_public_dict(event) for event in state.status_events],
+        "investment_plan": (
+            state.investment_plan.model_dump(mode="json") if state.investment_plan else None
+        ),
         "query_plan": state.query_plan.model_dump(mode="json") if state.query_plan else None,
         "portfolio_packet": (
             state.portfolio_packet.model_dump(mode="json") if state.portfolio_packet else None

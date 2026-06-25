@@ -10,6 +10,7 @@ from moomail_finance_ai.chat_api import (
     ChatService,
     chat_response,
     error_event_payload,
+    normalize_chat_agent,
     status_event_payload,
 )
 
@@ -157,7 +158,7 @@ def main() -> None:
     parser.add_argument(
         "--default-agent",
         default="portfolio",
-        choices=["portfolio", "investment"],
+        choices=["portfolio", "portfolio_agent", "investment", "investment_agent"],
     )
     args = parser.parse_args()
 
@@ -166,7 +167,7 @@ def main() -> None:
         db_path=args.db,
         env_file=args.env_file,
         llm_provider=args.llm_provider,
-        default_agent=args.default_agent,
+        default_agent=normalize_chat_agent(args.default_agent),
     )
     server = ThreadingHTTPServer((args.host, args.port), ChatHandler)
     print(f"Serving Finance AI chat at http://{args.host}:{args.port}")

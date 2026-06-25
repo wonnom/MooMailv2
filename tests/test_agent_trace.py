@@ -52,8 +52,9 @@ def test_trace_includes_graph_tool_sentiment_and_guardrail_events():
     event_types = [event.event_type for event in emitted]
     tool_events = [event for event in state.status_events if event.event_type == "tool_call"]
 
-    assert "classifying_query" in statuses
-    assert "planning_subagent_calls" in statuses
+    assert "planning_investment" in statuses
+    assert "investment_plan_ready" in statuses
+    assert "investment_plan_validated" in statuses
     assert "planned_portfolio_tool" in statuses
     assert "called_portfolio_tool" in statuses
     assert "skipped_portfolio_tool" in statuses

@@ -124,6 +124,7 @@ def test_chat_service_can_call_investment_agent_with_recorded_portfolio(tmp_path
 
     assert any(line["type"] == "status" for line in lines)
     assert final["agent_type"] == "investment_agent"
+    assert final["investment_plan"]["needs_portfolio_agent"] is True
     assert final["query_plan"]["needs_sentiment_agent"] is True
     assert final["sentiment_packet"]["retrieval_status"] == "not_implemented"
     assert any(event["event_type"] == "tool_call" for event in final["status_events"])
@@ -140,13 +141,29 @@ def test_chat_service_can_call_investment_agent_with_recorded_portfolio(tmp_path
     assert final["guardrail_result"]["checks"]
 
 
+def test_chat_service_accepts_frontend_agent_name_aliases(tmp_path):
+    report_path = _write_recorded_report(tmp_path)
+    service = ChatService(
+        from_report=report_path,
+        db_path=tmp_path / "alias-chat.sqlite",
+        portfolio_evaluator=FakePortfolioEvaluator(),
+        default_agent="investment_agent",
+    )
+
+    investment_lines = stream_payloads(service, "Review my portfolio.", agent="investment_agent")
+    portfolio_lines = stream_payloads(service, "Review my portfolio.", agent="portfolio_agent")
+
+    assert investment_lines[-1]["state"]["agent_type"] == "investment_agent"
+    assert portfolio_lines[-1]["state"]["agent_type"] == "portfolio_agent"
+
+
 def test_chat_defaults_use_canonical_portfolio_history_db():
     service = ChatService()
     serve_chat_source = (WEB.parent / "scripts" / "serve_chat.py").read_text(encoding="utf-8")
 
     assert str(service.db_path) == "data/portfolio-history.sqlite"
     assert 'default="data/portfolio-history.sqlite"' in serve_chat_source
-    assert "investment" in serve_chat_source
+    assert "investment_agent" in serve_chat_source
     assert "data/chat-portfolio-history.sqlite" not in serve_chat_source
 
 
@@ -170,7 +187,9 @@ def test_frontend_files_include_streaming_and_citation_controls():
 
     assert "/static/app.js" in html
     assert "agentSelect" in html
-    assert 'value="investment">Investment<' in html
+    assert 'value="portfolio_agent" selected>Portfolio<' in html
+    assert 'value="investment_agent">Investment<' in html
+    assert 'value="investment">Investment<' not in html
     assert "Investment Legacy" not in html
     assert "chat-controls" in html
     assert 'rows="4"' in html
@@ -196,6 +215,7 @@ def test_frontend_files_include_streaming_and_citation_controls():
     assert "refreshPortfolioDashboard" in frontend_source
     assert "addReasoningSummary" in frontend_source
     assert "route_reason" in frontend_source
+    assert "investment_plan" in frontend_source
     assert "portfolio_packet" in frontend_source
     assert "Sentiment retrieval" in frontend_source
     assert "setChatHidden" in frontend_source

@@ -2,7 +2,8 @@
 
 Status: current planning and execution notes. V1.3 MCP gateway, deterministic
 portfolio data lane, and agent gateway migration are complete. V1.4 structured
-planning work has started; V1.4.0 and V1.4.1 are complete as of 2026-06-24.
+planning work has started; V1.4.0 and V1.4.1 are complete as of 2026-06-24,
+and V1.4.2 is complete as of 2026-06-25.
 
 ## V1.4 Goal
 
@@ -57,10 +58,22 @@ Completed as of 2026-06-24:
   SQL/current-snapshot/fixture candidates, returns explicit resolution statuses,
   blocks unsafe trade/order intent, and emits sanitized trace events.
 
+Completed as of 2026-06-25:
+
+- V1.4.2 added `src/moomail_finance_ai/investment_planner.py`, moved the
+  Investment Agent graph onto a typed `InvestmentPlan` planner/validator node
+  before subagent calls, preserved the existing `query_plan`/`PortfolioTask`
+  adapter for the current Portfolio Agent runtime, and exposed planner decisions
+  in sanitized trace and chat responses.
+- V1.4.2 also normalized frontend/backend chat agent names so the website can
+  send `investment_agent` or `portfolio_agent` while older `investment` and
+  `portfolio` values remain accepted.
+
 Still planned:
 
-- V1.4.2 through V1.4.4 must migrate the current agent runtime onto the new
-  structured planner contracts and resolver before tool execution.
+- V1.4.3 and V1.4.4 must migrate the Portfolio Agent side of the current
+  runtime onto structured evidence planning, deterministic resolver use before
+  tool execution, and separated evidence-packet execution.
 - V1.4.5 still owns final trace/evaluation/docs closeout for the whole V1.4
   iteration.
 
@@ -70,7 +83,7 @@ Still planned:
 | --- | --- | --- | --- |
 | V1.4.0 | complete as of 2026-06-24 | [TASK_0_PLANNER_CONTRACTS.md](TASK_0_PLANNER_CONTRACTS.md) | Define typed contracts for Investment planning, bounded Portfolio requests, asset resolution, Portfolio evidence plans, and evidence packets. |
 | V1.4.1 | complete as of 2026-06-24 | [TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md](TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md) | Add deterministic asset resolution and validators so logical hints map to actual portfolio assets and invalid plans fail safely. |
-| V1.4.2 | planned | [TASK_2_INVESTMENT_AGENT_PLANNER.md](TASK_2_INVESTMENT_AGENT_PLANNER.md) | Replace hidden keyword routing with a structured Investment Agent planner that emits bounded subagent requests. |
+| V1.4.2 | complete as of 2026-06-25 | [TASK_2_INVESTMENT_AGENT_PLANNER.md](TASK_2_INVESTMENT_AGENT_PLANNER.md) | Replace hidden keyword routing with a structured Investment Agent planner that emits bounded subagent requests. |
 | V1.4.3 | planned | [TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md](TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md) | Refactor Portfolio Agent planning into evidence planning over bounded requests, resolved assets, history scope, metrics, and freshness needs. |
 | V1.4.4 | planned | [TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md](TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md) | Execute Portfolio evidence plans deterministically and return facts, metrics, patterns, interpretations, limitations, and trace. |
 | V1.4.5 | planned | [TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md](TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md) | Expose planner/execution trace, add golden prompt evaluations, update docs, and close the V1.4 gate. |
@@ -80,7 +93,7 @@ Still planned:
 ```text
 V1.4.0. Planner contracts [complete]
   ├── V1.4.1. Asset resolution and validation [complete]
-  │   ├── V1.4.2. Investment Agent planner [planned]
+  │   ├── V1.4.2. Investment Agent planner [complete]
   │   │   └── V1.4.3. Portfolio evidence planner [planned]
   │   │       └── V1.4.4. Deterministic execution and evidence packet [planned]
   │   │           └── V1.4.5. Trace, evaluations, docs, and closeout [planned]

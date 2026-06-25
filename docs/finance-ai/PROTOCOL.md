@@ -7,12 +7,12 @@ receives a user query and produces a structured final report.
 
 ```text
 1. receive_user_query
-2. classify_query
-3. load_investment_policy
-4. plan_subagent_calls
-5. run_portfolio_agent when needed
-6. decide_sentiment_scope from user intent and portfolio packet
-7. run_sentiment_agent_stub when needed
+2. load_investment_policy
+3. plan_investment as a typed InvestmentPlan
+4. validate_investment_plan before subagent calls
+5. run_portfolio_agent when the plan requests portfolio context
+6. route_sentiment from the InvestmentPlan
+7. run_sentiment_agent_stub when the plan requests research context
 8. synthesize_report
 9. run_guardrail_review
 10. emit_final_output
@@ -40,10 +40,12 @@ Example events:
 
 Recommended statuses:
 
-- `classifying_query`
 - `loading_policy`
 - `retrieving_memory`
-- `planning_subagent_calls`
+- `planning_investment`
+- `investment_plan_ready`
+- `validating_investment_plan`
+- `investment_plan_validated`
 - `checking_opend_connection`
 - `retrieving_portfolio`
 - `retrieving_quotes`
@@ -64,11 +66,12 @@ names, high-level steps, bounded input/output summaries, skipped-tool reasons,
 warnings, errors, and operational progress.
 
 Public trace metadata is allowlisted. Allowed metadata includes phase,
-result, guardrail status, check count, tool call kind, retrieval status, missing
-document count, warning count, pass/fail status, output status, and error
-location. Denied metadata includes hidden chain-of-thought, raw prompts,
-developer/system prompts, API keys, secrets, tokens, passwords, raw broker
-account IDs, and scratchpad fields.
+planner mode, subagent need booleans, portfolio task intent, bounded planner
+summary counts, result, guardrail status, check count, tool call kind,
+retrieval status, missing document count, warning count, pass/fail status,
+output status, and error location. Denied metadata includes hidden
+chain-of-thought, raw prompts, developer/system prompts, API keys, secrets,
+tokens, passwords, raw broker account IDs, and scratchpad fields.
 
 ## Stream Payloads
 
@@ -76,7 +79,8 @@ The local chat server streams newline-delimited JSON payloads. Each line is one
 of:
 
 - `status`: high-level operational progress.
-- `final`: completed structured agent state.
+- `final`: completed structured agent state, including `investment_plan` for
+  Investment Agent runs.
 - `error`: failed run details for the chat rail and technical trace.
 
 Example error payload:
@@ -96,6 +100,12 @@ Example error payload:
 The frontend must stop the loading state when it receives `error`, show a failed
 chat status, and render the error details in the trace panel. Traceback lines are
 local operational diagnostics; they must not include hidden model reasoning.
+
+## Chat Agent Names
+
+The chat API accepts canonical agent values `portfolio` and `investment`.
+For frontend compatibility it also accepts `portfolio_agent` and
+`investment_agent`, normalizing those aliases before routing the request.
 
 ## Portfolio Data Lane Protocol
 
@@ -195,6 +205,8 @@ High-level state shape:
   "mode": "review",
   "portfolio_id": "portfolio_default",
   "ips": {},
+  "investment_plan": {},
+  "query_plan": {},
   "memory_context": [],
   "portfolio_packet": {},
   "sentiment_scope": [],
@@ -207,30 +219,38 @@ High-level state shape:
 }
 ```
 
-## Query Plan
+## Investment Plan
 
-The Investment Agent should route from a compact structured plan:
+The Investment Agent routes from a typed `InvestmentPlan` before subagent calls:
 
 ```json
 {
   "mode": "review",
   "needs_portfolio_agent": true,
   "needs_sentiment_agent": true,
-  "portfolio_task": {
-    "task_type": "full_review",
-    "tickers": [],
-    "history_window": "30d"
+  "freshness_requirement": "latest_required",
+  "portfolio_request": {
+    "task_intent": "full_review",
+    "asset_hints": [],
+    "output_goals": ["snapshot", "allocation", "risk", "portfolio_patterns"],
+    "freshness_requirement": "latest_required",
+    "source_query": "Review my portfolio"
   },
   "sentiment_task": {
     "tickers": [],
     "themes": [],
-    "questions": []
-  }
+    "key_questions": []
+  },
+  "logical_asset_hints": [],
+  "answer_constraints": ["No trade execution."]
 }
 ```
 
-The Investment Agent owns this plan. Portfolio Agent may suggest sentiment
-candidates in its response, but it must not call Sentiment Agent directly.
+The Investment Agent owns this plan. The current runtime adapts
+`portfolio_request` to the older `query_plan`/`PortfolioTask` path until the
+Portfolio Agent evidence planner is wired in. Portfolio Agent may suggest
+sentiment candidates in its response, but it must not call Sentiment Agent
+directly.
 
 ## Portfolio Context Plan
 

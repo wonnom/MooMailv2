@@ -576,6 +576,8 @@ def test_all_agent_fixtures_validate_and_serialize():
         "investment_query_plan_full_review.json": InvestmentQueryPlan,
         "portfolio_context_plan_cash_only.json": PortfolioContextPlan,
         "portfolio_context_plan_what_changed.json": PortfolioContextPlan,
+        "investment_plan_cash_query.json": InvestmentPlan,
+        "investment_plan_recent_purchase.json": InvestmentPlan,
         "investment_plan_portfolio_request.json": InvestmentPlan,
         "portfolio_request_what_changed.json": PortfolioRequest,
         "asset_resolution_ambiguous.json": AssetResolution,

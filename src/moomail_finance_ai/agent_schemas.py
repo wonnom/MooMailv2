@@ -620,6 +620,7 @@ class InvestmentAgentState(StrictModel):
     mode: InvestmentMode | None = None
     portfolio_id: str = "portfolio_default"
     ips: InvestmentPolicy | None = None
+    investment_plan: InvestmentPlan | None = None
     query_plan: InvestmentQueryPlan | None = None
     memory_context: list[MemoryRecord] = Field(default_factory=list)
     portfolio_packet: PortfolioAgentEvidencePacket | None = None

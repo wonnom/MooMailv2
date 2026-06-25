@@ -113,6 +113,18 @@ export type QueryPlanTrace = {
   plan_warnings?: string[];
 };
 
+export type InvestmentPlanTrace = {
+  mode?: string;
+  needs_portfolio_agent?: boolean;
+  needs_sentiment_agent?: boolean;
+  freshness_requirement?: string;
+  portfolio_request?: Record<string, unknown> | null;
+  sentiment_task?: Record<string, unknown> | null;
+  logical_asset_hints?: unknown[];
+  answer_constraints?: string[];
+  warnings?: string[];
+};
+
 export type SentimentTrace = {
   retrieval_status?: string;
   warnings?: string[];
@@ -130,6 +142,7 @@ export type ChatState = {
   final_report?: FinalReport | null;
   guardrail_result?: GuardrailResult | null;
   status_events: StatusEvent[];
+  investment_plan?: InvestmentPlanTrace | null;
   query_plan?: QueryPlanTrace | null;
   portfolio_packet?: Record<string, unknown> | null;
   sentiment_packet?: SentimentTrace | null;

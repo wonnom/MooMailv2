@@ -47,8 +47,9 @@ The Investment Agent coordinates them through structured inputs and outputs.
 
 The Investment Agent is implemented as a thin LangGraph supervisor:
 
-- classify the user query
 - load the IPS
+- plan the user query as a typed `InvestmentPlan`
+- validate planner output before subagent calls
 - decide whether portfolio context is required
 - decide whether sentiment/research context is required
 - call Portfolio Agent when needed
@@ -63,11 +64,11 @@ not invoke the Sentiment Agent directly.
 
 Current limitations:
 
-- Query classification is deterministic and keyword/rule based, not an
-  LLM-guided structured-output planner.
-- Ticker extraction is also deterministic in the current bounded-planning path.
-  V1.4 should move ticker/asset-scope selection into explicit planner output
-  rather than relying on inline regex helpers.
+- Investment planning is deterministic fallback planning, not an LLM-guided
+  structured-output planner yet.
+- Ticker/asset-scope selection is now explicit `AssetHint` planner output at the
+  Investment Agent layer, but the Portfolio Agent still receives an adapted
+  `PortfolioTask` until later V1.4 tasks wire in evidence planning.
 - The final Investment Agent synthesis is deterministic/template-style. The
   Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
   Investment Agent itself does not yet perform a rich LLM synthesis pass.
@@ -99,10 +100,10 @@ logical asset hints against actual portfolio data and plan only inside the
 portfolio evidence domain. Sentiment Agent should eventually plan research
 retrieval, but it should not make portfolio allocation or trade decisions.
 
-Implementation status as of 2026-06-24: V1.4.0 and V1.4.1 added the typed
-planner contracts and deterministic asset resolver/validator primitives. The
-current Investment Agent and Portfolio Agent runtime has not yet migrated to
-those contracts; that remains planned for later V1.4 tasks.
+Implementation status as of 2026-06-25: V1.4.0 through V1.4.2 added the typed
+planner contracts, deterministic asset resolver/validator primitives, and live
+Investment Agent `InvestmentPlan` planning/validation before subagent calls.
+Portfolio Agent runtime migration remains planned for later V1.4 tasks.
 
 ### Supported Modes
 

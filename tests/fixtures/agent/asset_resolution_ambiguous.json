@@ -1,0 +1,11 @@
+{
+  "input": "Alphabet",
+  "canonical_symbol": null,
+  "sql_asset_id": null,
+  "display_name": null,
+  "resolution_status": "ambiguous",
+  "warnings": [
+    "Multiple portfolio assets matched this hint: US.GOOG, US.GOOGL."
+  ],
+  "source": "asset_resolver"
+}

@@ -1,8 +1,8 @@
 # V1.4 Task Notes
 
-Status: current planning notes. V1.3 MCP gateway, deterministic portfolio data
-lane, and agent gateway migration are complete; V1.4 is the next structured
-planning track.
+Status: current planning and execution notes. V1.3 MCP gateway, deterministic
+portfolio data lane, and agent gateway migration are complete. V1.4 structured
+planning work has started; V1.4.0 and V1.4.1 are complete as of 2026-06-24.
 
 ## V1.4 Goal
 
@@ -44,28 +44,48 @@ Out of scope:
 The Sentiment Agent contract may be referenced in V1.4, but implementation remains
 a later version.
 
+## Implementation Progress
+
+Completed as of 2026-06-24:
+
+- V1.4.0 added additive Pydantic contracts for typed Investment plans, bounded
+  `PortfolioRequest` handoffs, logical `AssetHint` inputs, deterministic
+  `AssetResolution` outputs, Portfolio evidence plans, separated Portfolio
+  evidence packets, and planner/policy trace phases.
+- V1.4.1 added `src/moomail_finance_ai/asset_resolver.py`, a deterministic
+  resolver and request-validator module that maps logical hints against supplied
+  SQL/current-snapshot/fixture candidates, returns explicit resolution statuses,
+  blocks unsafe trade/order intent, and emits sanitized trace events.
+
+Still planned:
+
+- V1.4.2 through V1.4.4 must migrate the current agent runtime onto the new
+  structured planner contracts and resolver before tool execution.
+- V1.4.5 still owns final trace/evaluation/docs closeout for the whole V1.4
+  iteration.
+
 ## Task Files
 
-| Task | File | Purpose |
-| --- | --- | --- |
-| V1.4.0 | [TASK_0_PLANNER_CONTRACTS.md](TASK_0_PLANNER_CONTRACTS.md) | Define typed contracts for Investment planning, bounded Portfolio requests, asset resolution, Portfolio evidence plans, and evidence packets. |
-| V1.4.1 | [TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md](TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md) | Add deterministic asset resolution and validators so logical hints map to actual portfolio assets and invalid plans fail safely. |
-| V1.4.2 | [TASK_2_INVESTMENT_AGENT_PLANNER.md](TASK_2_INVESTMENT_AGENT_PLANNER.md) | Replace hidden keyword routing with a structured Investment Agent planner that emits bounded subagent requests. |
-| V1.4.3 | [TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md](TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md) | Refactor Portfolio Agent planning into evidence planning over bounded requests, resolved assets, history scope, metrics, and freshness needs. |
-| V1.4.4 | [TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md](TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md) | Execute Portfolio evidence plans deterministically and return facts, metrics, patterns, interpretations, limitations, and trace. |
-| V1.4.5 | [TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md](TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md) | Expose planner/execution trace, add golden prompt evaluations, update docs, and close the V1.4 gate. |
+| Task | Status | File | Purpose |
+| --- | --- | --- | --- |
+| V1.4.0 | complete as of 2026-06-24 | [TASK_0_PLANNER_CONTRACTS.md](TASK_0_PLANNER_CONTRACTS.md) | Define typed contracts for Investment planning, bounded Portfolio requests, asset resolution, Portfolio evidence plans, and evidence packets. |
+| V1.4.1 | complete as of 2026-06-24 | [TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md](TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md) | Add deterministic asset resolution and validators so logical hints map to actual portfolio assets and invalid plans fail safely. |
+| V1.4.2 | planned | [TASK_2_INVESTMENT_AGENT_PLANNER.md](TASK_2_INVESTMENT_AGENT_PLANNER.md) | Replace hidden keyword routing with a structured Investment Agent planner that emits bounded subagent requests. |
+| V1.4.3 | planned | [TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md](TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md) | Refactor Portfolio Agent planning into evidence planning over bounded requests, resolved assets, history scope, metrics, and freshness needs. |
+| V1.4.4 | planned | [TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md](TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md) | Execute Portfolio evidence plans deterministically and return facts, metrics, patterns, interpretations, limitations, and trace. |
+| V1.4.5 | planned | [TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md](TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md) | Expose planner/execution trace, add golden prompt evaluations, update docs, and close the V1.4 gate. |
 
 ## Cross-Task Dependency Map
 
 ```text
-V1.4.0. Planner contracts
-  ├── V1.4.1. Asset resolution and validation
-  │   ├── V1.4.2. Investment Agent planner
-  │   │   └── V1.4.3. Portfolio evidence planner
-  │   │       └── V1.4.4. Deterministic execution and evidence packet
-  │   │           └── V1.4.5. Trace, evaluations, docs, and closeout
-  │   └── V1.4.4. Deterministic execution uses validated resolved assets
-  └── V1.4.5. Docs and tests validate the final contract set
+V1.4.0. Planner contracts [complete]
+  ├── V1.4.1. Asset resolution and validation [complete]
+  │   ├── V1.4.2. Investment Agent planner [planned]
+  │   │   └── V1.4.3. Portfolio evidence planner [planned]
+  │   │       └── V1.4.4. Deterministic execution and evidence packet [planned]
+  │   │           └── V1.4.5. Trace, evaluations, docs, and closeout [planned]
+  │   └── V1.4.4. Deterministic execution uses validated resolved assets [planned]
+  └── V1.4.5. Docs and tests validate the final contract set [planned]
 ```
 
 ## Core Design Clarification
@@ -329,11 +349,15 @@ flowchart TD
   GUARD --> OUT["Final answer + trace"]
 ```
 
-## Planner Contracts To Design
+## Planner Contracts
+
+V1.4.0 implemented these contracts in
+`src/moomail_finance_ai/agent_schemas.py`. They are additive and are not yet
+the live runtime path.
 
 ### Investment Plan
 
-Candidate fields:
+Implemented field shape:
 
 ```json
 {
@@ -342,23 +366,41 @@ Candidate fields:
   "needs_sentiment_agent": false,
   "portfolio_request": {},
   "sentiment_task": null,
-  "asset_hints": ["AMZN"],
+  "logical_asset_hints": [
+    {
+      "raw_input": "AMZN",
+      "market_hint": null,
+      "company_entity_label": "Amazon.com Inc.",
+      "source_field": "user_query"
+    }
+  ],
   "themes": [],
   "time_horizon": "90d",
   "freshness_requirement": "latest_required | cached_ok | history_only",
-  "answer_constraints": ["no_trade_execution"],
+  "answer_constraints": [
+    "no_trade_execution",
+    "no_order_preparation",
+    "no_exact_share_count"
+  ],
   "warnings": []
 }
 ```
 
 ### Portfolio Plan
 
-Candidate request fields from Investment Agent:
+Implemented request fields from Investment Agent:
 
 ```json
 {
   "task_intent": "full_review | portfolio_fact | risk_check | what_changed | deep_dive | compare",
-  "asset_hints": ["AMZN"],
+  "asset_hints": [
+    {
+      "raw_input": "AMZN",
+      "market_hint": null,
+      "company_entity_label": "Amazon.com Inc.",
+      "source_field": "user_query"
+    }
+  ],
   "time_range": "90d",
   "freshness_requirement": "latest_required | cached_ok | history_only",
   "output_goals": ["position_changes", "allocation_context", "portfolio_patterns"],
@@ -366,7 +408,7 @@ Candidate request fields from Investment Agent:
 }
 ```
 
-Candidate Portfolio Agent execution plan fields:
+Implemented Portfolio Agent evidence plan fields:
 
 ```json
 {
@@ -375,13 +417,13 @@ Candidate Portfolio Agent execution plan fields:
     {
       "input": "AMZN",
       "canonical_symbol": "US.AMZN",
-      "asset_id": "asset_123",
-      "resolution_status": "resolved"
+      "sql_asset_id": "asset_123",
+      "display_name": "Amazon.com Inc.",
+      "resolution_status": "resolved",
+      "warnings": [],
+      "source": "asset_resolver"
     }
   ],
-  "history_window": "90d",
-  "freshness_requirement": "latest_required",
-  "needs_current_values": true,
   "history_queries": [
     "history_status",
     "latest_state",
@@ -390,17 +432,23 @@ Candidate Portfolio Agent execution plan fields:
     "position_state_changes"
   ],
   "metric_groups": ["allocation", "effective_cash", "performance"],
+  "needs_current_values": true,
+  "history_window": "90d",
+  "freshness_requirement": "latest_required",
   "position_change_scope": "ticker_scoped",
   "persistence_mode": "auto",
-  "pattern_detection": ["large_quantity_change", "average_cost_shift"],
+  "pattern_detectors": ["large_quantity_change", "average_cost_shift"],
   "warnings": []
 }
 ```
 
-Candidate portfolio evidence packet sections:
+Implemented portfolio evidence packet sections:
 
 ```json
 {
+  "portfolio_id": "portfolio_default",
+  "task_intent": "what_changed",
+  "resolved_assets": [],
   "facts": {},
   "derived_metrics": {},
   "position_changes": [],
@@ -409,7 +457,9 @@ Candidate portfolio evidence packet sections:
   "limitations": [
     "No sentiment or fundamental evidence was reviewed by Portfolio Agent."
   ],
-  "needs_sentiment_context": []
+  "needs_sentiment_context": [],
+  "warnings": [],
+  "tool_refs": []
 }
 ```
 

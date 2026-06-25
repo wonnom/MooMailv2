@@ -1,0 +1,52 @@
+{
+  "mode": "what_changed",
+  "needs_portfolio_agent": true,
+  "needs_sentiment_agent": true,
+  "portfolio_request": {
+    "task_intent": "what_changed",
+    "asset_hints": [
+      {
+        "raw_input": "AMZN",
+        "market_hint": null,
+        "company_entity_label": "Amazon.com Inc.",
+        "source_field": "user_query"
+      }
+    ],
+    "time_range": "90d",
+    "freshness_requirement": "history_only",
+    "output_goals": ["snapshot", "position_changes", "portfolio_patterns"],
+    "source_query": "What price did I buy my recent AMZN shares at?",
+    "warnings": []
+  },
+  "sentiment_task": {
+    "tickers": ["AMZN"],
+    "companies_entities": ["Amazon.com Inc."],
+    "themes": ["portfolio position change"],
+    "time_window": "1y",
+    "requested_evidence_types": ["filing", "earnings_transcript"],
+    "key_questions": [
+      "What source-backed context would explain recent AMZN thesis changes?"
+    ],
+    "reason": "Investment planner marked sentiment as useful for final synthesis, but V1.4 keeps retrieval stubbed.",
+    "candidate_refs": [],
+    "warnings": ["Sentiment Agent remains a stub in V1.4."]
+  },
+  "logical_asset_hints": [
+    {
+      "raw_input": "AMZN",
+      "market_hint": null,
+      "company_entity_label": "Amazon.com Inc.",
+      "source_field": "user_query"
+    }
+  ],
+  "themes": ["position change"],
+  "time_horizon": "90d",
+  "freshness_requirement": "history_only",
+  "answer_constraints": [
+    "no_trade_execution",
+    "no_order_preparation",
+    "no_exact_share_count",
+    "source_backed"
+  ],
+  "warnings": []
+}

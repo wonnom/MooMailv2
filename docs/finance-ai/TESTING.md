@@ -55,9 +55,10 @@ test when that backend exists.
 | `tests/test_llm.py` | Provider-neutral LLM config/client selection for Gemini and OpenAI |
 | `tests/test_research.py` | Local research store and Sentiment Agent contracts |
 | `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, daily SQL idempotency, and LLM evaluator JSON parsing/recovery |
-| `tests/test_agent_schemas.py` | Agent Pydantic contracts, fixtures, guardrail schema, and trace schema |
+| `tests/test_agent_schemas.py` | Agent Pydantic contracts, V1.4 planner/evidence fixtures, guardrail schema, and trace schema |
+| `tests/test_asset_resolver.py` | V1.4 deterministic asset resolver behavior, candidate precedence, explicit failure statuses, non-blocking warnings, and sanitized trace |
 | `tests/test_investment_agent.py` | Thin LangGraph Investment Agent routing, fake subagent call counts, missing-research synthesis, and status events |
-| `tests/test_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, history/persistence minimization, and tool trace entries |
+| `tests/test_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, V1.4 portfolio request validation, history/persistence minimization, and tool trace entries |
 | `tests/test_sentiment_agent_stub.py` | Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
 | `tests/test_investment_guardrails.py` | Deterministic investment no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
 | `tests/test_agent_trace.py` | Agent trace sanitizer, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |
@@ -125,6 +126,48 @@ Latest V1.3.4 closeout result on 2026-06-23:
 ```
 
 The warning is the existing LangGraph dependency deprecation warning.
+
+## V1.4 Targeted Gates
+
+V1.4.0 planner-contract closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_agent_schemas.py -q
+.venv/bin/python -m pytest tests/test_sentiment_agent_stub.py -q
+```
+
+Latest V1.4.0 result on 2026-06-24:
+
+```text
+tests/test_agent_schemas.py: 55 passed
+tests/test_sentiment_agent_stub.py: 6 passed
+```
+
+V1.4.1 asset-resolution and validation closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_asset_resolver.py tests/test_agent_schemas.py -q
+.venv/bin/python -m pytest tests/test_portfolio_planner.py -q
+```
+
+Latest V1.4.1 result on 2026-06-24:
+
+```text
+tests/test_asset_resolver.py tests/test_agent_schemas.py: 67 passed
+tests/test_portfolio_planner.py: 14 passed
+```
+
+Latest deterministic non-live regression after V1.4.0 and V1.4.1 on
+2026-06-24:
+
+```text
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+202 passed, 1 warning
+```
+
+The warning is the existing LangGraph dependency deprecation warning. Live
+connector tests remain opt-in and were not required for deterministic V1.4.0 or
+V1.4.1 completion.
 
 ## When To Delete A Test
 

@@ -9,9 +9,15 @@ from pydantic import ValidationError
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.schemas import GuardrailCheck
 from moomail_finance_ai.agent_schemas import (
+    AssetHint,
+    AssetResolution,
     GuardrailReview,
     InvestmentAgentState,
+    InvestmentPlan,
     InvestmentQueryPlan,
+    PortfolioEvidencePacket,
+    PortfolioEvidencePlan,
+    PortfolioRequest,
     PortfolioContextPlan,
     PortfolioTask,
     SentimentCandidate,
@@ -105,6 +111,197 @@ def test_query_plan_rejects_unsupported_mode():
             needs_portfolio_agent=True,
             needs_sentiment_agent=False,
             portfolio_task=PortfolioTask(source_query="Rebalance my portfolio."),
+        )
+
+
+def test_v1_4_literals_accept_expected_values():
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="AMZN")],
+        time_range="90d",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "position_changes", "portfolio_patterns"],
+        source_query="What changed in my AMZN position?",
+    )
+    plan = PortfolioEvidencePlan(
+        task_intent="what_changed",
+        resolved_assets=[
+            AssetResolution(
+                input="AMZN",
+                canonical_symbol="US.AMZN",
+                sql_asset_id="opend:US.AMZN",
+                display_name="Amazon.com Inc.",
+                resolution_status="resolved",
+            )
+        ],
+        freshness_requirement="history_only",
+        position_change_scope="ticker_scoped",
+        persistence_mode="auto",
+        pattern_detectors=["large_quantity_change"],
+    )
+
+    assert request.task_intent == "what_changed"
+    assert request.freshness_requirement == "latest_required"
+    assert plan.position_change_scope == "ticker_scoped"
+    assert plan.persistence_mode == "auto"
+
+
+def test_asset_hint_keeps_raw_logical_input():
+    hint = AssetHint(
+        raw_input="  Apple  ",
+        market_hint="us",
+        company_entity_label="Apple Inc.",
+        source_field="user_query",
+    )
+
+    assert hint.raw_input == "  Apple  "
+    assert hint.market_hint == "US"
+    assert hint.company_entity_label == "Apple Inc."
+
+
+def test_asset_resolution_requires_status_and_preserves_warnings():
+    resolution = AssetResolution(
+        input="TCEHY",
+        canonical_symbol="US.TCEHY",
+        sql_asset_id="opend:US.TCEHY",
+        display_name="Tencent Holdings ADR",
+        resolution_status="resolved",
+        warnings=["OTC market data may be limited."],
+    )
+
+    assert resolution.resolution_status == "resolved"
+    assert resolution.warnings == ["OTC market data may be limited."]
+
+    with pytest.raises(ValidationError, match="canonical_symbol"):
+        AssetResolution(input="AAPL", resolution_status="resolved")
+
+
+def test_unresolved_asset_resolution_does_not_require_canonical_ids():
+    resolution = AssetResolution(
+        input="A mystery holding",
+        resolution_status="unknown",
+        warnings=["The asset hint is too vague to map."],
+    )
+
+    assert resolution.canonical_symbol is None
+    assert resolution.sql_asset_id is None
+    assert resolution.resolution_status == "unknown"
+
+
+def test_investment_plan_round_trips_with_portfolio_request():
+    plan = InvestmentPlan.model_validate(_fixture("investment_plan_portfolio_request.json"))
+
+    payload = plan.model_dump(mode="json")
+    round_tripped = InvestmentPlan.model_validate(payload)
+
+    assert round_tripped.needs_portfolio_agent is True
+    assert round_tripped.portfolio_request is not None
+    assert round_tripped.portfolio_request.asset_hints[0].raw_input == "AMZN"
+    assert round_tripped.sentiment_task is not None
+
+
+def test_portfolio_request_has_bounded_task_intent():
+    request = PortfolioRequest.model_validate(_fixture("portfolio_request_what_changed.json"))
+
+    assert request.task_intent == "what_changed"
+
+    with pytest.raises(ValidationError):
+        PortfolioRequest(
+            task_intent="trade_execution",
+            source_query="Place an AMZN order.",
+        )
+
+
+def test_investment_plan_requires_portfolio_request_when_needed():
+    with pytest.raises(ValidationError, match="portfolio_request is required"):
+        InvestmentPlan(
+            mode="review",
+            needs_portfolio_agent=True,
+            needs_sentiment_agent=False,
+        )
+
+
+def test_portfolio_request_does_not_require_broker_identifiers():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        asset_hints=[AssetHint(raw_input="Apple")],
+        time_range="30d",
+        freshness_requirement="cached_ok",
+        output_goals=["snapshot"],
+        source_query="Show me my Apple holding.",
+    )
+
+    payload = request.model_dump(mode="json")
+
+    assert payload["asset_hints"][0] == {
+        "raw_input": "Apple",
+        "market_hint": None,
+        "company_entity_label": None,
+        "source_field": "user_query",
+    }
+    assert "canonical_symbol" not in payload["asset_hints"][0]
+    assert "sql_asset_id" not in payload["asset_hints"][0]
+
+
+def test_portfolio_evidence_plan_validates_resolved_assets():
+    plan = PortfolioEvidencePlan(
+        task_intent="what_changed",
+        resolved_assets=[
+            AssetResolution.model_validate(_fixture("asset_resolution_ambiguous.json"))
+        ],
+        history_queries=["history_status", "position_state_changes"],
+        metric_groups=["performance"],
+        position_change_scope="ticker_scoped",
+        persistence_mode="skip",
+    )
+
+    assert plan.resolved_assets[0].resolution_status == "ambiguous"
+    assert plan.history_queries == ["history_status", "position_state_changes"]
+
+
+def test_portfolio_evidence_packet_separates_sections():
+    packet = PortfolioEvidencePacket.model_validate(
+        _fixture("portfolio_evidence_packet_stub.json")
+    )
+
+    assert packet.facts["portfolio_id"] == "portfolio_default"
+    assert "average_cost_shift" in packet.derived_metrics
+    assert packet.position_changes[0]["ticker"] == "AMZN"
+    assert packet.detected_patterns[0]["pattern"] == "average_cost_shift"
+    assert packet.portfolio_only_interpretation
+    assert packet.limitations
+    assert packet.needs_sentiment_context == ["AMZN"]
+
+
+def test_portfolio_evidence_packet_rejects_trade_execution_language_flags():
+    with pytest.raises(ValidationError, match="trade execution"):
+        PortfolioEvidencePacket(
+            portfolio_id="portfolio_default",
+            task_intent="portfolio_fact",
+            portfolio_only_interpretation=["Final recommendation: buy exactly 10 shares."],
+        )
+
+
+def test_trace_event_supports_v1_4_planner_phases():
+    event = TraceEvent(
+        event_type="status",
+        run_id="run_v1_4",
+        phase="asset_resolver",
+        status="asset_resolution_resolved",
+        message="Resolved logical asset hint.",
+    )
+
+    payload = event.model_dump(mode="json")
+
+    assert payload["phase"] == "asset_resolver"
+
+    with pytest.raises(ValidationError):
+        TraceEvent(
+            event_type="status",
+            run_id="run_v1_4",
+            phase="raw_broker_payload",
+            status="invalid_phase",
+            message="Invalid trace phase.",
         )
 
 
@@ -379,6 +576,10 @@ def test_all_agent_fixtures_validate_and_serialize():
         "investment_query_plan_full_review.json": InvestmentQueryPlan,
         "portfolio_context_plan_cash_only.json": PortfolioContextPlan,
         "portfolio_context_plan_what_changed.json": PortfolioContextPlan,
+        "investment_plan_portfolio_request.json": InvestmentPlan,
+        "portfolio_request_what_changed.json": PortfolioRequest,
+        "asset_resolution_ambiguous.json": AssetResolution,
+        "portfolio_evidence_packet_stub.json": PortfolioEvidencePacket,
         "sentiment_task_full_review.json": SentimentTask,
         "sentiment_packet_stub.json": SentimentPacket,
         "sentiment_packet_future_success.json": SentimentPacket,

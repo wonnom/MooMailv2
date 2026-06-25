@@ -121,6 +121,13 @@ Current non-goals:
 V1.4 should introduce explicit structured planning for the Investment Agent and
 Portfolio Agent while preserving deterministic tool execution.
 
+Implementation status as of 2026-06-24: V1.4.0 and V1.4.1 have landed the
+additive planner contracts and deterministic asset resolver/validator
+primitives. The current runtime still uses the existing thin Investment Agent
+supervisor and Portfolio Agent bounded-planning path; later V1.4 tasks must
+wire the new `InvestmentPlan`, `PortfolioRequest`, `PortfolioEvidencePlan`, and
+`PortfolioEvidencePacket` contracts into execution.
+
 The target pattern is:
 
 ```text

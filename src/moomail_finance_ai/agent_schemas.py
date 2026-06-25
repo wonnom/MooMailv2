@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -38,6 +39,14 @@ PortfolioTaskType = Literal[
     "compare",
     "unsupported",
 ]
+PortfolioTaskIntent = Literal[
+    "full_review",
+    "portfolio_fact",
+    "risk_check",
+    "what_changed",
+    "deep_dive",
+    "compare",
+]
 PortfolioOutputKind = Literal[
     "snapshot",
     "allocation",
@@ -48,7 +57,39 @@ PortfolioOutputKind = Literal[
     "sentiment_candidates",
     "history_context",
 ]
+PortfolioOutputGoal = Literal[
+    "snapshot",
+    "allocation_context",
+    "performance_context",
+    "risk_context",
+    "effective_cash",
+    "position_changes",
+    "portfolio_patterns",
+    "derived_metrics",
+    "sentiment_context_needs",
+]
+FreshnessRequirement = Literal["latest_required", "cached_ok", "history_only"]
+AssetResolutionStatus = Literal[
+    "resolved",
+    "ambiguous",
+    "not_in_portfolio",
+    "unsupported_market",
+    "unknown",
+]
+PositionChangeScope = Literal[
+    "none",
+    "asset_scoped",
+    "ticker_scoped",
+    "portfolio_wide",
+]
 PersistenceMode = Literal["auto", "persist", "skip"]
+AnswerConstraint = Literal[
+    "no_trade_execution",
+    "no_order_preparation",
+    "no_exact_share_count",
+    "source_backed",
+    "portfolio_only",
+]
 HistoryQuery = Literal[
     "none",
     "history_status",
@@ -99,6 +140,16 @@ TraceEventType = Literal[
     "warning",
     "error",
 ]
+TracePhase = Literal[
+    "investment_planner",
+    "portfolio_request_validator",
+    "asset_resolver",
+    "portfolio_evidence_planner",
+    "portfolio_policy",
+    "deterministic_tool_execution",
+    "synthesis",
+    "guardrail",
+]
 SubagentName = Literal[
     "investment_agent",
     "portfolio_agent",
@@ -106,6 +157,195 @@ SubagentName = Literal[
     "guardrails",
     "memory",
 ]
+
+
+class AssetHint(StrictModel):
+    raw_input: str
+    market_hint: str | None = None
+    company_entity_label: str | None = None
+    source_field: str = Field(default="user_query", min_length=1)
+
+    @field_validator("raw_input")
+    @classmethod
+    def _validate_raw_input(cls, raw_input: str) -> str:
+        if not raw_input.strip():
+            raise ValueError("raw_input must contain a logical asset hint.")
+        return raw_input
+
+    @field_validator("market_hint")
+    @classmethod
+    def _normalize_market_hint(cls, market_hint: str | None) -> str | None:
+        if market_hint is None:
+            return None
+        normalized = market_hint.strip().upper()
+        return normalized or None
+
+
+class AssetResolution(StrictModel):
+    input: str = Field(min_length=1)
+    canonical_symbol: str | None = None
+    sql_asset_id: str | None = None
+    display_name: str | None = None
+    resolution_status: AssetResolutionStatus
+    warnings: list[str] = Field(default_factory=list)
+    source: str = Field(default="asset_resolver", min_length=1)
+
+    @field_validator("canonical_symbol")
+    @classmethod
+    def _normalize_canonical_symbol(cls, symbol: str | None) -> str | None:
+        if symbol is None:
+            return None
+        normalized = symbol.strip().upper()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def _validate_resolved_identifiers(self) -> AssetResolution:
+        if self.resolution_status == "resolved" and not self.canonical_symbol:
+            raise ValueError("resolved assets require canonical_symbol.")
+        return self
+
+
+class PortfolioRequest(StrictModel):
+    task_intent: PortfolioTaskIntent
+    asset_hints: list[AssetHint] = Field(default_factory=list)
+    time_range: str | None = "30d"
+    freshness_requirement: FreshnessRequirement = "cached_ok"
+    output_goals: list[PortfolioOutputGoal] = Field(default_factory=lambda: ["snapshot"])
+    source_query: str
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("time_range")
+    @classmethod
+    def _validate_time_range(cls, time_range: str | None) -> str | None:
+        return _validate_optional_window(time_range)
+
+    @field_validator("output_goals")
+    @classmethod
+    def _validate_output_goals(
+        cls,
+        output_goals: list[PortfolioOutputGoal],
+    ) -> list[PortfolioOutputGoal]:
+        if not output_goals:
+            raise ValueError("PortfolioRequest output_goals cannot be empty.")
+        return _dedupe_strings(output_goals)
+
+    @field_validator("source_query")
+    @classmethod
+    def _validate_source_query(cls, source_query: str) -> str:
+        if not source_query.strip():
+            raise ValueError("PortfolioRequest source_query cannot be blank.")
+        return source_query
+
+
+class InvestmentPlan(StrictModel):
+    mode: InvestmentMode
+    needs_portfolio_agent: bool
+    needs_sentiment_agent: bool
+    portfolio_request: PortfolioRequest | None = None
+    sentiment_task: SentimentTask | None = None
+    logical_asset_hints: list[AssetHint] = Field(default_factory=list)
+    themes: list[str] = Field(default_factory=list)
+    time_horizon: str | None = "90d"
+    freshness_requirement: FreshnessRequirement = "cached_ok"
+    answer_constraints: list[AnswerConstraint] = Field(
+        default_factory=lambda: [
+            "no_trade_execution",
+            "no_order_preparation",
+            "no_exact_share_count",
+        ]
+    )
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("time_horizon")
+    @classmethod
+    def _validate_time_horizon(cls, time_horizon: str | None) -> str | None:
+        return _validate_optional_window(time_horizon)
+
+    @field_validator("answer_constraints")
+    @classmethod
+    def _validate_answer_constraints(
+        cls,
+        answer_constraints: list[AnswerConstraint],
+    ) -> list[AnswerConstraint]:
+        if not answer_constraints:
+            raise ValueError("InvestmentPlan answer_constraints cannot be empty.")
+        return _dedupe_strings(answer_constraints)
+
+    @model_validator(mode="after")
+    def _validate_planner_routing(self) -> InvestmentPlan:
+        if self.needs_portfolio_agent and self.portfolio_request is None:
+            raise ValueError(
+                "portfolio_request is required when needs_portfolio_agent is true."
+            )
+        if not self.needs_portfolio_agent and self.portfolio_request is not None:
+            raise ValueError(
+                "portfolio_request must be omitted when needs_portfolio_agent is false."
+            )
+        if self.needs_sentiment_agent and self.sentiment_task is None:
+            raise ValueError("sentiment_task is required when needs_sentiment_agent is true.")
+        if not self.needs_sentiment_agent and self.sentiment_task is not None:
+            raise ValueError("sentiment_task must be omitted when needs_sentiment_agent is false.")
+        return self
+
+
+class PortfolioEvidencePlan(StrictModel):
+    task_intent: PortfolioTaskIntent
+    resolved_assets: list[AssetResolution] = Field(default_factory=list)
+    history_queries: list[HistoryQuery] = Field(default_factory=lambda: ["history_status"])
+    metric_groups: list[MetricGroup] = Field(default_factory=lambda: ["allocation"])
+    needs_current_values: bool = True
+    history_window: str | None = "30d"
+    freshness_requirement: FreshnessRequirement = "cached_ok"
+    position_change_scope: PositionChangeScope = "none"
+    persistence_mode: PersistenceMode = "auto"
+    pattern_detectors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("history_window")
+    @classmethod
+    def _validate_history_window(cls, history_window: str | None) -> str | None:
+        return _validate_optional_window(history_window)
+
+    @field_validator("pattern_detectors")
+    @classmethod
+    def _dedupe_pattern_detectors(cls, pattern_detectors: list[str]) -> list[str]:
+        return _dedupe_strings(pattern_detectors)
+
+    @model_validator(mode="after")
+    def _validate_history_queries(self) -> PortfolioEvidencePlan:
+        if "none" in self.history_queries and len(self.history_queries) > 1:
+            raise ValueError("history_queries cannot combine 'none' with other history queries.")
+        return self
+
+
+class PortfolioEvidencePacket(StrictModel):
+    portfolio_id: str
+    task_intent: PortfolioTaskIntent
+    resolved_assets: list[AssetResolution] = Field(default_factory=list)
+    facts: dict[str, Any] = Field(default_factory=dict)
+    derived_metrics: dict[str, Any] = Field(default_factory=dict)
+    position_changes: list[dict[str, Any]] = Field(default_factory=list)
+    detected_patterns: list[dict[str, Any] | str] = Field(default_factory=list)
+    portfolio_only_interpretation: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    needs_sentiment_context: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    tool_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_trade_execution_interpretation(self) -> PortfolioEvidencePacket:
+        checked_values = (
+            list(self.portfolio_only_interpretation)
+            + list(self.limitations)
+            + _flatten_packet_pattern_strings(self.detected_patterns)
+        )
+        for value in checked_values:
+            if _contains_trade_execution_language(value):
+                raise ValueError(
+                    "PortfolioEvidencePacket cannot contain final recommendation or "
+                    "trade execution language."
+                )
+        return self
 
 
 class PortfolioTask(StrictModel):
@@ -350,6 +590,7 @@ class TraceEvent(StrictModel):
     status: str
     message: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    phase: TracePhase | None = None
     node: str | None = None
     subagent: SubagentName | None = None
     server_name: str | None = None
@@ -411,3 +652,62 @@ def _normalize_tickers(tickers: list[str]) -> list[str]:
         seen.add(value)
         normalized.append(value)
     return normalized
+
+
+def _validate_optional_window(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if not re.fullmatch(r"\d+(?:d|w|m|y)", normalized):
+        raise ValueError("time window must use forms like 30d, 12w, 6m, or 1y.")
+    return normalized
+
+
+def _dedupe_strings(values: list[str]) -> list:
+    deduped = []
+    seen = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def _flatten_packet_pattern_strings(patterns: list[dict[str, Any] | str]) -> list[str]:
+    values: list[str] = []
+    for pattern in patterns:
+        if isinstance(pattern, str):
+            values.append(pattern)
+        elif isinstance(pattern, dict):
+            for value in pattern.values():
+                if isinstance(value, str):
+                    values.append(value)
+                elif isinstance(value, list):
+                    values.extend(item for item in value if isinstance(item, str))
+    return values
+
+
+def _contains_trade_execution_language(value: str) -> bool:
+    lowered = value.casefold()
+    phrases = (
+        "place order",
+        "submit order",
+        "execute trade",
+        "trade execution",
+        "order preparation",
+        "market order",
+        "limit order",
+        "final recommendation: buy",
+        "final recommendation: sell",
+        "buy exactly",
+        "sell exactly",
+        "exact share count",
+        "exact share-count",
+    )
+    return any(phrase in lowered for phrase in phrases)
+
+
+InvestmentPlan.model_rebuild()

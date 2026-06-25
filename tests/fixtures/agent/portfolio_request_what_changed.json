@@ -1,0 +1,16 @@
+{
+  "task_intent": "what_changed",
+  "asset_hints": [
+    {
+      "raw_input": "AMZN",
+      "market_hint": null,
+      "company_entity_label": "Amazon.com Inc.",
+      "source_field": "user_query"
+    }
+  ],
+  "time_range": "90d",
+  "freshness_requirement": "history_only",
+  "output_goals": ["snapshot", "position_changes", "portfolio_patterns"],
+  "source_query": "What price did I buy my recent AMZN shares at?",
+  "warnings": []
+}

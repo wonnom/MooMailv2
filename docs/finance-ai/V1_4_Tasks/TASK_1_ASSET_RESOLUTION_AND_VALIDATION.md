@@ -12,7 +12,33 @@ field conventions. Portfolio Agent or a nearby resolver owns that mapping.
 
 ## Status
 
-Planned.
+Complete as of 2026-06-24.
+
+## Implemented In
+
+- `src/moomail_finance_ai/asset_resolver.py`
+  - Added `PortfolioAssetCandidate`, deterministic candidate source ordering,
+    hint normalization, symbol/display-name/prefixed-symbol matching, explicit
+    failure statuses, non-blocking asset warnings, sanitized trace events, and
+    `PortfolioRequest` validation helpers.
+  - Candidate source order is latest SQL identities first, then current
+    snapshot holdings when already available, then in-memory fixtures.
+  - Validation blocks trade/order execution intent and blocks unresolved
+    required assets before tool execution.
+- `src/moomail_finance_ai/agent_schemas.py`
+  - Supplies the shared V1.4 asset-resolution and portfolio-request contract
+    types used by the resolver.
+- `tests/test_asset_resolver.py`
+  - Covers deterministic resolution, failure statuses, candidate precedence,
+    non-blocking warnings, and sanitized trace output.
+- `tests/test_portfolio_planner.py`
+  - Adds request validator coverage for allowlisted task intent/output goals,
+    trade-intent rejection, invalid freshness/time-range rejection, and
+    required unresolved asset blocking.
+
+The resolver is implemented as a deterministic helper beside the Portfolio
+Agent. It does not call live OpenD and is not yet wired into the current
+Portfolio Agent execution path; V1.4.3 and V1.4.4 own runtime migration.
 
 ## Exit Criteria
 
@@ -88,6 +114,35 @@ V1.4.0 contracts
 .venv/bin/python -m pytest tests/test_portfolio_planner.py -q
 ```
 
+## Verification
+
+Run on 2026-06-24:
+
+```text
+.venv/bin/python -m pytest tests/test_asset_resolver.py tests/test_agent_schemas.py -q
+67 passed in 0.05s
+
+.venv/bin/python -m pytest tests/test_portfolio_planner.py -q
+14 passed in 0.35s
+
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+202 passed, 1 warning in 8.37s
+```
+
+The full deterministic suite warning is the existing LangGraph dependency
+deprecation warning.
+
+Not run:
+
+- `tests/live`: opt-in live connector/OpenD tests are not required because the
+  resolver is deterministic and testable without live OpenD.
+
+## Remaining
+
+No remaining exit criteria for V1.4.1. Later V1.4 tasks still need to route
+structured planner output through this resolver before Portfolio Agent tools
+execute.
+
 ## Notes
 
 - Do not call live OpenD just to resolve a ticker if SQL/current snapshot
@@ -95,3 +150,6 @@ V1.4.0 contracts
 - Do not put regex ticker extraction back into hidden execution paths. If a
   deterministic fallback extracts a hint, make it an explicit fallback planner
   output.
+- Closeout note: the expected `references/finance-ai-grounding.md` file was not
+  present in this checkout. Grounding used this task file, the sibling V1.4
+  README, and the current finance AI architecture/agent/testing docs.

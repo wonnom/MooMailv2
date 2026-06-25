@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
+
 from moomail_finance_ai.config import OpenDConfig
+from moomail_finance_ai.agent_schemas import AssetHint, AssetResolution, PortfolioRequest
+from moomail_finance_ai.asset_resolver import validate_portfolio_request
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
 from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import SERVER_NAME as OPEND_SERVER
@@ -190,6 +195,69 @@ def test_named_ticker_change_query_scopes_position_history_tool(
         and "ticker=AMZN" in call
         for call in result.tool_calls
     )
+
+
+def test_portfolio_request_rejects_unknown_task_intent():
+    with pytest.raises(ValidationError):
+        PortfolioRequest(
+            task_intent="trade_execution",
+            output_goals=["snapshot"],
+            source_query="Prepare an AMZN trade.",
+        )
+
+
+def test_plan_validator_rejects_trade_execution_request():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=["snapshot"],
+        source_query="Place an order for 10 shares of AMZN.",
+    )
+
+    result = validate_portfolio_request(request, [])
+
+    assert result.is_valid is False
+    assert result.blocking_issues[0].code == "trade_execution_intent_blocked"
+
+
+def test_plan_validator_rejects_invalid_freshness_or_time_range():
+    with pytest.raises(ValidationError):
+        PortfolioRequest(
+            task_intent="portfolio_fact",
+            freshness_requirement="stale_enough",
+            output_goals=["snapshot"],
+            source_query="Show my AMZN position.",
+        )
+
+    with pytest.raises(ValidationError):
+        PortfolioRequest(
+            task_intent="portfolio_fact",
+            time_range="eventually",
+            output_goals=["snapshot"],
+            source_query="Show my AMZN position.",
+        )
+
+
+def test_plan_validator_blocks_required_unresolved_asset():
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="TSLA")],
+        time_range="90d",
+        freshness_requirement="history_only",
+        output_goals=["position_changes"],
+        source_query="What changed in my TSLA position?",
+    )
+    resolution = AssetResolution(
+        input="TSLA",
+        resolution_status="not_in_portfolio",
+        warnings=["The symbol looks valid but does not match a held portfolio asset."],
+    )
+
+    result = validate_portfolio_request(request, [resolution])
+
+    assert result.is_valid is False
+    assert result.blocking_issues[0].code == "asset_resolution_failed"
+    assert result.blocking_issues[0].resolution_status == "not_in_portfolio"
+    assert result.trace_events[0].phase == "asset_resolver"
 
 
 def test_explicit_persist_skip_does_not_write_daily_value_snapshot(

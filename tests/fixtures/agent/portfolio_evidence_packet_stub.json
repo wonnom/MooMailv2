@@ -1,0 +1,49 @@
+{
+  "portfolio_id": "portfolio_default",
+  "task_intent": "what_changed",
+  "resolved_assets": [
+    {
+      "input": "AMZN",
+      "canonical_symbol": "US.AMZN",
+      "sql_asset_id": "opend:US.AMZN",
+      "display_name": "Amazon.com Inc.",
+      "resolution_status": "resolved",
+      "warnings": [],
+      "source": "sql_latest"
+    }
+  ],
+  "facts": {
+    "portfolio_id": "portfolio_default",
+    "source": "portfolio_sql_position_state_changes"
+  },
+  "derived_metrics": {
+    "average_cost_shift": {
+      "direction": "up",
+      "source": "deterministic_sql_delta"
+    }
+  },
+  "position_changes": [
+    {
+      "ticker": "AMZN",
+      "canonical_symbol": "US.AMZN",
+      "quantity_delta": 3.0,
+      "average_cost_delta": 4.25
+    }
+  ],
+  "detected_patterns": [
+    {
+      "pattern": "average_cost_shift",
+      "severity": "low",
+      "evidence_ref": "position_changes[0]"
+    }
+  ],
+  "portfolio_only_interpretation": [
+    "The AMZN position changed in portfolio history; sentiment and fundamentals were not evaluated by Portfolio Agent."
+  ],
+  "limitations": [
+    "No sentiment, fundamental, or market-news evidence was reviewed by Portfolio Agent."
+  ],
+  "needs_sentiment_context": ["AMZN"],
+  "warnings": [],
+  "tool_refs": ["portfolio_sql_get_position_state_changes"]
+}

@@ -99,6 +99,11 @@ logical asset hints against actual portfolio data and plan only inside the
 portfolio evidence domain. Sentiment Agent should eventually plan research
 retrieval, but it should not make portfolio allocation or trade decisions.
 
+Implementation status as of 2026-06-24: V1.4.0 and V1.4.1 added the typed
+planner contracts and deterministic asset resolver/validator primitives. The
+current Investment Agent and Portfolio Agent runtime has not yet migrated to
+those contracts; that remains planned for later V1.4 tasks.
+
 ### Supported Modes
 
 The chatbot can infer or suggest these modes through conversation:
@@ -206,6 +211,9 @@ temporary regex ticker extractor. V1.4 should replace this with a planner node
 that receives a bounded request from the Investment Agent, resolves the actual
 portfolio assets, chooses evidence subtasks, history window, and tool scope as
 structured plan fields, then hands execution to deterministic policy.
+
+V1.4.1 provides the deterministic resolver and request-validation module beside
+the Portfolio Agent, but the live Portfolio Agent path does not call it yet.
 
 The Portfolio Agent should add value as a portfolio analyst assistant: it should
 surface concentration, allocation drift, cash/cash-equivalent effects,

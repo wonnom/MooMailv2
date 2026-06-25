@@ -16,7 +16,30 @@ later tasks execute:
 
 ## Status
 
-Planned.
+Complete as of 2026-06-24.
+
+## Implemented In
+
+- `src/moomail_finance_ai/agent_schemas.py`
+  - Added V1.4 literals for portfolio task intent, portfolio output goals,
+    freshness requirement, asset resolution status, position-change scope,
+    answer constraints, and trace phases.
+  - Added additive contracts: `AssetHint`, `AssetResolution`,
+    `PortfolioRequest`, `InvestmentPlan`, `PortfolioEvidencePlan`, and
+    `PortfolioEvidencePacket`.
+  - Extended `TraceEvent` with an optional typed `phase` field for planner,
+    validator, resolver, policy, deterministic execution, synthesis, and
+    guardrail events.
+- `tests/test_agent_schemas.py`
+  - Added schema tests for each V1.4 contract and trace phase.
+- `tests/fixtures/agent/`
+  - Added `investment_plan_portfolio_request.json`,
+    `portfolio_request_what_changed.json`, `asset_resolution_ambiguous.json`,
+    and `portfolio_evidence_packet_stub.json`.
+
+This task was implemented as additive contract work only. It does not migrate
+the current Investment Agent or Portfolio Agent runtime onto the new contracts;
+that remains owned by later V1.4 tasks.
 
 ## Exit Criteria
 
@@ -95,9 +118,40 @@ A. Audit current agent schemas
 .venv/bin/python -m pytest tests/test_sentiment_agent_stub.py -q
 ```
 
+## Verification
+
+Run on 2026-06-24:
+
+```text
+.venv/bin/python -m pytest tests/test_agent_schemas.py -q
+55 passed in 0.07s
+
+.venv/bin/python -m pytest tests/test_sentiment_agent_stub.py -q
+6 passed in 0.04s
+
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+202 passed, 1 warning in 8.37s
+```
+
+The full deterministic suite warning is the existing LangGraph dependency
+deprecation warning.
+
+Not run:
+
+- `tests/live`: opt-in live connector/OpenD tests are not required for this
+  deterministic schema task.
+
+## Remaining
+
+No remaining exit criteria for V1.4.0. Runtime adoption of these contracts is
+planned in V1.4.2 through V1.4.4.
+
 ## Notes
 
 - This task should prefer additive contracts first. Runtime migration belongs
   to later V1.4 tasks.
 - Keep naming version-neutral in code where practical. The docs can call this
   V1.4, but runtime classes should describe their domain, not the iteration.
+- Closeout note: the expected `references/finance-ai-grounding.md` file was not
+  present in this checkout. Grounding used this task file, the sibling V1.4
+  README, and the current finance AI architecture/agent/testing docs.

@@ -260,9 +260,7 @@ def test_portfolio_evidence_plan_validates_resolved_assets():
 
 
 def test_portfolio_evidence_packet_separates_sections():
-    packet = PortfolioEvidencePacket.model_validate(
-        _fixture("portfolio_evidence_packet_stub.json")
-    )
+    packet = PortfolioEvidencePacket.model_validate(_fixture("portfolio_evidence_packet_stub.json"))
 
     assert packet.facts["portfolio_id"] == "portfolio_default"
     assert "average_cost_shift" in packet.derived_metrics

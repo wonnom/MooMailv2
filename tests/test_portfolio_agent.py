@@ -77,9 +77,7 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
     assert "moomail-portfolio-sql-mcp:portfolio_sql_store_daily_value_snapshot" in (
         result.tool_calls
     )
-    assert "moomail-portfolio-sql-mcp:portfolio_sql_store_weight_snapshots" in (
-        result.tool_calls
-    )
+    assert "moomail-portfolio-sql-mcp:portfolio_sql_store_weight_snapshots" in (result.tool_calls)
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_portfolio_growth" in result.tool_calls
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_allocation_history" in result.tool_calls
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_position_state_changes" in (

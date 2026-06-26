@@ -602,8 +602,7 @@ class PortfolioAgent:
                 self.tool_calls.append(f"planned:{PORTFOLIO_SQL_SERVER}:{tool_name}")
             else:
                 self.tool_calls.append(
-                    f"skipped:{PORTFOLIO_SQL_SERVER}:{tool_name} "
-                    "reason=persist_observation_false"
+                    f"skipped:{PORTFOLIO_SQL_SERVER}:{tool_name} reason=persist_observation_false"
                 )
 
     def _call(
@@ -650,7 +649,8 @@ def build_default_portfolio_agent(
         )
     return PortfolioAgent(
         gateway=gateway,
-        evaluator=evaluator or LLMPortfolioEvaluator.from_env(
+        evaluator=evaluator
+        or LLMPortfolioEvaluator.from_env(
             provider=llm_provider,
             env_file=env_file,
         ),
@@ -1037,7 +1037,9 @@ def _pending_storage_result(snapshot: PortfolioSnapshot) -> dict[str, Any]:
     }
 
 
-def _skipped_storage_result(snapshot: PortfolioSnapshot, plan: PortfolioContextPlan) -> dict[str, Any]:
+def _skipped_storage_result(
+    snapshot: PortfolioSnapshot, plan: PortfolioContextPlan
+) -> dict[str, Any]:
     return {
         "status": "skipped",
         "portfolio_id": snapshot.portfolio_id,

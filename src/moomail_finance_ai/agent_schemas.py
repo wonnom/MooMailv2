@@ -274,9 +274,7 @@ class InvestmentPlan(StrictModel):
     @model_validator(mode="after")
     def _validate_planner_routing(self) -> InvestmentPlan:
         if self.needs_portfolio_agent and self.portfolio_request is None:
-            raise ValueError(
-                "portfolio_request is required when needs_portfolio_agent is true."
-            )
+            raise ValueError("portfolio_request is required when needs_portfolio_agent is true.")
         if not self.needs_portfolio_agent and self.portfolio_request is not None:
             raise ValueError(
                 "portfolio_request must be omitted when needs_portfolio_agent is false."
@@ -523,9 +521,7 @@ class SentimentPacket(StrictModel):
         if self.retrieval_status != "not_implemented":
             return self
         nested_citations = [
-            citation
-            for holding in self.holdings
-            for citation in holding.citations
+            citation for holding in self.holdings for citation in holding.citations
         ] + list(self.portfolio_level_sentiment.citations)
         if self.holdings or self.citations or nested_citations:
             raise ValueError(

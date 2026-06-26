@@ -203,9 +203,7 @@ def portfolio_evidence_plan_to_context_plan(
         needs_sql_history=needs_sql_history,
         history_queries=history_queries,
         asset_ids=[asset.sql_asset_id for asset in resolved if asset.sql_asset_id],
-        canonical_symbols=[
-            asset.canonical_symbol for asset in resolved if asset.canonical_symbol
-        ],
+        canonical_symbols=[asset.canonical_symbol for asset in resolved if asset.canonical_symbol],
         tickers=[_ticker_from_resolution(asset) for asset in resolved],
         metric_groups=plan.metric_groups,
         persist_observation=plan.persistence_mode in {"auto", "persist"},
@@ -390,7 +388,9 @@ def _tickers_from_request_or_plan(
         ]
         if resolved_tickers:
             return _dedupe(resolved_tickers)
-    return _dedupe([hint.raw_input.strip().upper().removeprefix("US.") for hint in request.asset_hints])
+    return _dedupe(
+        [hint.raw_input.strip().upper().removeprefix("US.") for hint in request.asset_hints]
+    )
 
 
 def _portfolio_required_outputs(task_type: str, lowered_query: str) -> list[str]:

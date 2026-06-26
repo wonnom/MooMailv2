@@ -585,8 +585,7 @@ def test_named_ticker_change_query_scopes_position_history_tool(
     assert position_change_calls[0]["until"] == result.snapshot.as_of.isoformat()
     assert any(
         call.startswith(
-            f"actual_detail:{PORTFOLIO_SQL_SERVER}:"
-            "portfolio_sql_get_position_state_changes"
+            f"actual_detail:{PORTFOLIO_SQL_SERVER}:portfolio_sql_get_position_state_changes"
         )
         and "ticker=AMZN" in call
         for call in result.tool_calls

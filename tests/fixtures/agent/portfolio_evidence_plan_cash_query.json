@@ -1,0 +1,17 @@
+{
+  "task_intent": "portfolio_fact",
+  "resolved_assets": [],
+  "history_queries": ["none"],
+  "metric_groups": ["effective_cash"],
+  "needs_current_values": true,
+  "history_window": "30d",
+  "freshness_requirement": "latest_required",
+  "position_change_scope": "none",
+  "persistence_mode": "skip",
+  "pattern_detectors": [
+    "stale_data",
+    "unsupported_quote_warnings",
+    "cash_effective_cash"
+  ],
+  "warnings": []
+}

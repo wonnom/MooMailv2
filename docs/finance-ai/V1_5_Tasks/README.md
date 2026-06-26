@@ -4,14 +4,16 @@ Status: planning placeholder.
 
 ## Problem
 
-V1.4 introduces typed planner contracts and a deterministic investment planner,
-but the current runtime boundary is still ambiguous: the deterministic planner is
-described as a fallback/offline path while also being wired as the default
-Investment Agent planner.
+V1.4 introduces typed planner contracts, a deterministic Investment planner, and
+a deterministic Portfolio evidence planner, but the current runtime boundary is
+still ambiguous: deterministic planning is described as fallback/offline support
+while also being wired into default or bounded runtime paths.
 
 That creates product and maintenance risk:
 
 - The webapp can silently use regex/keyword routing as normal behavior.
+- Bounded Portfolio evidence planning can inherit fallback behavior unless
+  planner provenance is explicit.
 - The user cannot clearly tell whether an LLM planner, deterministic fallback,
   or fixed backend route produced a decision.
 - Broad keyword matching can accumulate in the codebase as hidden product logic.
@@ -68,4 +70,3 @@ planner.
   bypassed by planner output.
 - Tests continue to run without hosted LLM calls by using fakes, fixtures, or an
   explicitly named deterministic test planner.
-

@@ -50,6 +50,13 @@ Recommended statuses:
 - `retrieving_portfolio`
 - `retrieving_quotes`
 - `planning_portfolio_context`
+- `planning_portfolio_evidence`
+- `portfolio_evidence_plan_validated`
+- `asset_resolution_resolved`
+- `asset_resolution_ambiguous`
+- `asset_resolution_not_in_portfolio`
+- `asset_resolution_unsupported_market`
+- `asset_resolution_unknown`
 - `analyzing_allocation`
 - `calculating_risk`
 - `selecting_research_scope`
@@ -232,7 +239,12 @@ The Investment Agent routes from a typed `InvestmentPlan` before subagent calls:
   "portfolio_request": {
     "task_intent": "full_review",
     "asset_hints": [],
-    "output_goals": ["snapshot", "allocation", "risk", "portfolio_patterns"],
+    "output_goals": [
+      "snapshot",
+      "allocation_context",
+      "risk_context",
+      "portfolio_patterns"
+    ],
     "freshness_requirement": "latest_required",
     "source_query": "Review my portfolio"
   },
@@ -247,23 +259,83 @@ The Investment Agent routes from a typed `InvestmentPlan` before subagent calls:
 ```
 
 The Investment Agent owns this plan. The current runtime adapts
-`portfolio_request` to the older `query_plan`/`PortfolioTask` path until the
-Portfolio Agent evidence planner is wired in. Portfolio Agent may suggest
-sentiment candidates in its response, but it must not call Sentiment Agent
-directly.
+`portfolio_request` to the older `query_plan`/`PortfolioTask` path for the
+default chat route. The Portfolio Agent can also accept bounded
+`PortfolioRequest` input directly and plan portfolio evidence from it. Portfolio
+Agent may suggest sentiment candidates in its response, but it must not call
+Sentiment Agent directly.
+
+## Portfolio Evidence Plan
+
+Portfolio Agent plans bounded portfolio evidence from `PortfolioRequest` into
+`PortfolioEvidencePlan` before selecting tool scope:
+
+```json
+{
+  "task_intent": "what_changed",
+  "resolved_assets": [
+    {
+      "input": "AMZN",
+      "canonical_symbol": "US.AMZN",
+      "sql_asset_id": "asset_amzn",
+      "display_name": "Amazon.com Inc.",
+      "resolution_status": "resolved",
+      "warnings": [],
+      "source": "fixture"
+    }
+  ],
+  "history_queries": [
+    "history_status",
+    "latest_state",
+    "portfolio_growth",
+    "allocation_history",
+    "position_state_changes"
+  ],
+  "metric_groups": ["performance"],
+  "needs_current_values": false,
+  "history_window": "90d",
+  "freshness_requirement": "history_only",
+  "position_change_scope": "asset_scoped",
+  "persistence_mode": "skip",
+  "pattern_detectors": [
+    "stale_data",
+    "unsupported_quote_warnings",
+    "large_position_changes",
+    "average_cost_shifts",
+    "portfolio_outliers"
+  ],
+  "warnings": []
+}
+```
+
+The Portfolio Agent planner must not emit sentiment routing or final-thesis
+fields. The current runtime adapts this evidence plan into `PortfolioContextPlan`
+for deterministic execution; direct `PortfolioEvidencePacket` assembly remains
+V1.4.4 work.
 
 ## Portfolio Context Plan
 
-Portfolio Agent should produce a bounded context plan before executing tools:
+Portfolio Agent still uses a bounded context plan as the current execution
+adapter:
 
 ```json
 {
   "needs_current_snapshot": true,
   "needs_sql_history": true,
-  "history_queries": ["portfolio_growth", "allocation_history"],
-  "tickers": ["GOOG", "ASML"],
-  "metric_groups": ["allocation", "concentration", "effective_cash"],
-  "persist_observation": true
+  "history_queries": [
+    "history_status",
+    "latest_state",
+    "portfolio_growth",
+    "allocation_history",
+    "position_state_changes"
+  ],
+  "asset_ids": ["asset_amzn"],
+  "canonical_symbols": ["US.AMZN"],
+  "tickers": ["AMZN"],
+  "metric_groups": ["performance"],
+  "persist_observation": false,
+  "history_window": "90d",
+  "row_limit": 100
 }
 ```
 

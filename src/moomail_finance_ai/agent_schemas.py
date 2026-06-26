@@ -274,9 +274,7 @@ class InvestmentPlan(StrictModel):
     @model_validator(mode="after")
     def _validate_planner_routing(self) -> InvestmentPlan:
         if self.needs_portfolio_agent and self.portfolio_request is None:
-            raise ValueError(
-                "portfolio_request is required when needs_portfolio_agent is true."
-            )
+            raise ValueError("portfolio_request is required when needs_portfolio_agent is true.")
         if not self.needs_portfolio_agent and self.portfolio_request is not None:
             raise ValueError(
                 "portfolio_request must be omitted when needs_portfolio_agent is false."
@@ -379,6 +377,8 @@ class PortfolioContextPlan(StrictModel):
     history_queries: list[HistoryQuery] = Field(
         default_factory=lambda: ["history_status", "latest_state"]
     )
+    asset_ids: list[str] = Field(default_factory=list)
+    canonical_symbols: list[str] = Field(default_factory=list)
     tickers: list[str] = Field(default_factory=list)
     metric_groups: list[MetricGroup] = Field(
         default_factory=lambda: ["allocation", "concentration", "effective_cash"]
@@ -392,6 +392,16 @@ class PortfolioContextPlan(StrictModel):
     @classmethod
     def _normalize_plan_tickers(cls, tickers: list[str]) -> list[str]:
         return _normalize_tickers(tickers)
+
+    @field_validator("asset_ids")
+    @classmethod
+    def _dedupe_asset_ids(cls, asset_ids: list[str]) -> list[str]:
+        return _dedupe_strings([asset_id.strip() for asset_id in asset_ids if asset_id.strip()])
+
+    @field_validator("canonical_symbols")
+    @classmethod
+    def _normalize_canonical_symbols(cls, symbols: list[str]) -> list[str]:
+        return _dedupe_strings([symbol.strip().upper() for symbol in symbols if symbol.strip()])
 
     @model_validator(mode="after")
     def _validate_history_intent(self) -> PortfolioContextPlan:
@@ -511,9 +521,7 @@ class SentimentPacket(StrictModel):
         if self.retrieval_status != "not_implemented":
             return self
         nested_citations = [
-            citation
-            for holding in self.holdings
-            for citation in holding.citations
+            citation for holding in self.holdings for citation in holding.citations
         ] + list(self.portfolio_level_sentiment.citations)
         if self.holdings or self.citations or nested_citations:
             raise ValueError(

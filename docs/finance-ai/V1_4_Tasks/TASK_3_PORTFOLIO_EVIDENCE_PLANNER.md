@@ -11,7 +11,39 @@ metric groups, pattern detectors, and persistence policy.
 
 ## Status
 
-Planned.
+Complete as of 2026-06-25.
+
+## Implemented In
+
+- `src/moomail_finance_ai/portfolio_evidence_planner.py`
+  - Added the `PortfolioEvidencePlanner` protocol, deterministic
+    `PortfolioRequest -> PortfolioEvidencePlan` planner, request/task/context
+    adapters, and explicit keyword fallback planner for existing query behavior.
+  - Planner resolves `AssetHint` values before choosing history queries, metric
+    groups, position-change scope, current-value dependency, persistence mode,
+    and pattern detectors.
+  - Planner surfaces validation warnings for unresolved/ambiguous optional
+    assets and rejects required unresolved assets before tool execution.
+- `src/moomail_finance_ai/portfolio_agent.py`
+  - `PortfolioAgent.run` now accepts an optional bounded `PortfolioRequest`
+    with supplied asset candidates and stores the resulting `evidence_plan` in
+    `PortfolioAgentResult`.
+  - The existing `PortfolioTask` path remains stable; its keyword/rule query
+    fallback now delegates to the explicit fallback planner.
+  - Position-state change reads can now pass resolved `asset_id` scope to
+    `portfolio_sql_get_position_state_changes` when available, falling back to
+    ticker or portfolio-wide scope otherwise.
+- `src/moomail_finance_ai/agent_schemas.py`
+  - Added additive `asset_ids` and `canonical_symbols` scope fields to
+    `PortfolioContextPlan` so resolved evidence-plan scope can flow into the
+    current execution adapter.
+- Tests and fixtures
+  - Expanded `tests/test_portfolio_planner.py` with the V1.4.3 planner,
+    resolver, scope, pattern-detector, fallback, and trace/status cases.
+  - Updated `tests/test_portfolio_agent.py` for the bounded `PortfolioRequest`
+    path.
+  - Added `tests/fixtures/agent/portfolio_evidence_plan_cash_query.json` and
+    `tests/fixtures/agent/portfolio_evidence_plan_amzn_position_changes.json`.
 
 ## Exit Criteria
 
@@ -94,9 +126,44 @@ V1.4.0 contracts
 .venv/bin/python -m pytest tests/test_portfolio_agent.py -q
 ```
 
+## Verification
+
+Run on 2026-06-25:
+
+```text
+.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_asset_resolver.py -q
+44 passed in 0.32s
+
+.venv/bin/python -m pytest tests/test_portfolio_agent.py -q
+7 passed in 0.27s
+
+.venv/bin/python -m pytest tests/test_agent_schemas.py -q
+55 passed in 0.04s
+
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+237 passed, 1 warning in 8.70s
+```
+
+The warning is the existing LangGraph dependency deprecation warning.
+
+Not run:
+
+- `tests/live`: opt-in live connector/OpenD tests are not required because this
+  task uses deterministic recorded/fake Portfolio Agent paths.
+
+## Remaining
+
+No remaining exit criteria for V1.4.3. V1.4.4 still owns deterministic
+execution directly from `PortfolioEvidencePlan` into a separated
+`PortfolioEvidencePacket`; the current runtime adapts evidence plans through
+`PortfolioContextPlan` for existing execution.
+
 ## Notes
 
 - The Portfolio Agent may refine evidence subtasks, but only within the bounded
   request from the Investment Agent.
 - This task should not implement the final evidence packet assembly. That is
   V1.4.4.
+- Closeout note: the expected `references/finance-ai-grounding.md` file was not
+  present in this checkout. Grounding used this task file, the sibling V1.4
+  README, and the current finance AI architecture/agent/testing/protocol docs.

@@ -3,7 +3,7 @@
 Status: current planning and execution notes. V1.3 MCP gateway, deterministic
 portfolio data lane, and agent gateway migration are complete. V1.4 structured
 planning work has started; V1.4.0 and V1.4.1 are complete as of 2026-06-24,
-and V1.4.2 is complete as of 2026-06-25.
+and V1.4.2 and V1.4.3 are complete as of 2026-06-25.
 
 ## V1.4 Goal
 
@@ -68,12 +68,20 @@ Completed as of 2026-06-25:
 - V1.4.2 also normalized frontend/backend chat agent names so the website can
   send `investment_agent` or `portfolio_agent` while older `investment` and
   `portfolio` values remain accepted.
+- V1.4.3 added `src/moomail_finance_ai/portfolio_evidence_planner.py`, moved
+  bounded PortfolioRequest planning into an explicit `PortfolioEvidencePlan`
+  planner with deterministic asset resolution before tool scope selection, and
+  preserved current keyword behavior as an explicit fallback planner.
+- V1.4.3 also lets the Portfolio Agent accept a bounded `PortfolioRequest`,
+  exposes `PortfolioAgentResult.evidence_plan`, and adapts resolved
+  `asset_id`/canonical-symbol scope into the current `PortfolioContextPlan`
+  execution path.
 
 Still planned:
 
-- V1.4.3 and V1.4.4 must migrate the Portfolio Agent side of the current
-  runtime onto structured evidence planning, deterministic resolver use before
-  tool execution, and separated evidence-packet execution.
+- V1.4.4 must replace the remaining Portfolio Agent execution adapter with
+  direct deterministic execution from `PortfolioEvidencePlan` into a separated
+  `PortfolioEvidencePacket`.
 - V1.4.5 still owns final trace/evaluation/docs closeout for the whole V1.4
   iteration.
 
@@ -84,7 +92,7 @@ Still planned:
 | V1.4.0 | complete as of 2026-06-24 | [TASK_0_PLANNER_CONTRACTS.md](TASK_0_PLANNER_CONTRACTS.md) | Define typed contracts for Investment planning, bounded Portfolio requests, asset resolution, Portfolio evidence plans, and evidence packets. |
 | V1.4.1 | complete as of 2026-06-24 | [TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md](TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md) | Add deterministic asset resolution and validators so logical hints map to actual portfolio assets and invalid plans fail safely. |
 | V1.4.2 | complete as of 2026-06-25 | [TASK_2_INVESTMENT_AGENT_PLANNER.md](TASK_2_INVESTMENT_AGENT_PLANNER.md) | Replace hidden keyword routing with a structured Investment Agent planner that emits bounded subagent requests. |
-| V1.4.3 | planned | [TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md](TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md) | Refactor Portfolio Agent planning into evidence planning over bounded requests, resolved assets, history scope, metrics, and freshness needs. |
+| V1.4.3 | complete as of 2026-06-25 | [TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md](TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md) | Refactor Portfolio Agent planning into evidence planning over bounded requests, resolved assets, history scope, metrics, and freshness needs. |
 | V1.4.4 | planned | [TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md](TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md) | Execute Portfolio evidence plans deterministically and return facts, metrics, patterns, interpretations, limitations, and trace. |
 | V1.4.5 | planned | [TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md](TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md) | Expose planner/execution trace, add golden prompt evaluations, update docs, and close the V1.4 gate. |
 
@@ -94,7 +102,7 @@ Still planned:
 V1.4.0. Planner contracts [complete]
   ├── V1.4.1. Asset resolution and validation [complete]
   │   ├── V1.4.2. Investment Agent planner [complete]
-  │   │   └── V1.4.3. Portfolio evidence planner [planned]
+  │   │   └── V1.4.3. Portfolio evidence planner [complete]
   │   │       └── V1.4.4. Deterministic execution and evidence packet [planned]
   │   │           └── V1.4.5. Trace, evaluations, docs, and closeout [planned]
   │   └── V1.4.4. Deterministic execution uses validated resolved assets [planned]
@@ -365,8 +373,9 @@ flowchart TD
 ## Planner Contracts
 
 V1.4.0 implemented these contracts in
-`src/moomail_finance_ai/agent_schemas.py`. They are additive and are not yet
-the live runtime path.
+`src/moomail_finance_ai/agent_schemas.py`. The `InvestmentPlan` and
+`PortfolioEvidencePlan` contracts are now wired into live planning paths;
+direct `PortfolioEvidencePacket` assembly remains planned for V1.4.4.
 
 ### Investment Plan
 
@@ -444,13 +453,19 @@ Implemented Portfolio Agent evidence plan fields:
     "allocation_history",
     "position_state_changes"
   ],
-  "metric_groups": ["allocation", "effective_cash", "performance"],
-  "needs_current_values": true,
+  "metric_groups": ["performance"],
+  "needs_current_values": false,
   "history_window": "90d",
-  "freshness_requirement": "latest_required",
-  "position_change_scope": "ticker_scoped",
-  "persistence_mode": "auto",
-  "pattern_detectors": ["large_quantity_change", "average_cost_shift"],
+  "freshness_requirement": "history_only",
+  "position_change_scope": "asset_scoped",
+  "persistence_mode": "skip",
+  "pattern_detectors": [
+    "stale_data",
+    "unsupported_quote_warnings",
+    "large_position_changes",
+    "average_cost_shifts",
+    "portfolio_outliers"
+  ],
   "warnings": []
 }
 ```
@@ -476,21 +491,25 @@ Implemented portfolio evidence packet sections:
 }
 ```
 
-## Temporary Fallbacks
+## Compatibility Fallbacks
 
 Current implementation note:
 
-- `interpret_portfolio_task()` still extracts tickers with a deterministic
-  regex helper.
-- `portfolio_sql_get_position_state_changes` can receive a ticker parameter,
-  but the choice of which ticker to pass is still made by the temporary bounded
-  planner.
+- `PortfolioAgent.run()` can accept a bounded `PortfolioRequest` and plan
+  `PortfolioEvidencePlan` output with resolved assets before tool scope
+  selection.
+- `interpret_portfolio_task()` delegates to the explicit fallback planner for
+  legacy `PortfolioTask` callers; that fallback still extracts tickers with a
+  deterministic regex helper.
+- `portfolio_sql_get_position_state_changes` can receive resolved `asset_id`
+  scope, ticker fallback scope, or portfolio-wide scope.
 
-V1.4 target:
+Completed in V1.4.3:
 
-- Move ticker and asset-scope selection out of `interpret_portfolio_task()`.
+- Move bounded ticker/asset-scope selection into `PortfolioEvidencePlan`;
+  legacy fallback extraction remains explicit.
 - Represent ticker/asset scope as planner output.
-- Represent Investment Agent to Portfolio Agent communication as a bounded
+- Represent the V1.4 Investment-to-Portfolio handoff as a bounded
   `PortfolioRequest`, not free-form natural language.
 - Add deterministic asset resolution so logical hints like `AAPL` or `Apple`
   map to portfolio assets and OpenD-compatible symbols such as `US.AAPL`.
@@ -502,9 +521,14 @@ V1.4 target:
   what requires sentiment or fundamental context.
 - Keep a deterministic fallback planner for tests and offline mode, but make it
   explicit that it is a fallback implementation.
-- Add tests proving a planner can choose `AMZN` for a query like "What price did
-  I buy my recent AMZN shares at?" and that execution passes that ticker to
-  `portfolio_sql_get_position_state_changes`.
+- Add tests proving a planner can resolve `AMZN` for a query like "What changed
+  in my AMZN position?" and that execution passes resolved `asset_id` scope to
+  `portfolio_sql_get_position_state_changes` when available.
+
+Remaining after V1.4.3:
+
+- Execute `PortfolioEvidencePlan` directly into a separated
+  `PortfolioEvidencePacket` instead of adapting through `PortfolioContextPlan`.
 
 ## Non-Goals
 

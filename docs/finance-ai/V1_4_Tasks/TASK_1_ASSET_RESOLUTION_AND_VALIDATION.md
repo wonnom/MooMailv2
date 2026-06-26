@@ -37,8 +37,9 @@ Complete as of 2026-06-24.
     required unresolved asset blocking.
 
 The resolver is implemented as a deterministic helper beside the Portfolio
-Agent. It does not call live OpenD and is not yet wired into the current
-Portfolio Agent execution path; V1.4.3 and V1.4.4 own runtime migration.
+Agent. It does not call live OpenD. V1.4.3 wires it into bounded
+`PortfolioRequest` evidence planning before the current execution adapter;
+V1.4.4 owns direct evidence-plan execution.
 
 ## Exit Criteria
 
@@ -139,9 +140,9 @@ Not run:
 
 ## Remaining
 
-No remaining exit criteria for V1.4.1. Later V1.4 tasks still need to route
-structured planner output through this resolver before Portfolio Agent tools
-execute.
+No remaining exit criteria for V1.4.1. V1.4.3 now routes bounded
+`PortfolioRequest` inputs through this resolver before evidence-plan scope
+selection; V1.4.4 still needs direct evidence-plan execution.
 
 ## Notes
 

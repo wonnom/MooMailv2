@@ -31,7 +31,7 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-24
+Date: 2026-06-25
 
 Current status:
 
@@ -50,6 +50,10 @@ Current status:
 - V1.3.4 agent gateway migration is complete: Portfolio Agent and Investment
   Agent now use the backend `MCPToolGateway`; `StdioMCPToolGateway` is the
   default local runtime and `DirectToolGateway` remains test/dev parity support.
+- V1.4.0 through V1.4.3 are complete: typed planner contracts, deterministic
+  asset resolution/validation, live Investment Agent `InvestmentPlan`
+  planning, and Portfolio Agent `PortfolioEvidencePlan` planning are
+  implemented. Direct evidence-packet execution remains V1.4.4 work.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1.1 task tracking lives under `docs/finance-ai/V1_1_Tasks/`.
@@ -71,7 +75,7 @@ Current status:
 | V1.3.2 | Complete | Gateway modes: direct parity adapter and stdio MCP client runtime with permission profiles. |
 | V1.3.3 | Complete | Deterministic portfolio data lane for backend APIs and frontend dashboard refresh independent from agent runs. |
 | V1.3.4 | Complete | Portfolio Agent and Investment Agent migrated to the gateway runtime; legacy custom stdio removed from runtime code. |
-| V1.4 | Planning | Structured Investment Agent and Portfolio Agent planner contracts, validation, deterministic execution policy, and planner trace. |
+| V1.4 | In progress | V1.4.0 through V1.4.3 complete; direct Portfolio evidence-packet execution and final trace/evaluation closeout remain planned. |
 
 ## Timeline
 
@@ -1306,8 +1310,47 @@ Verification:
 
 Remaining:
 
-- V1.4.3 and V1.4.4 must replace the Portfolio Agent adapter path with
-  structured evidence planning and deterministic evidence-packet execution.
+- V1.4.4 must replace the remaining Portfolio Agent adapter path with
+  deterministic evidence-packet execution.
+
+## V1.4.3 Closeout: Portfolio Evidence Planner
+
+Date: 2026-06-25
+
+Decision:
+
+- Add an explicit Portfolio Agent evidence planner that accepts bounded
+  `PortfolioRequest` input, resolves asset hints before tool scope selection,
+  and emits validated `PortfolioEvidencePlan` output.
+- Preserve the current keyword/rule Portfolio Agent behavior as an explicit
+  fallback planner rather than hidden inline extraction inside execution.
+- Keep execution on the existing deterministic `PortfolioContextPlan` adapter
+  until V1.4.4 builds direct evidence-plan execution and
+  `PortfolioEvidencePacket` assembly.
+
+Actual implementation:
+
+- Added `src/moomail_finance_ai/portfolio_evidence_planner.py`.
+- Added optional `portfolio_request` and `asset_candidates` inputs to
+  `PortfolioAgent.run`, plus `PortfolioAgentResult.evidence_plan`.
+- Added resolved `asset_ids` and `canonical_symbols` to `PortfolioContextPlan`
+  so position-state change reads can pass `asset_id` to SQL when available.
+
+Verification:
+
+- `.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_asset_resolver.py -q`
+  passed with `44 passed`.
+- `.venv/bin/python -m pytest tests/test_portfolio_agent.py -q` passed with
+  `7 passed`.
+- `.venv/bin/python -m pytest tests/test_agent_schemas.py -q` passed with
+  `55 passed`.
+- `.venv/bin/python -m pytest tests --ignore=tests/live -q` passed with
+  `237 passed, 1 warning`.
+
+Remaining:
+
+- V1.4.4 must execute `PortfolioEvidencePlan` directly into a separated
+  `PortfolioEvidencePacket` rather than adapting through `PortfolioContextPlan`.
 
 ## Future Update Template
 

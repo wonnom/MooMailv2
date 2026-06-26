@@ -67,8 +67,10 @@ Current limitations:
 - Investment planning is deterministic fallback planning, not an LLM-guided
   structured-output planner yet.
 - Ticker/asset-scope selection is now explicit `AssetHint` planner output at the
-  Investment Agent layer, but the Portfolio Agent still receives an adapted
-  `PortfolioTask` until later V1.4 tasks wire in evidence planning.
+  Investment Agent layer, and the Portfolio Agent has a bounded
+  `PortfolioRequest` evidence-planning path. The default Investment Agent chat
+  flow still uses the older `PortfolioTask` compatibility adapter until direct
+  evidence-packet execution lands.
 - The final Investment Agent synthesis is deterministic/template-style. The
   Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
   Investment Agent itself does not yet perform a rich LLM synthesis pass.
@@ -100,10 +102,11 @@ logical asset hints against actual portfolio data and plan only inside the
 portfolio evidence domain. Sentiment Agent should eventually plan research
 retrieval, but it should not make portfolio allocation or trade decisions.
 
-Implementation status as of 2026-06-25: V1.4.0 through V1.4.2 added the typed
-planner contracts, deterministic asset resolver/validator primitives, and live
-Investment Agent `InvestmentPlan` planning/validation before subagent calls.
-Portfolio Agent runtime migration remains planned for later V1.4 tasks.
+Implementation status as of 2026-06-25: V1.4.0 through V1.4.3 added the typed
+planner contracts, deterministic asset resolver/validator primitives, live
+Investment Agent `InvestmentPlan` planning/validation, and Portfolio Agent
+`PortfolioEvidencePlan` planning. Direct evidence-packet execution remains
+planned for V1.4.4.
 
 ### Supported Modes
 
@@ -154,9 +157,10 @@ Current implementation:
   `portfolio_sql_get_position_state_changes` so the evaluator can explain
   compact quantity/average-cost changes, including inferred added-share average
   cost when SQL has adjacent position states.
-- If a portfolio-change query names tickers, the bounded plan passes those
-  tickers into the position-state change read; otherwise it scans recent
-  changes across the portfolio within the configured history window.
+- If a bounded portfolio-change request resolves assets, the context adapter
+  passes `asset_id` scope into the position-state change read; legacy
+  ticker-only plans pass tickers, and unscoped plans scan recent changes across
+  the portfolio within the configured history window.
 - LLM evaluator: a provider-neutral LLM adapter produces a portfolio-only
   structured evaluation after deterministic tools complete. Gemini and OpenAI
   are supported, with Gemini as the current default. The evaluator now asks for
@@ -202,19 +206,18 @@ which portfolio context is needed for the assigned task:
 - required metric groups
 - persistence for review-style runs
 
-Execution remains deterministic once the plan is produced. This is implemented
-inside the existing Python Portfolio Agent path, not as a separate compiled
-LangGraph subgraph. The Portfolio Agent returns structured portfolio evidence
-and candidate sentiment scope, not final investment advice.
+The V1.4.3 planner path accepts a bounded `PortfolioRequest`, validates and
+resolves asset hints against supplied candidates, produces a
+`PortfolioEvidencePlan`, then adapts that plan into the current
+`PortfolioContextPlan` execution path. Existing keyword/rule query behavior is
+preserved as an explicit fallback planner for legacy `PortfolioTask` callers.
+Execution remains deterministic once the context plan is selected. This is
+implemented inside the existing Python Portfolio Agent path, not as a separate
+compiled LangGraph subgraph. The Portfolio Agent returns structured portfolio
+evidence and candidate sentiment scope, not final investment advice.
 
-The current bounded planner still uses hardcoded keyword/rule logic and a
-temporary regex ticker extractor. V1.4 should replace this with a planner node
-that receives a bounded request from the Investment Agent, resolves the actual
-portfolio assets, chooses evidence subtasks, history window, and tool scope as
-structured plan fields, then hands execution to deterministic policy.
-
-V1.4.1 provides the deterministic resolver and request-validation module beside
-the Portfolio Agent, but the live Portfolio Agent path does not call it yet.
+V1.4.3 does not assemble the final separated `PortfolioEvidencePacket`; that
+remains planned for V1.4.4.
 
 The Portfolio Agent should add value as a portfolio analyst assistant: it should
 surface concentration, allocation drift, cash/cash-equivalent effects,
@@ -227,7 +230,9 @@ Current behavior:
 - Full review and deep-dive tasks preserve broad review context and persistence.
 - Cash/allocation/holding fact tasks avoid broad SQL history reads by default.
 - What-changed tasks request history status, latest state, portfolio growth,
-  and allocation history.
+  allocation history, and position-state changes.
+- Bounded `PortfolioRequest` runs can preserve resolved `asset_id` and
+  canonical-symbol scope for position-state change reads.
 - Each run returns planned, actual, and skipped tool entries in
   `PortfolioAgentResult.tool_calls`.
 

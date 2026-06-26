@@ -148,8 +148,8 @@ Not run yet in this closeout section:
 
 ## Remaining
 
-No remaining exit criteria for V1.4.2. Later V1.4 tasks still need to replace
-the Portfolio Agent side of the adapter with `PortfolioEvidencePlan` and
+No remaining exit criteria for V1.4.2. V1.4.3 later replaced the Portfolio
+Agent planning side with `PortfolioEvidencePlan`; V1.4.4 still needs direct
 deterministic evidence-packet execution.
 
 ## Notes

@@ -260,9 +260,7 @@ def test_portfolio_evidence_plan_validates_resolved_assets():
 
 
 def test_portfolio_evidence_packet_separates_sections():
-    packet = PortfolioEvidencePacket.model_validate(
-        _fixture("portfolio_evidence_packet_stub.json")
-    )
+    packet = PortfolioEvidencePacket.model_validate(_fixture("portfolio_evidence_packet_stub.json"))
 
     assert packet.facts["portfolio_id"] == "portfolio_default"
     assert "average_cost_shift" in packet.derived_metrics
@@ -581,6 +579,8 @@ def test_all_agent_fixtures_validate_and_serialize():
         "investment_plan_portfolio_request.json": InvestmentPlan,
         "portfolio_request_what_changed.json": PortfolioRequest,
         "asset_resolution_ambiguous.json": AssetResolution,
+        "portfolio_evidence_plan_cash_query.json": PortfolioEvidencePlan,
+        "portfolio_evidence_plan_amzn_position_changes.json": PortfolioEvidencePlan,
         "portfolio_evidence_packet_stub.json": PortfolioEvidencePacket,
         "sentiment_task_full_review.json": SentimentTask,
         "sentiment_packet_stub.json": SentimentPacket,

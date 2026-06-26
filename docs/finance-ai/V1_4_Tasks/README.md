@@ -373,8 +373,9 @@ flowchart TD
 ## Planner Contracts
 
 V1.4.0 implemented these contracts in
-`src/moomail_finance_ai/agent_schemas.py`. They are additive and are not yet
-the live runtime path.
+`src/moomail_finance_ai/agent_schemas.py`. The `InvestmentPlan` and
+`PortfolioEvidencePlan` contracts are now wired into live planning paths;
+direct `PortfolioEvidencePacket` assembly remains planned for V1.4.4.
 
 ### Investment Plan
 
@@ -452,13 +453,19 @@ Implemented Portfolio Agent evidence plan fields:
     "allocation_history",
     "position_state_changes"
   ],
-  "metric_groups": ["allocation", "effective_cash", "performance"],
-  "needs_current_values": true,
+  "metric_groups": ["performance"],
+  "needs_current_values": false,
   "history_window": "90d",
-  "freshness_requirement": "latest_required",
-  "position_change_scope": "ticker_scoped",
-  "persistence_mode": "auto",
-  "pattern_detectors": ["large_quantity_change", "average_cost_shift"],
+  "freshness_requirement": "history_only",
+  "position_change_scope": "asset_scoped",
+  "persistence_mode": "skip",
+  "pattern_detectors": [
+    "stale_data",
+    "unsupported_quote_warnings",
+    "large_position_changes",
+    "average_cost_shifts",
+    "portfolio_outliers"
+  ],
   "warnings": []
 }
 ```
@@ -484,21 +491,25 @@ Implemented portfolio evidence packet sections:
 }
 ```
 
-## Temporary Fallbacks
+## Compatibility Fallbacks
 
 Current implementation note:
 
-- `interpret_portfolio_task()` still extracts tickers with a deterministic
-  regex helper.
-- `portfolio_sql_get_position_state_changes` can receive a ticker parameter,
-  but the choice of which ticker to pass is still made by the temporary bounded
-  planner.
+- `PortfolioAgent.run()` can accept a bounded `PortfolioRequest` and plan
+  `PortfolioEvidencePlan` output with resolved assets before tool scope
+  selection.
+- `interpret_portfolio_task()` delegates to the explicit fallback planner for
+  legacy `PortfolioTask` callers; that fallback still extracts tickers with a
+  deterministic regex helper.
+- `portfolio_sql_get_position_state_changes` can receive resolved `asset_id`
+  scope, ticker fallback scope, or portfolio-wide scope.
 
-V1.4 target:
+Completed in V1.4.3:
 
-- Move ticker and asset-scope selection out of `interpret_portfolio_task()`.
+- Move bounded ticker/asset-scope selection into `PortfolioEvidencePlan`;
+  legacy fallback extraction remains explicit.
 - Represent ticker/asset scope as planner output.
-- Represent Investment Agent to Portfolio Agent communication as a bounded
+- Represent the V1.4 Investment-to-Portfolio handoff as a bounded
   `PortfolioRequest`, not free-form natural language.
 - Add deterministic asset resolution so logical hints like `AAPL` or `Apple`
   map to portfolio assets and OpenD-compatible symbols such as `US.AAPL`.
@@ -510,9 +521,14 @@ V1.4 target:
   what requires sentiment or fundamental context.
 - Keep a deterministic fallback planner for tests and offline mode, but make it
   explicit that it is a fallback implementation.
-- Add tests proving a planner can choose `AMZN` for a query like "What price did
-  I buy my recent AMZN shares at?" and that execution passes that ticker to
-  `portfolio_sql_get_position_state_changes`.
+- Add tests proving a planner can resolve `AMZN` for a query like "What changed
+  in my AMZN position?" and that execution passes resolved `asset_id` scope to
+  `portfolio_sql_get_position_state_changes` when available.
+
+Remaining after V1.4.3:
+
+- Execute `PortfolioEvidencePlan` directly into a separated
+  `PortfolioEvidencePacket` instead of adapting through `PortfolioContextPlan`.
 
 ## Non-Goals
 

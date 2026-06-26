@@ -593,8 +593,9 @@ value, unrealized P&L, or `last_observed_at` changes.
 
 The Portfolio SQL MCP exposes these adjacent state changes through
 `portfolio_sql_get_position_state_changes`. The tool supports `since`, `until`,
-and `lookback_days` filters and returns deterministic quantity, average-cost,
-cost-basis, and implied added-share average-cost deltas for agent use.
+`lookback_days`, `asset_id`, and `ticker` filters and returns deterministic
+quantity, average-cost, cost-basis, and implied added-share average-cost deltas
+for agent use.
 
 #### `portfolio_value_snapshots`
 

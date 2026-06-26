@@ -55,6 +55,8 @@ Recommended statuses:
 - `asset_resolution_resolved`
 - `asset_resolution_ambiguous`
 - `asset_resolution_not_in_portfolio`
+- `asset_resolution_unsupported_market`
+- `asset_resolution_unknown`
 - `analyzing_allocation`
 - `calculating_risk`
 - `selecting_research_scope`
@@ -295,7 +297,13 @@ Portfolio Agent plans bounded portfolio evidence from `PortfolioRequest` into
   "freshness_requirement": "history_only",
   "position_change_scope": "asset_scoped",
   "persistence_mode": "skip",
-  "pattern_detectors": ["large_position_changes", "average_cost_shifts"],
+  "pattern_detectors": [
+    "stale_data",
+    "unsupported_quote_warnings",
+    "large_position_changes",
+    "average_cost_shifts",
+    "portfolio_outliers"
+  ],
   "warnings": []
 }
 ```
@@ -314,12 +322,20 @@ adapter:
 {
   "needs_current_snapshot": true,
   "needs_sql_history": true,
-  "history_queries": ["history_status", "position_state_changes"],
+  "history_queries": [
+    "history_status",
+    "latest_state",
+    "portfolio_growth",
+    "allocation_history",
+    "position_state_changes"
+  ],
   "asset_ids": ["asset_amzn"],
   "canonical_symbols": ["US.AMZN"],
   "tickers": ["AMZN"],
   "metric_groups": ["performance"],
-  "persist_observation": true
+  "persist_observation": false,
+  "history_window": "90d",
+  "row_limit": 100
 }
 ```
 

@@ -31,7 +31,7 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-24
+Date: 2026-06-25
 
 Current status:
 
@@ -50,6 +50,10 @@ Current status:
 - V1.3.4 agent gateway migration is complete: Portfolio Agent and Investment
   Agent now use the backend `MCPToolGateway`; `StdioMCPToolGateway` is the
   default local runtime and `DirectToolGateway` remains test/dev parity support.
+- V1.4.0 through V1.4.3 are complete: typed planner contracts, deterministic
+  asset resolution/validation, live Investment Agent `InvestmentPlan`
+  planning, and Portfolio Agent `PortfolioEvidencePlan` planning are
+  implemented. Direct evidence-packet execution remains V1.4.4 work.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1.1 task tracking lives under `docs/finance-ai/V1_1_Tasks/`.
@@ -71,7 +75,7 @@ Current status:
 | V1.3.2 | Complete | Gateway modes: direct parity adapter and stdio MCP client runtime with permission profiles. |
 | V1.3.3 | Complete | Deterministic portfolio data lane for backend APIs and frontend dashboard refresh independent from agent runs. |
 | V1.3.4 | Complete | Portfolio Agent and Investment Agent migrated to the gateway runtime; legacy custom stdio removed from runtime code. |
-| V1.4 | Planning | Structured Investment Agent and Portfolio Agent planner contracts, validation, deterministic execution policy, and planner trace. |
+| V1.4 | In progress | V1.4.0 through V1.4.3 complete; direct Portfolio evidence-packet execution and final trace/evaluation closeout remain planned. |
 
 ## Timeline
 

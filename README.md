@@ -39,11 +39,13 @@ The target system centers on the Investment Agent branch:
 - Guardrail and audit protocol
 
 The current implemented system is narrower than the target system: a live OpenD
-portfolio review through the Portfolio Agent path, SQLite persistence,
+portfolio review through the Portfolio Agent path, typed deterministic
+Investment planning, bounded Portfolio evidence planning, SQLite persistence,
 deterministic metrics, provider-backed portfolio evaluation, a local chat
 frontend, and a deterministic dashboard refresh/status lane that does not
 invoke agents or LLMs. Pinecone memory, Neo4j GraphRAG, crypto ingestion, OTC
-quote fallback, richer planning/synthesis, and long-term memory remain open.
+quote fallback, richer LLM planning/synthesis, and long-term memory remain
+open.
 
 The future Budgeting, Expenses, and Savings Agent is acknowledged as part of the
 long-term product, but it is not part of the current runtime.

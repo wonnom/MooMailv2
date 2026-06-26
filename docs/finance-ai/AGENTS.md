@@ -67,8 +67,10 @@ Current limitations:
 - Investment planning is deterministic fallback planning, not an LLM-guided
   structured-output planner yet.
 - Ticker/asset-scope selection is now explicit `AssetHint` planner output at the
-  Investment Agent layer, but the Portfolio Agent still receives an adapted
-  `PortfolioTask` until later V1.4 tasks wire in evidence planning.
+  Investment Agent layer, and the Portfolio Agent has a bounded
+  `PortfolioRequest` evidence-planning path. The default Investment Agent chat
+  flow still uses the older `PortfolioTask` compatibility adapter until direct
+  evidence-packet execution lands.
 - The final Investment Agent synthesis is deterministic/template-style. The
   Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
   Investment Agent itself does not yet perform a rich LLM synthesis pass.
@@ -155,9 +157,10 @@ Current implementation:
   `portfolio_sql_get_position_state_changes` so the evaluator can explain
   compact quantity/average-cost changes, including inferred added-share average
   cost when SQL has adjacent position states.
-- If a portfolio-change query names tickers, the bounded plan passes those
-  tickers into the position-state change read; otherwise it scans recent
-  changes across the portfolio within the configured history window.
+- If a bounded portfolio-change request resolves assets, the context adapter
+  passes `asset_id` scope into the position-state change read; legacy
+  ticker-only plans pass tickers, and unscoped plans scan recent changes across
+  the portfolio within the configured history window.
 - LLM evaluator: a provider-neutral LLM adapter produces a portfolio-only
   structured evaluation after deterministic tools complete. Gemini and OpenAI
   are supported, with Gemini as the current default. The evaluator now asks for
@@ -227,7 +230,7 @@ Current behavior:
 - Full review and deep-dive tasks preserve broad review context and persistence.
 - Cash/allocation/holding fact tasks avoid broad SQL history reads by default.
 - What-changed tasks request history status, latest state, portfolio growth,
-  and allocation history.
+  allocation history, and position-state changes.
 - Bounded `PortfolioRequest` runs can preserve resolved `asset_id` and
   canonical-symbol scope for position-state change reads.
 - Each run returns planned, actual, and skipped tool entries in

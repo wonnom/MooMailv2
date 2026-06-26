@@ -46,10 +46,12 @@ Implemented and useful today:
 - `PortfolioDataService`: deterministic backend service for OpenD status,
   latest SQL-backed dashboard snapshots, manual refresh, metrics, and canonical
   SQL history updates without invoking agents or LLMs.
-- `PortfolioAgent`: bounded-planning Python Portfolio Agent that interprets
-  a portfolio task, produces a `PortfolioContextPlan`, executes selected MCP
-  tools deterministically, then asks an LLM evaluator to answer portfolio-only
-  questions from the collected packet.
+- `PortfolioAgent`: bounded-planning Python Portfolio Agent that can accept a
+  bounded `PortfolioRequest`, produce a `PortfolioEvidencePlan`, adapt it into
+  the current `PortfolioContextPlan`, execute selected MCP tools
+  deterministically, then ask an LLM evaluator to answer portfolio-only
+  questions from the collected packet. Legacy `PortfolioTask` callers use an
+  explicit fallback planner.
 - `InvestmentAgent`: thin LangGraph supervisor that routes portfolio-only
   and portfolio-plus-sentiment queries through structured agent packets.
 - `SentimentAgentStub`: deterministic missing-research Sentiment Agent stub

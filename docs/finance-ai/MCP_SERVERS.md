@@ -196,7 +196,9 @@ Implemented schema from the 2026-06-02 portfolio-history design review:
 - Expose deterministic position-state change reads through
   `portfolio_sql_get_position_state_changes`, including time-window filtering,
   quantity deltas, average-cost deltas, cost-basis deltas, and implied
-  added-share average cost when the quantity increased.
+  added-share average cost when the quantity increased. The tool accepts
+  `asset_id` for canonical resolved-asset scope and `ticker` for legacy
+  ticker-scoped fallback reads.
 - If the same daily value snapshot is observed again, update the value row's
   latest parsed values and `last_observed_at`, then replace its child weight
   rows so the daily allocation view stays coherent.
@@ -305,13 +307,16 @@ which MCP tools to call.
 
 The Portfolio Agent uses a bounded-planning deterministic path:
 
-1. Interpret the portfolio task assigned by the Investment Agent.
-2. Produce a structured context plan.
-3. Decide whether current OpenD is needed.
-4. Decide which SQL history reads are needed.
-5. Decide which metric groups are needed.
-6. Execute the selected MCP tools deterministically.
-7. Return portfolio evidence plus candidate sentiment scope.
+1. Accept a bounded `PortfolioRequest` when supplied, or use the explicit
+   keyword fallback planner for legacy `PortfolioTask` callers.
+2. Resolve logical asset hints against supplied portfolio candidates.
+3. Produce a `PortfolioEvidencePlan` with allowlisted history queries, metric
+   groups, freshness/current-value dependency, persistence mode, and pattern
+   detectors.
+4. Adapt the evidence plan into the current `PortfolioContextPlan` execution
+   path.
+5. Execute the selected MCP tools deterministically.
+6. Return portfolio evidence plus candidate sentiment scope.
 
 Portfolio Agent must not call Sentiment Agent. It may suggest sentiment
 candidates; Investment Agent decides whether to invoke the Sentiment Agent.
@@ -324,7 +329,11 @@ Current planner behavior:
 - Cash/allocation/holding fact tasks select current OpenD and relevant metrics,
   and skip broad SQL history/persistence by default.
 - What-changed tasks select current OpenD, snapshot metrics, history status,
-  latest state, portfolio growth, allocation history, and persistence.
+  latest state, portfolio growth, allocation history, position-state changes,
+  and persistence.
+- Bounded `PortfolioRequest` runs preserve resolved `asset_id` scope for
+  position-state change reads when SQL asset identity is available, falling back
+  to ticker or portfolio-wide scope otherwise.
 - `PortfolioAgentResult.tool_calls` records planned, actual, and skipped tool
   entries so traces show why a tool did or did not run.
 

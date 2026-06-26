@@ -379,6 +379,8 @@ class PortfolioContextPlan(StrictModel):
     history_queries: list[HistoryQuery] = Field(
         default_factory=lambda: ["history_status", "latest_state"]
     )
+    asset_ids: list[str] = Field(default_factory=list)
+    canonical_symbols: list[str] = Field(default_factory=list)
     tickers: list[str] = Field(default_factory=list)
     metric_groups: list[MetricGroup] = Field(
         default_factory=lambda: ["allocation", "concentration", "effective_cash"]
@@ -392,6 +394,16 @@ class PortfolioContextPlan(StrictModel):
     @classmethod
     def _normalize_plan_tickers(cls, tickers: list[str]) -> list[str]:
         return _normalize_tickers(tickers)
+
+    @field_validator("asset_ids")
+    @classmethod
+    def _dedupe_asset_ids(cls, asset_ids: list[str]) -> list[str]:
+        return _dedupe_strings([asset_id.strip() for asset_id in asset_ids if asset_id.strip()])
+
+    @field_validator("canonical_symbols")
+    @classmethod
+    def _normalize_canonical_symbols(cls, symbols: list[str]) -> list[str]:
+        return _dedupe_strings([symbol.strip().upper() for symbol in symbols if symbol.strip()])
 
     @model_validator(mode="after")
     def _validate_history_intent(self) -> PortfolioContextPlan:

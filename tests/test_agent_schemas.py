@@ -581,6 +581,8 @@ def test_all_agent_fixtures_validate_and_serialize():
         "investment_plan_portfolio_request.json": InvestmentPlan,
         "portfolio_request_what_changed.json": PortfolioRequest,
         "asset_resolution_ambiguous.json": AssetResolution,
+        "portfolio_evidence_plan_cash_query.json": PortfolioEvidencePlan,
+        "portfolio_evidence_plan_amzn_position_changes.json": PortfolioEvidencePlan,
         "portfolio_evidence_packet_stub.json": PortfolioEvidencePacket,
         "sentiment_task_full_review.json": SentimentTask,
         "sentiment_packet_stub.json": SentimentPacket,

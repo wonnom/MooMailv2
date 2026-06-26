@@ -42,29 +42,15 @@ from moomail_finance_ai.schemas import (
     StatusEvent,
 )
 from moomail_finance_ai.agent_schemas import PortfolioContextPlan, PortfolioTask
-
-
-PORTFOLIO_REVIEW_TERMS = ("review", "analyze", "analyse", "breakdown", "overview")
-PORTFOLIO_CASH_TERMS = ("cash", "effective cash", "buying power", "purchase power")
-PORTFOLIO_ALLOCATION_TERMS = ("allocation", "allocations", "weight", "weights")
-PORTFOLIO_POSITION_TERMS = ("holding", "holdings", "position", "positions", "value")
-PORTFOLIO_HISTORY_TERMS = (
-    "what changed",
-    "changed",
-    "history",
-    "growth",
-    "performance",
-    "bought",
-    "purchased",
-    "sold",
-    "added",
-    "reduced",
-    "increased",
-    "decreased",
-    "average cost",
-    "cost basis",
+from moomail_finance_ai.agent_schemas import PortfolioEvidencePlan, PortfolioRequest
+from moomail_finance_ai.asset_resolver import PortfolioAssetCandidate
+from moomail_finance_ai.portfolio_evidence_planner import (
+    DeterministicPortfolioEvidencePlanner,
+    PortfolioEvidencePlanner,
+    fallback_portfolio_task_from_query,
+    portfolio_evidence_plan_to_context_plan,
+    portfolio_request_to_task,
 )
-PORTFOLIO_RISK_TERMS = ("risk", "concentration", "downside", "drawdown")
 
 
 class PortfolioEvaluation(StrictModel):
@@ -102,6 +88,7 @@ class PortfolioAgentResult(StrictModel):
     run_id: str
     portfolio_id: str
     context_plan: PortfolioContextPlan | None = None
+    evidence_plan: PortfolioEvidencePlan | None = None
     snapshot: PortfolioSnapshot
     portfolio_packet: PortfolioAgentPacket
     metrics: list[MetricResult]
@@ -179,6 +166,9 @@ class LLMPortfolioEvaluator:
 class PortfolioAgent:
     gateway: MCPToolGateway
     evaluator: PortfolioEvaluator
+    evidence_planner: PortfolioEvidencePlanner = field(
+        default_factory=DeterministicPortfolioEvidencePlanner
+    )
     base_currency: str = "USD"
     min_snapshots_for_history: int = 2
     tool_calls: list[str] = field(default_factory=list)
@@ -190,6 +180,8 @@ class PortfolioAgent:
         *,
         status_callback=None,
         portfolio_task: PortfolioTask | None = None,
+        portfolio_request: PortfolioRequest | None = None,
+        asset_candidates: list[PortfolioAssetCandidate | dict[str, Any]] | None = None,
     ) -> PortfolioAgentResult:
         run_id = f"portfolio_run_{uuid4().hex[:12]}"
         self.tool_calls = []
@@ -198,8 +190,34 @@ class PortfolioAgent:
         def emit(status: str, message: str) -> None:
             _emit(status_events, run_id, status, message, status_callback)
 
-        task = portfolio_task or interpret_portfolio_task(query)
-        plan = plan_portfolio_context(task)
+        evidence_plan = None
+        if portfolio_request is not None:
+            emit(
+                "planning_portfolio_evidence",
+                "Planning bounded portfolio evidence from PortfolioRequest.",
+            )
+            evidence_plan = self.evidence_planner.plan(
+                portfolio_request,
+                ips,
+                asset_candidates or [],
+            )
+            for resolution in evidence_plan.resolved_assets:
+                emit(
+                    f"asset_resolution_{resolution.resolution_status}",
+                    f"Asset resolver returned {resolution.resolution_status}.",
+                )
+            emit(
+                "portfolio_evidence_plan_validated",
+                "Portfolio evidence planner produced a validated bounded plan.",
+            )
+            task = portfolio_task or portfolio_request_to_task(
+                portfolio_request,
+                evidence_plan,
+            )
+            plan = portfolio_evidence_plan_to_context_plan(evidence_plan)
+        else:
+            task = portfolio_task or interpret_portfolio_task(query)
+            plan = plan_portfolio_context(task)
         emit(
             "planning_portfolio_context",
             f"Planned bounded portfolio context for {task.task_type}.",
@@ -256,6 +274,7 @@ class PortfolioAgent:
             run_id=run_id,
             portfolio_id=snapshot.portfolio_id,
             context_plan=plan,
+            evidence_plan=evidence_plan,
             snapshot=snapshot,
             portfolio_packet=portfolio_packet,
             metrics=metrics,
@@ -406,9 +425,8 @@ class PortfolioAgent:
         snapshot: PortfolioSnapshot,
         plan: PortfolioContextPlan,
     ) -> list[dict[str, Any]]:
-        tickers = plan.tickers or [None]
         changes: list[dict[str, Any]] = []
-        for ticker in tickers:
+        for scope in _position_change_scopes(plan):
             lookback_days = _history_window_days(plan.history_window)
             until = snapshot.as_of.isoformat()
             arguments: dict[str, Any] = {
@@ -417,8 +435,10 @@ class PortfolioAgent:
                 "until": until,
                 "limit": plan.row_limit,
             }
-            if ticker:
-                arguments["ticker"] = ticker
+            if scope["asset_id"]:
+                arguments["asset_id"] = scope["asset_id"]
+            elif scope["ticker"]:
+                arguments["ticker"] = scope["ticker"]
             position_change_result = self._call(
                 PORTFOLIO_SQL_SERVER,
                 "portfolio_sql_get_position_state_changes",
@@ -427,7 +447,8 @@ class PortfolioAgent:
             self.tool_calls.append(
                 "actual_detail:"
                 f"{PORTFOLIO_SQL_SERVER}:portfolio_sql_get_position_state_changes "
-                f"ticker={ticker or '*'} "
+                f"asset_id={scope['asset_id'] or '*'} "
+                f"ticker={scope['ticker'] or '*'} "
                 f"lookback_days={lookback_days} "
                 f"until={until}"
             )
@@ -662,30 +683,7 @@ def build_default_portfolio_agent_with_mock_policy(
 
 
 def interpret_portfolio_task(query: str) -> PortfolioTask:
-    lowered = query.lower()
-    if _contains_any(lowered, PORTFOLIO_REVIEW_TERMS):
-        task_type = "full_review"
-    elif _contains_any(lowered, PORTFOLIO_HISTORY_TERMS):
-        task_type = "what_changed"
-    elif _contains_any(lowered, PORTFOLIO_RISK_TERMS):
-        task_type = "risk_check"
-    elif _contains_any(
-        lowered,
-        (*PORTFOLIO_CASH_TERMS, *PORTFOLIO_ALLOCATION_TERMS, *PORTFOLIO_POSITION_TERMS),
-    ):
-        task_type = "portfolio_fact"
-    else:
-        task_type = "full_review"
-
-    return PortfolioTask(
-        task_type=task_type,
-        source_query=query,
-        requested_tickers=_extract_tickers(query),
-        history_window="90d" if task_type == "what_changed" else "30d",
-        required_outputs=_portfolio_required_outputs(task_type, lowered),
-        persistence_mode="auto",
-        focus_areas=_portfolio_focus_areas(task_type, lowered),
-    )
+    return fallback_portfolio_task_from_query(query)
 
 
 def plan_portfolio_context(task: PortfolioTask) -> PortfolioContextPlan:
@@ -780,6 +778,22 @@ def _position_state_change_sort_key(change: dict[str, Any]) -> tuple[str, str, s
         str(change.get("ticker") or ""),
         str(change.get("asset_id") or ""),
     )
+
+
+def _position_change_scopes(plan: PortfolioContextPlan) -> list[dict[str, str | None]]:
+    if plan.asset_ids:
+        scopes = []
+        for index, asset_id in enumerate(plan.asset_ids):
+            scopes.append(
+                {
+                    "asset_id": asset_id,
+                    "ticker": plan.tickers[index] if index < len(plan.tickers) else None,
+                }
+            )
+        return scopes
+    if plan.tickers:
+        return [{"asset_id": None, "ticker": ticker} for ticker in plan.tickers]
+    return [{"asset_id": None, "ticker": None}]
 
 
 PORTFOLIO_EVALUATOR_SYSTEM_PROMPT = """
@@ -1075,58 +1089,6 @@ def _dedupe(values: list[str]) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
-
-
-def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
-    return any(term in text for term in terms)
-
-
-def _extract_tickers(query: str) -> list[str]:
-    tickers = re.findall(r"\b(?:US\.)?[A-Z]{1,5}\b", query)
-    stopwords = {"I", "A", "US", "USD", "ETF", "LLM", "AI"}
-    normalized = []
-    for ticker in tickers:
-        ticker = ticker.removeprefix("US.").upper()
-        if ticker not in stopwords:
-            normalized.append(ticker)
-    return _dedupe(normalized)
-
-
-def _portfolio_required_outputs(task_type: str, lowered_query: str) -> list[str]:
-    if task_type == "what_changed":
-        return ["snapshot", "performance", "history_context", "sentiment_candidates"]
-    if task_type == "risk_check":
-        return ["snapshot", "allocation", "risk", "candidate_issues", "sentiment_candidates"]
-    if task_type == "portfolio_fact":
-        outputs = ["snapshot"]
-        if _contains_any(lowered_query, PORTFOLIO_ALLOCATION_TERMS):
-            outputs.append("allocation")
-        if _contains_any(lowered_query, PORTFOLIO_CASH_TERMS):
-            outputs.append("effective_cash")
-        if _contains_any(lowered_query, PORTFOLIO_POSITION_TERMS):
-            outputs.append("allocation")
-        return _dedupe(outputs or ["snapshot"])
-    return [
-        "snapshot",
-        "allocation",
-        "performance",
-        "risk",
-        "effective_cash",
-        "candidate_issues",
-        "sentiment_candidates",
-        "history_context",
-    ]
-
-
-def _portfolio_focus_areas(task_type: str, lowered_query: str) -> list[str]:
-    focus = [task_type]
-    if _contains_any(lowered_query, PORTFOLIO_CASH_TERMS):
-        focus.append("cash")
-    if _contains_any(lowered_query, PORTFOLIO_ALLOCATION_TERMS):
-        focus.append("allocation")
-    if _contains_any(lowered_query, PORTFOLIO_RISK_TERMS):
-        focus.append("risk")
-    return _dedupe(focus)
 
 
 def _metric_groups_for_portfolio_fact(task: PortfolioTask) -> list[str]:

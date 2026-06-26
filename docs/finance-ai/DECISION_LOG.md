@@ -1306,8 +1306,47 @@ Verification:
 
 Remaining:
 
-- V1.4.3 and V1.4.4 must replace the Portfolio Agent adapter path with
-  structured evidence planning and deterministic evidence-packet execution.
+- V1.4.4 must replace the remaining Portfolio Agent adapter path with
+  deterministic evidence-packet execution.
+
+## V1.4.3 Closeout: Portfolio Evidence Planner
+
+Date: 2026-06-25
+
+Decision:
+
+- Add an explicit Portfolio Agent evidence planner that accepts bounded
+  `PortfolioRequest` input, resolves asset hints before tool scope selection,
+  and emits validated `PortfolioEvidencePlan` output.
+- Preserve the current keyword/rule Portfolio Agent behavior as an explicit
+  fallback planner rather than hidden inline extraction inside execution.
+- Keep execution on the existing deterministic `PortfolioContextPlan` adapter
+  until V1.4.4 builds direct evidence-plan execution and
+  `PortfolioEvidencePacket` assembly.
+
+Actual implementation:
+
+- Added `src/moomail_finance_ai/portfolio_evidence_planner.py`.
+- Added optional `portfolio_request` and `asset_candidates` inputs to
+  `PortfolioAgent.run`, plus `PortfolioAgentResult.evidence_plan`.
+- Added resolved `asset_ids` and `canonical_symbols` to `PortfolioContextPlan`
+  so position-state change reads can pass `asset_id` to SQL when available.
+
+Verification:
+
+- `.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_asset_resolver.py -q`
+  passed with `44 passed`.
+- `.venv/bin/python -m pytest tests/test_portfolio_agent.py -q` passed with
+  `7 passed`.
+- `.venv/bin/python -m pytest tests/test_agent_schemas.py -q` passed with
+  `55 passed`.
+- `.venv/bin/python -m pytest tests --ignore=tests/live -q` passed with
+  `237 passed, 1 warning`.
+
+Remaining:
+
+- V1.4.4 must execute `PortfolioEvidencePlan` directly into a separated
+  `PortfolioEvidencePacket` rather than adapting through `PortfolioContextPlan`.
 
 ## Future Update Template
 

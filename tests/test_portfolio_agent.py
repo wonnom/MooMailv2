@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from moomail_finance_ai.config import OpenDConfig
+from moomail_finance_ai.agent_schemas import AssetHint, PortfolioRequest
+from moomail_finance_ai.asset_resolver import PortfolioAssetCandidate
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
 from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
@@ -102,6 +104,50 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
         "portfolio_evaluation_ready",
         "updating_portfolio_history",
     ]
+
+
+def test_portfolio_agent_accepts_bounded_portfolio_request(tmp_path, recorded_opend_client):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    agent = PortfolioAgent(
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        ),
+        evaluator=CapturingEvaluator(),
+    )
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="AMZN")],
+        time_range="90d",
+        output_goals=["position_changes"],
+        source_query="What changed in my AMZN position?",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+        asset_candidates=[
+            PortfolioAssetCandidate(
+                canonical_symbol="US.AMZN",
+                ticker="AMZN",
+                display_name="Amazon.com Inc.",
+                sql_asset_id="asset_amzn",
+            )
+        ],
+    )
+
+    assert result.evidence_plan is not None
+    assert result.evidence_plan.position_change_scope == "asset_scoped"
+    assert result.context_plan is not None
+    assert result.context_plan.asset_ids == ["asset_amzn"]
+    assert result.context_plan.tickers == ["AMZN"]
+    assert "moomail-portfolio-sql-mcp:portfolio_sql_get_position_state_changes" in (
+        result.tool_calls
+    )
 
 
 def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(tmp_path):

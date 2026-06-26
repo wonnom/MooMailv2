@@ -100,10 +100,11 @@ logical asset hints against actual portfolio data and plan only inside the
 portfolio evidence domain. Sentiment Agent should eventually plan research
 retrieval, but it should not make portfolio allocation or trade decisions.
 
-Implementation status as of 2026-06-25: V1.4.0 through V1.4.2 added the typed
-planner contracts, deterministic asset resolver/validator primitives, and live
-Investment Agent `InvestmentPlan` planning/validation before subagent calls.
-Portfolio Agent runtime migration remains planned for later V1.4 tasks.
+Implementation status as of 2026-06-25: V1.4.0 through V1.4.3 added the typed
+planner contracts, deterministic asset resolver/validator primitives, live
+Investment Agent `InvestmentPlan` planning/validation, and Portfolio Agent
+`PortfolioEvidencePlan` planning. Direct evidence-packet execution remains
+planned for V1.4.4.
 
 ### Supported Modes
 
@@ -202,19 +203,18 @@ which portfolio context is needed for the assigned task:
 - required metric groups
 - persistence for review-style runs
 
-Execution remains deterministic once the plan is produced. This is implemented
-inside the existing Python Portfolio Agent path, not as a separate compiled
-LangGraph subgraph. The Portfolio Agent returns structured portfolio evidence
-and candidate sentiment scope, not final investment advice.
+The V1.4.3 planner path accepts a bounded `PortfolioRequest`, validates and
+resolves asset hints against supplied candidates, produces a
+`PortfolioEvidencePlan`, then adapts that plan into the current
+`PortfolioContextPlan` execution path. Existing keyword/rule query behavior is
+preserved as an explicit fallback planner for legacy `PortfolioTask` callers.
+Execution remains deterministic once the context plan is selected. This is
+implemented inside the existing Python Portfolio Agent path, not as a separate
+compiled LangGraph subgraph. The Portfolio Agent returns structured portfolio
+evidence and candidate sentiment scope, not final investment advice.
 
-The current bounded planner still uses hardcoded keyword/rule logic and a
-temporary regex ticker extractor. V1.4 should replace this with a planner node
-that receives a bounded request from the Investment Agent, resolves the actual
-portfolio assets, chooses evidence subtasks, history window, and tool scope as
-structured plan fields, then hands execution to deterministic policy.
-
-V1.4.1 provides the deterministic resolver and request-validation module beside
-the Portfolio Agent, but the live Portfolio Agent path does not call it yet.
+V1.4.3 does not assemble the final separated `PortfolioEvidencePacket`; that
+remains planned for V1.4.4.
 
 The Portfolio Agent should add value as a portfolio analyst assistant: it should
 surface concentration, allocation drift, cash/cash-equivalent effects,
@@ -228,6 +228,8 @@ Current behavior:
 - Cash/allocation/holding fact tasks avoid broad SQL history reads by default.
 - What-changed tasks request history status, latest state, portfolio growth,
   and allocation history.
+- Bounded `PortfolioRequest` runs can preserve resolved `asset_id` and
+  canonical-symbol scope for position-state change reads.
 - Each run returns planned, actual, and skipped tool entries in
   `PortfolioAgentResult.tool_calls`.
 

@@ -1,0 +1,35 @@
+{
+  "task_intent": "what_changed",
+  "resolved_assets": [
+    {
+      "input": "AMZN",
+      "canonical_symbol": "US.AMZN",
+      "sql_asset_id": "asset_amzn",
+      "display_name": "Amazon.com Inc.",
+      "resolution_status": "resolved",
+      "warnings": [],
+      "source": "fixture"
+    }
+  ],
+  "history_queries": [
+    "history_status",
+    "latest_state",
+    "portfolio_growth",
+    "allocation_history",
+    "position_state_changes"
+  ],
+  "metric_groups": ["performance"],
+  "needs_current_values": false,
+  "history_window": "90d",
+  "freshness_requirement": "history_only",
+  "position_change_scope": "asset_scoped",
+  "persistence_mode": "skip",
+  "pattern_detectors": [
+    "stale_data",
+    "unsupported_quote_warnings",
+    "large_position_changes",
+    "average_cost_shifts",
+    "portfolio_outliers"
+  ],
+  "warnings": []
+}

@@ -93,14 +93,17 @@ InvestmentAgentGraph
   -> emit_final_output
 ```
 
-The Portfolio Agent now has a bounded-planning Python path. It interprets a
-`PortfolioTask`, produces a `PortfolioContextPlan`, then executes selected MCP
-tools deterministically. Full review and deep-dive tasks keep broad review context;
-cash/allocation fact tasks can skip broad SQL history and persistence; and
-what-changed tasks request portfolio growth plus allocation history. This is not
-yet a separate compiled LangGraph subgraph. It should not call the Sentiment
-Agent. It can return candidate sentiment scope such as important tickers, large
-contributors, or concerning allocation changes.
+The Portfolio Agent now has a bounded-planning Python path. It can accept a
+bounded V1.4 `PortfolioRequest`, resolve logical asset hints, produce a
+`PortfolioEvidencePlan`, adapt that plan into the current `PortfolioContextPlan`,
+then execute selected MCP tools deterministically. Existing query/`PortfolioTask`
+behavior is preserved as an explicit fallback planner. Full review and deep-dive
+tasks keep broad review context; cash/allocation fact tasks can skip broad SQL
+history and persistence; and what-changed tasks request portfolio growth plus
+allocation/position-state history. This is not yet a separate compiled LangGraph
+subgraph. It should not call the Sentiment Agent. It can return candidate
+sentiment scope such as important tickers, large contributors, or concerning
+allocation changes.
 
 The Investment Agent decides whether sentiment is needed and calls the Sentiment
 Agent. The Sentiment Agent is currently a structured stub so the project can
@@ -108,7 +111,9 @@ lock the task and response contracts before building Neo4j ingestion and
 retrieval.
 
 The Investment Agent still adapts its V1.4 `PortfolioRequest` to the existing
-`PortfolioTask` path until the Portfolio Agent evidence planner is implemented.
+`PortfolioTask` path for the default chat flow. The Portfolio Agent request path
+is available for bounded callers and currently adapts `PortfolioEvidencePlan`
+back through `PortfolioContextPlan` until V1.4.4 replaces evidence execution.
 
 Current non-goals:
 
@@ -124,12 +129,13 @@ Current non-goals:
 V1.4 should introduce explicit structured planning for the Investment Agent and
 Portfolio Agent while preserving deterministic tool execution.
 
-Implementation status as of 2026-06-25: V1.4.0 through V1.4.2 have landed the
+Implementation status as of 2026-06-25: V1.4.0 through V1.4.3 have landed the
 additive planner contracts, deterministic asset resolver/validator primitives,
-and live Investment Agent `InvestmentPlan` planner/validator node. The current
-Portfolio Agent runtime still uses the existing bounded-planning path through
-an adapter; later V1.4 tasks must wire `PortfolioEvidencePlan` and
-`PortfolioEvidencePacket` into Portfolio Agent planning and execution.
+live Investment Agent `InvestmentPlan` planner/validator node, and Portfolio
+Agent `PortfolioEvidencePlan` planner. The current Portfolio Agent runtime still
+adapts evidence plans into the existing bounded execution path; V1.4.4 must wire
+direct `PortfolioEvidencePlan` execution into `PortfolioEvidencePacket`
+assembly.
 
 The target pattern is:
 

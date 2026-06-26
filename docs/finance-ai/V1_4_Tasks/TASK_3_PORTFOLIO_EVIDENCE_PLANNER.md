@@ -128,23 +128,26 @@ V1.4.0 contracts
 
 ## Verification
 
-Run on 2026-06-25:
+Run on 2026-06-25, with no-mistakes review follow-up verified on
+2026-06-26:
 
 ```text
-.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_asset_resolver.py -q
-44 passed in 0.32s
+.venv/bin/python -m py_compile src/moomail_finance_ai/portfolio_evidence_planner.py src/moomail_finance_ai/portfolio_agent.py src/moomail_finance_ai/agent_schemas.py
+passed
 
-.venv/bin/python -m pytest tests/test_portfolio_agent.py -q
-7 passed in 0.27s
-
-.venv/bin/python -m pytest tests/test_agent_schemas.py -q
-55 passed in 0.04s
+.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_asset_resolver.py tests/test_portfolio_agent.py tests/test_agent_schemas.py -q
+112 passed in 0.67s
 
 .venv/bin/python -m pytest tests --ignore=tests/live -q
-237 passed, 1 warning in 8.70s
+243 passed, 1 warning in 8.73s
 ```
 
 The warning is the existing LangGraph dependency deprecation warning.
+
+The 2026-06-26 no-mistakes review follow-up added regressions and fixes for
+non-day history-window conversion, mixed asset-id/ticker position-change
+scopes, class-share ticker normalization such as `US.BRK.B`, and user-visible
+planner warnings.
 
 Not run:
 

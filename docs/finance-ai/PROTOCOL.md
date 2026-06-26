@@ -332,6 +332,9 @@ adapter:
   "asset_ids": ["asset_amzn"],
   "canonical_symbols": ["US.AMZN"],
   "tickers": ["AMZN"],
+  "position_change_scopes": [
+    {"asset_id": "asset_amzn", "ticker": "AMZN"}
+  ],
   "metric_groups": ["performance"],
   "persist_observation": false,
   "history_window": "90d",

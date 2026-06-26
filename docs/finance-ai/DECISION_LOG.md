@@ -1335,17 +1335,20 @@ Actual implementation:
   `PortfolioAgent.run`, plus `PortfolioAgentResult.evidence_plan`.
 - Added resolved `asset_ids` and `canonical_symbols` to `PortfolioContextPlan`
   so position-state change reads can pass `asset_id` to SQL when available.
+- 2026-06-26 no-mistakes review follow-up added explicit
+  `position_change_scopes` entries to preserve mixed asset-id/ticker scope,
+  converted non-day history windows to SQL lookback days, preserved
+  class-share tickers such as `BRK.B`, and surfaced planner/context warnings
+  in `PortfolioAgentResult.warnings`.
 
 Verification:
 
-- `.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_asset_resolver.py -q`
-  passed with `44 passed`.
-- `.venv/bin/python -m pytest tests/test_portfolio_agent.py -q` passed with
-  `7 passed`.
-- `.venv/bin/python -m pytest tests/test_agent_schemas.py -q` passed with
-  `55 passed`.
+- `.venv/bin/python -m py_compile src/moomail_finance_ai/portfolio_evidence_planner.py src/moomail_finance_ai/portfolio_agent.py src/moomail_finance_ai/agent_schemas.py`
+  passed.
+- `.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_asset_resolver.py tests/test_portfolio_agent.py tests/test_agent_schemas.py -q`
+  passed with `112 passed`.
 - `.venv/bin/python -m pytest tests --ignore=tests/live -q` passed with
-  `237 passed, 1 warning`.
+  `243 passed, 1 warning`.
 
 Remaining:
 

@@ -494,8 +494,9 @@ V1.4.0 through V1.4.3 implementation reality:
   allowlisted history queries, metric groups, position-change scope, freshness
   dependency, persistence mode, and pattern detectors.
 - Portfolio Agent execution still uses the current `PortfolioContextPlan`
-  adapter. V1.4.4 must execute evidence plans into separated
-  `PortfolioEvidencePacket` outputs.
+  adapter, including explicit position-change scope entries for mixed
+  asset-id/ticker history reads. V1.4.4 must execute evidence plans into
+  separated `PortfolioEvidencePacket` outputs.
 
 V1.4 should focus on structured planning for the Investment Agent and Portfolio
 Agent:

@@ -182,19 +182,18 @@ V1.4.3 Portfolio Evidence Planner closeout uses:
 .venv/bin/python -m pytest tests/test_agent_schemas.py -q
 ```
 
-Latest V1.4.3 result on 2026-06-25:
+Latest V1.4.3 result on 2026-06-26:
 
 ```text
-tests/test_portfolio_planner.py tests/test_asset_resolver.py: 44 passed
-tests/test_portfolio_agent.py: 7 passed
-tests/test_agent_schemas.py: 55 passed
+.venv/bin/python -m py_compile src/moomail_finance_ai/portfolio_evidence_planner.py src/moomail_finance_ai/portfolio_agent.py src/moomail_finance_ai/agent_schemas.py: passed
+tests/test_portfolio_planner.py tests/test_asset_resolver.py tests/test_portfolio_agent.py tests/test_agent_schemas.py: 112 passed
 ```
 
-Latest deterministic non-live regression after V1.4.3 on 2026-06-25:
+Latest deterministic non-live regression after V1.4.3 on 2026-06-26:
 
 ```text
 .venv/bin/python -m pytest tests --ignore=tests/live -q
-237 passed, 1 warning
+243 passed, 1 warning
 ```
 
 The warning is the existing LangGraph dependency deprecation warning. Live

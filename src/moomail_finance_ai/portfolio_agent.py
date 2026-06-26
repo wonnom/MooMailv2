@@ -286,7 +286,7 @@ class PortfolioAgent:
             evaluation=evaluation,
             tool_calls=list(self.tool_calls),
             status_events=status_events,
-            warnings=_result_warnings(portfolio_packet, history_status, evaluation),
+            warnings=_result_warnings(portfolio_packet, history_status, evaluation, plan),
         )
 
     def close(self) -> None:
@@ -766,10 +766,12 @@ def plan_portfolio_context(task: PortfolioTask) -> PortfolioContextPlan:
 def _history_window_days(history_window: str | None) -> float | None:
     if not history_window:
         return None
-    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*d\s*", history_window.lower())
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([dwmy])\s*", history_window.lower())
     if match is None:
         return None
-    return float(match.group(1))
+    value = float(match.group(1))
+    multiplier = {"d": 1, "w": 7, "m": 30, "y": 365}[match.group(2)]
+    return value * multiplier
 
 
 def _position_state_change_sort_key(change: dict[str, Any]) -> tuple[str, str, str]:
@@ -781,6 +783,11 @@ def _position_state_change_sort_key(change: dict[str, Any]) -> tuple[str, str, s
 
 
 def _position_change_scopes(plan: PortfolioContextPlan) -> list[dict[str, str | None]]:
+    if plan.position_change_scopes:
+        return [
+            {"asset_id": scope.asset_id, "ticker": scope.ticker}
+            for scope in plan.position_change_scopes
+        ]
     if plan.asset_ids:
         scopes = []
         for index, asset_id in enumerate(plan.asset_ids):
@@ -1075,8 +1082,10 @@ def _result_warnings(
     packet: PortfolioAgentPacket,
     history_status: dict[str, Any],
     evaluation: PortfolioEvaluation,
+    plan: PortfolioContextPlan,
 ) -> list[str]:
     warnings = list(packet.data_quality.warnings)
+    warnings.extend(plan.warnings)
     warnings.extend(packet.performance.warnings)
     warnings.extend(history_status.get("data_quality", {}).get("warnings", []))
     warnings.extend(evaluation.warnings)

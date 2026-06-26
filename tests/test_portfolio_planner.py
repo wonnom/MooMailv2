@@ -208,6 +208,36 @@ def test_portfolio_planner_uses_resolved_asset_id_for_history_scope():
     assert context_plan.tickers == ["AMZN"]
 
 
+def test_portfolio_planner_preserves_mixed_asset_and_ticker_history_scopes():
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="AMZN"), AssetHint(raw_input="BRK.B")],
+        output_goals=["position_changes"],
+        source_query="What changed in AMZN and BRK.B?",
+    )
+    evidence_plan = DeterministicPortfolioEvidencePlanner().plan(
+        request,
+        mock_investment_policy(),
+        _asset_candidates(
+            PortfolioAssetCandidate(
+                canonical_symbol="US.BRK.B",
+                ticker="BRK.B",
+                display_name="Berkshire Hathaway Inc. Class B",
+                sql_asset_id=None,
+            )
+        ),
+    )
+
+    context_plan = portfolio_evidence_plan_to_context_plan(evidence_plan)
+
+    assert context_plan.asset_ids == ["asset_amzn"]
+    assert context_plan.tickers == ["AMZN", "BRK.B"]
+    assert [scope.model_dump(mode="json") for scope in context_plan.position_change_scopes] == [
+        {"asset_id": "asset_amzn", "ticker": "AMZN"},
+        {"asset_id": None, "ticker": "BRK.B"},
+    ]
+
+
 def test_portfolio_planner_surfaces_unresolved_asset_warnings():
     request = PortfolioRequest(
         task_intent="full_review",
@@ -339,6 +369,129 @@ def test_position_change_plan_has_sql_tool_arguments(tmp_path, recorded_opend_cl
     assert result.context_plan.asset_ids == ["asset_amzn"]
     assert position_change_calls[0]["asset_id"] == "asset_amzn"
     assert position_change_calls[0]["lookback_days"] == 90.0
+
+
+@pytest.mark.parametrize(
+    ("time_range", "expected_days"),
+    [("12w", 84.0), ("6m", 180.0), ("1y", 365.0)],
+)
+def test_position_change_plan_converts_non_day_history_windows(
+    tmp_path,
+    recorded_opend_client,
+    time_range,
+    expected_days,
+):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    gateway = RecordingGateway(
+        DirectToolGateway(
+            [
+                build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        )
+    )
+    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="AMZN")],
+        time_range=time_range,
+        output_goals=["position_changes"],
+        source_query="What changed in my AMZN position?",
+    )
+
+    agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+        asset_candidates=_asset_candidates(),
+    )
+
+    position_change_calls = [
+        arguments
+        for server_name, tool_name, arguments, consumer in gateway.calls
+        if server_name == PORTFOLIO_SQL_SERVER
+        and tool_name == "portfolio_sql_get_position_state_changes"
+        and consumer == "portfolio_agent"
+    ]
+    assert position_change_calls[0]["lookback_days"] == expected_days
+
+
+def test_position_change_plan_executes_mixed_asset_and_ticker_scopes(
+    tmp_path,
+    recorded_opend_client,
+):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    gateway = RecordingGateway(
+        DirectToolGateway(
+            [
+                build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        )
+    )
+    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="AMZN"), AssetHint(raw_input="BRK.B")],
+        time_range="90d",
+        output_goals=["position_changes"],
+        source_query="What changed in AMZN and BRK.B?",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+        asset_candidates=_asset_candidates(
+            PortfolioAssetCandidate(
+                canonical_symbol="US.BRK.B",
+                ticker="BRK.B",
+                display_name="Berkshire Hathaway Inc. Class B",
+                sql_asset_id=None,
+            )
+        ),
+    )
+
+    position_change_calls = [
+        arguments
+        for server_name, tool_name, arguments, consumer in gateway.calls
+        if server_name == PORTFOLIO_SQL_SERVER
+        and tool_name == "portfolio_sql_get_position_state_changes"
+        and consumer == "portfolio_agent"
+    ]
+    assert result.context_plan is not None
+    assert result.context_plan.tickers == ["AMZN", "BRK.B"]
+    assert len(position_change_calls) == 2
+    assert position_change_calls[0]["asset_id"] == "asset_amzn"
+    assert "ticker" not in position_change_calls[0]
+    assert position_change_calls[1]["ticker"] == "BRK.B"
+    assert "asset_id" not in position_change_calls[1]
+
+
+def test_portfolio_request_planner_warnings_are_result_warnings(
+    tmp_path,
+    recorded_opend_client,
+):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    agent = _agent(store, recorded_opend_client, CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=["snapshot", "sentiment_context_needs"],
+        source_query="Show portfolio facts and note sentiment context needs.",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+        asset_candidates=[],
+    )
+
+    assert result.evidence_plan is not None
+    assert any("does not route" in warning for warning in result.evidence_plan.warnings)
+    assert any("does not route" in warning for warning in result.warnings)
 
 
 def test_portfolio_planner_sets_current_value_dependency_and_persistence():

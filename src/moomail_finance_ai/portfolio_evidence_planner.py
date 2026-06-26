@@ -15,6 +15,7 @@ from moomail_finance_ai.agent_schemas import (
     PortfolioOutputKind,
     PortfolioRequest,
     PortfolioTask,
+    PositionChangeScopeEntry,
 )
 from moomail_finance_ai.asset_resolver import (
     PortfolioAssetCandidate,
@@ -205,6 +206,7 @@ def portfolio_evidence_plan_to_context_plan(
         asset_ids=[asset.sql_asset_id for asset in resolved if asset.sql_asset_id],
         canonical_symbols=[asset.canonical_symbol for asset in resolved if asset.canonical_symbol],
         tickers=[_ticker_from_resolution(asset) for asset in resolved],
+        position_change_scopes=_position_change_scope_entries(history_queries, resolved),
         metric_groups=plan.metric_groups,
         persist_observation=plan.persistence_mode in {"auto", "persist"},
         history_window=plan.history_window,
@@ -289,6 +291,22 @@ def _position_change_scope(
     if any(asset.sql_asset_id for asset in resolved):
         return "asset_scoped"
     return "ticker_scoped"
+
+
+def _position_change_scope_entries(
+    history_queries: list[HistoryQuery],
+    resolutions: list[AssetResolution],
+) -> list[PositionChangeScopeEntry]:
+    if "position_state_changes" not in history_queries:
+        return []
+    scopes = []
+    for asset in resolutions:
+        ticker = _ticker_from_resolution(asset)
+        if asset.sql_asset_id:
+            scopes.append(PositionChangeScopeEntry(asset_id=asset.sql_asset_id, ticker=ticker))
+        elif ticker:
+            scopes.append(PositionChangeScopeEntry(ticker=ticker))
+    return scopes
 
 
 def _pattern_detectors_for_request(request: PortfolioRequest) -> list[str]:
@@ -432,7 +450,15 @@ def _portfolio_focus_areas(task_type: str, lowered_query: str) -> list[str]:
 
 def _ticker_from_resolution(asset: AssetResolution) -> str:
     symbol = asset.canonical_symbol or asset.input
-    return symbol.upper().removeprefix("US.").split(".", 1)[-1]
+    return _ticker_from_symbol(symbol)
+
+
+def _ticker_from_symbol(symbol: str) -> str:
+    normalized = symbol.strip().upper()
+    prefix, separator, ticker = normalized.partition(".")
+    if separator and prefix in {"US", "HK", "CN", "SG", "JP", "UK", "EU", "AU", "CA", "CRYPTO"}:
+        return ticker
+    return normalized
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:

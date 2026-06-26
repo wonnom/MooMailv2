@@ -371,6 +371,33 @@ class PortfolioTask(StrictModel):
         return _normalize_tickers(tickers)
 
 
+class PositionChangeScopeEntry(StrictModel):
+    asset_id: str | None = None
+    ticker: str | None = None
+
+    @field_validator("asset_id")
+    @classmethod
+    def _normalize_asset_id(cls, asset_id: str | None) -> str | None:
+        if asset_id is None:
+            return None
+        normalized = asset_id.strip()
+        return normalized or None
+
+    @field_validator("ticker")
+    @classmethod
+    def _normalize_ticker(cls, ticker: str | None) -> str | None:
+        if ticker is None:
+            return None
+        normalized = _normalize_tickers([ticker])
+        return normalized[0] if normalized else None
+
+    @model_validator(mode="after")
+    def _validate_scope_identity(self) -> PositionChangeScopeEntry:
+        if not (self.asset_id or self.ticker):
+            raise ValueError("position change scope entries require asset_id or ticker.")
+        return self
+
+
 class PortfolioContextPlan(StrictModel):
     needs_current_snapshot: bool = True
     needs_sql_history: bool = True
@@ -380,6 +407,7 @@ class PortfolioContextPlan(StrictModel):
     asset_ids: list[str] = Field(default_factory=list)
     canonical_symbols: list[str] = Field(default_factory=list)
     tickers: list[str] = Field(default_factory=list)
+    position_change_scopes: list[PositionChangeScopeEntry] = Field(default_factory=list)
     metric_groups: list[MetricGroup] = Field(
         default_factory=lambda: ["allocation", "concentration", "effective_cash"]
     )

@@ -12,7 +12,12 @@ from moomail_finance_ai.portfolio_agent import (
 )
 from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
 from moomail_finance_ai.investment_agent import InvestmentAgent
-from moomail_finance_ai.agent_schemas import PortfolioTask, TraceEvent
+from moomail_finance_ai.agent_schemas import (
+    PortfolioEvidencePacket,
+    PortfolioRequest,
+    PortfolioTask,
+    TraceEvent,
+)
 from moomail_finance_ai.agent_trace import sanitize_trace_event, trace_event_to_public_dict
 from scripts.investment_agent_review import investment_terminal_summary_lines
 
@@ -132,8 +137,9 @@ class TracePortfolioAgent:
         *,
         status_callback=None,
         portfolio_task: PortfolioTask | None = None,
+        portfolio_request: PortfolioRequest | None = None,
     ) -> PortfolioAgentResult:
-        del query, status_callback
+        del query, status_callback, portfolio_request
         packet = mock_portfolio_packet()
         metrics = calculate_snapshot_metrics(packet.snapshot, ips)
         effective_cash: EffectiveCashSummary = build_effective_cash_summary(packet.snapshot)
@@ -149,6 +155,26 @@ class TracePortfolioAgent:
             context_plan=plan_portfolio_context(
                 portfolio_task
                 or PortfolioTask(task_type="full_review", source_query="Review")
+            ),
+            evidence_packet=PortfolioEvidencePacket(
+                portfolio_id=packet.portfolio_id,
+                task_intent=(portfolio_task.task_type if portfolio_task else "full_review"),
+                facts={
+                    "snapshot": {
+                        "portfolio_id": packet.portfolio_id,
+                        "holding_count": len(packet.snapshot.holdings),
+                    }
+                },
+                derived_metrics={
+                    "metrics": [metric.model_dump(mode="json") for metric in metrics]
+                },
+                limitations=[
+                    "No sentiment or fundamental evidence was reviewed by Portfolio Agent."
+                ],
+                tool_refs=[
+                    "planned:moomail-opend-mcp:opend_get_positions",
+                    "moomail-opend-mcp:opend_get_positions",
+                ],
             ),
             snapshot=packet.snapshot,
             portfolio_packet=packet,

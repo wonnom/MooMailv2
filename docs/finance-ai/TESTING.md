@@ -54,17 +54,17 @@ test when that backend exists.
 | `tests/test_metrics.py` | Deterministic finance calculations underneath `moomail-finance-metrics-mcp`, including effective cash weight |
 | `tests/test_llm.py` | Provider-neutral LLM config/client selection for Gemini and OpenAI |
 | `tests/test_research.py` | Local research store and Sentiment Agent contracts |
-| `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, daily SQL idempotency, and LLM evaluator JSON parsing/recovery |
+| `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, separated evidence packet assembly, pattern thresholds, daily SQL idempotency, LLM input boundaries, and evaluator JSON parsing/recovery |
 | `tests/test_agent_schemas.py` | Agent Pydantic contracts, V1.4 planner/evidence fixtures, guardrail schema, and trace schema |
 | `tests/test_asset_resolver.py` | V1.4 deterministic asset resolver behavior, candidate precedence, explicit failure statuses, non-blocking warnings, and sanitized trace |
 | `tests/test_investment_planner.py` | V1.4 Investment Agent fallback planner, bounded PortfolioRequest output, logical asset hints, sentiment-task ownership, golden prompts, and plan fixtures |
-| `tests/test_investment_agent.py` | Thin LangGraph Investment Agent planning/validation, fake subagent call counts, sentiment routing, missing-research synthesis, and status events |
-| `tests/test_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, V1.4 PortfolioEvidencePlan planning, asset-resolution scope, history/persistence minimization, and tool trace entries |
+| `tests/test_investment_agent.py` | Thin LangGraph Investment Agent planning/validation, bounded PortfolioRequest runtime handoff, fake subagent call counts, sentiment routing, missing-research synthesis, and status events |
+| `tests/test_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, V1.4 PortfolioEvidencePlan planning, cached/history-only freshness policy, asset-resolution scope, history/persistence minimization, and tool trace entries |
 | `tests/test_sentiment_agent_stub.py` | Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
 | `tests/test_investment_guardrails.py` | Deterministic investment no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
 | `tests/test_agent_trace.py` | Agent trace sanitizer, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |
-| `tests/test_chat_app.py` | Local HTTP/chat API and static frontend expectations |
-| `tests/test_portfolio_data_service.py` | Deterministic backend portfolio data lane: status, SQL-backed dashboard reads, OpenD refresh, metrics, SQL persistence, stale fallback, and API route delegation |
+| `tests/test_chat_app.py` | Local HTTP/chat API, evidence-plan/evidence-packet trace payloads, and static frontend expectations |
+| `tests/test_portfolio_data_service.py` | Deterministic backend portfolio data lane: status, SQL-backed dashboard reads, OpenD refresh, metrics, SQL persistence, stale fallback, no-agent/no-LLM independence, and API route delegation |
 
 Historical prototype/full-agent tests were removed after the canonical
 Investment Agent became the supported chat/CLI path. Historical design context
@@ -199,6 +199,48 @@ Latest deterministic non-live regression after V1.4.3 on 2026-06-26:
 The warning is the existing LangGraph dependency deprecation warning. Live
 connector tests remain opt-in and were not required for deterministic V1.4.0,
 V1.4.1, V1.4.2, or V1.4.3 completion.
+
+V1.4.4 deterministic execution and evidence-packet closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_portfolio_agent.py tests/test_portfolio_planner.py -q
+.venv/bin/python -m pytest tests/test_portfolio_data_service.py tests/test_mcp_gateway.py -q
+.venv/bin/python -m pytest tests/test_mcp_tool_contracts.py -q
+```
+
+Latest V1.4.4 result on 2026-06-29:
+
+```text
+tests/test_portfolio_agent.py tests/test_portfolio_planner.py: 51 passed
+tests/test_portfolio_data_service.py tests/test_mcp_gateway.py: 11 passed, 1 warning
+tests/test_mcp_tool_contracts.py: 6 passed
+```
+
+V1.4.5 trace, evaluation, and closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_asset_resolver.py -q
+.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_portfolio_agent.py -q
+.venv/bin/python -m pytest tests/test_investment_agent.py tests/test_chat_app.py -q
+.venv/bin/python -m pytest tests/test_portfolio_data_service.py -q
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+git diff --check
+```
+
+Latest V1.4.5 result on 2026-06-29:
+
+```text
+tests/test_investment_planner.py tests/test_asset_resolver.py: 23 passed
+tests/test_portfolio_planner.py tests/test_portfolio_agent.py: 51 passed
+tests/test_investment_agent.py tests/test_chat_app.py: 22 passed, 1 warning
+tests/test_portfolio_data_service.py: 7 passed, 1 warning
+tests --ignore=tests/live: 251 passed, 1 warning
+git diff --check: passed
+```
+
+The warnings are the existing LangGraph dependency deprecation warning. Live
+connector tests remain opt-in and were not required for deterministic V1.4.4 or
+V1.4.5 completion.
 
 ## When To Delete A Test
 

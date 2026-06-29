@@ -10,7 +10,30 @@ This task is the release gate for V1.4, not a new feature bucket.
 
 ## Status
 
-Planned.
+Complete as of 2026-06-29.
+
+## Implemented In
+
+- `src/moomail_finance_ai/investment_agent.py`
+  - Investment Agent runtime now passes the structured `PortfolioRequest` into
+    Portfolio Agent calls instead of relying only on the legacy task adapter.
+  - Sanitized trace includes `portfolio_evidence_plan_ready`,
+    `portfolio_evidence_packet_ready`, and deterministic tool execution phases.
+- `src/moomail_finance_ai/chat_api.py`
+  - Portfolio Agent chat payloads expose the separated evidence packet under
+    `final_report.portfolio_analysis.evidence_packet`.
+- Tests
+  - Added golden runtime coverage for recent-purchase queries sending logical
+    asset hints and `history_only` bounded requests.
+  - Added chat trace assertions for evidence-planner and deterministic
+    execution phases.
+  - Added deterministic Portfolio Agent execution, stale cache, no-OpenD
+    history-only, evidence packet, LLM-boundary, dashboard independence, and
+    full-suite regressions.
+- Documentation
+  - Updated V1.4 task closeout, current-truth architecture/agent/protocol docs,
+    testing map, action plan, and decision log to reflect implemented V1.4.4
+    and V1.4.5 reality.
 
 ## Exit Criteria
 
@@ -112,6 +135,43 @@ V1.4.0 contracts
 .venv/bin/python -m pytest tests --ignore=tests/live -q
 git diff --check
 ```
+
+## Verification
+
+Run on 2026-06-29:
+
+```text
+.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_asset_resolver.py -q
+23 passed in 0.05s
+
+.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_portfolio_agent.py -q
+51 passed in 0.83s
+
+.venv/bin/python -m pytest tests/test_investment_agent.py tests/test_chat_app.py -q
+22 passed, 1 warning in 5.69s
+
+.venv/bin/python -m pytest tests/test_portfolio_data_service.py -q
+7 passed, 1 warning in 0.51s
+
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+251 passed, 1 warning in 8.77s
+
+git diff --check
+passed
+```
+
+The warnings are the existing LangGraph dependency deprecation warning.
+
+Not run:
+
+- `tests/live`: opt-in live connector/OpenD tests are outside the deterministic
+  V1.4 closeout gate.
+
+## Remaining
+
+No remaining exit criteria for V1.4.5. Future work remains V1.5+ scope:
+structured-output LLM planners, richer Investment Agent synthesis, real
+Sentiment Agent GraphRAG retrieval, Pinecone memory, and frontend redesign.
 
 ## Notes
 

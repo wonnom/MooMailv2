@@ -20,6 +20,7 @@ from moomail_finance_ai.opend import (
 )
 from moomail_finance_ai.portfolio_agent import (
     LLMPortfolioEvaluator,
+    PORTFOLIO_PATTERN_THRESHOLDS,
     PortfolioAgent,
     PortfolioEvaluation,
     _evaluation_from_text,
@@ -146,6 +147,59 @@ def test_portfolio_agent_accepts_bounded_portfolio_request(tmp_path, recorded_op
     assert "moomail-portfolio-sql-mcp:portfolio_sql_get_position_state_changes" in (
         result.tool_calls
     )
+    assert result.evidence_packet.task_intent == "what_changed"
+    assert result.evidence_packet.resolved_assets[0].sql_asset_id == "asset_amzn"
+
+
+def test_evidence_packet_contains_separated_sections(tmp_path, recorded_opend_client):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    evaluator = CapturingEvaluator()
+    agent = PortfolioAgent(
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        ),
+        evaluator=evaluator,
+    )
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=["snapshot", "effective_cash", "portfolio_patterns"],
+        source_query="Show portfolio facts and patterns.",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
+
+    packet = result.evidence_packet
+    assert packet.facts["snapshot"]["portfolio_id"] == "portfolio_default"
+    assert packet.derived_metrics["effective_cash"]["effective_cash_value"] == 100.0
+    assert packet.position_changes == []
+    assert packet.portfolio_only_interpretation == [
+        "Portfolio-only evaluation complete.",
+        "Live OpenD snapshot was normalized.",
+        "Historical depth is still limited.",
+        "Daily snapshot policy was applied.",
+    ]
+    assert "No sentiment or fundamental evidence was reviewed by Portfolio Agent." in (
+        packet.limitations
+    )
+    assert "moomail-finance-metrics-mcp:calculate_snapshot_metrics" in packet.tool_refs
+
+
+def test_pattern_detector_thresholds_are_stable():
+    assert PORTFOLIO_PATTERN_THRESHOLDS == {
+        "single_position_concentration_weight": 0.25,
+        "effective_cash_target_gap": 0.02,
+        "large_allocation_weight": 0.10,
+        "large_quantity_delta_abs": 1.0,
+        "average_cost_delta_pct": 0.05,
+    }
 
 
 def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(tmp_path):
@@ -256,6 +310,29 @@ def test_llm_portfolio_evaluator_prompt_requires_query_first_summary():
     assert "Answer user_query directly in the summary" in llm.prompt
     assert "auto_invested_fund_assets_value" in llm.prompt
     assert "summary must answer the user_query directly" in llm.system_instruction
+
+
+def test_portfolio_llm_receives_evidence_not_raw_tool_authority(tmp_path, recorded_opend_client):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    evaluator = CapturingEvaluator()
+    agent = PortfolioAgent(
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(client=recorded_opend_client, config=OpenDConfig()),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        ),
+        evaluator=evaluator,
+    )
+
+    result = agent.run("Review my portfolio.", mock_investment_policy())
+
+    assert evaluator.calls == 1
+    assert "gateway" not in evaluator.context
+    assert "tool_calls" not in evaluator.context
+    assert evaluator.context["metrics"] == result.metrics
+    assert evaluator.context["history_context"] == result.history_context
 
 
 def test_llm_portfolio_evaluator_recovers_partial_json_without_raw_markdown_summary():

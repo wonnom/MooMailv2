@@ -3,7 +3,8 @@
 Status: current planning and execution notes. V1.3 MCP gateway, deterministic
 portfolio data lane, and agent gateway migration are complete. V1.4 structured
 planning work has started; V1.4.0 and V1.4.1 are complete as of 2026-06-24,
-and V1.4.2 and V1.4.3 are complete as of 2026-06-25.
+V1.4.2 and V1.4.3 are complete as of 2026-06-25, and V1.4.4 and V1.4.5
+are complete as of 2026-06-29.
 
 ## V1.4 Goal
 
@@ -77,13 +78,15 @@ Completed as of 2026-06-25:
   `asset_id`/canonical-symbol scope into the current `PortfolioContextPlan`
   execution path.
 
-Still planned:
+Completed as of 2026-06-29:
 
-- V1.4.4 must replace the remaining Portfolio Agent execution adapter with
-  direct deterministic execution from `PortfolioEvidencePlan` into a separated
-  `PortfolioEvidencePacket`.
-- V1.4.5 still owns final trace/evaluation/docs closeout for the whole V1.4
-  iteration.
+- V1.4.4 added policy-aware deterministic execution for bounded
+  `PortfolioEvidencePlan` runs and first-class `PortfolioEvidencePacket`
+  assembly on `PortfolioAgentResult`.
+- V1.4.5 wired the Investment Agent runtime to pass the typed
+  `PortfolioRequest` into Portfolio Agent calls, exposed evidence-plan and
+  evidence-packet trace phases, added golden/safety/regression coverage, and
+  closed out the V1.4 docs/test gate.
 
 ## Task Files
 
@@ -93,8 +96,8 @@ Still planned:
 | V1.4.1 | complete as of 2026-06-24 | [TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md](TASK_1_ASSET_RESOLUTION_AND_VALIDATION.md) | Add deterministic asset resolution and validators so logical hints map to actual portfolio assets and invalid plans fail safely. |
 | V1.4.2 | complete as of 2026-06-25 | [TASK_2_INVESTMENT_AGENT_PLANNER.md](TASK_2_INVESTMENT_AGENT_PLANNER.md) | Replace hidden keyword routing with a structured Investment Agent planner that emits bounded subagent requests. |
 | V1.4.3 | complete as of 2026-06-25 | [TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md](TASK_3_PORTFOLIO_EVIDENCE_PLANNER.md) | Refactor Portfolio Agent planning into evidence planning over bounded requests, resolved assets, history scope, metrics, and freshness needs. |
-| V1.4.4 | planned | [TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md](TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md) | Execute Portfolio evidence plans deterministically and return facts, metrics, patterns, interpretations, limitations, and trace. |
-| V1.4.5 | planned | [TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md](TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md) | Expose planner/execution trace, add golden prompt evaluations, update docs, and close the V1.4 gate. |
+| V1.4.4 | complete as of 2026-06-29 | [TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md](TASK_4_DETERMINISTIC_EXECUTION_AND_EVIDENCE_PACKET.md) | Execute Portfolio evidence plans deterministically and return facts, metrics, patterns, interpretations, limitations, and trace. |
+| V1.4.5 | complete as of 2026-06-29 | [TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md](TASK_5_TRACE_EVALUATION_AND_CLOSEOUT.md) | Expose planner/execution trace, add golden prompt evaluations, update docs, and close the V1.4 gate. |
 
 ## Cross-Task Dependency Map
 
@@ -103,10 +106,10 @@ V1.4.0. Planner contracts [complete]
   ├── V1.4.1. Asset resolution and validation [complete]
   │   ├── V1.4.2. Investment Agent planner [complete]
   │   │   └── V1.4.3. Portfolio evidence planner [complete]
-  │   │       └── V1.4.4. Deterministic execution and evidence packet [planned]
-  │   │           └── V1.4.5. Trace, evaluations, docs, and closeout [planned]
-  │   └── V1.4.4. Deterministic execution uses validated resolved assets [planned]
-  └── V1.4.5. Docs and tests validate the final contract set [planned]
+  │   │       └── V1.4.4. Deterministic execution and evidence packet [complete]
+  │   │           └── V1.4.5. Trace, evaluations, docs, and closeout [complete]
+  │   └── V1.4.4. Deterministic execution uses validated resolved assets [complete]
+  └── V1.4.5. Docs and tests validate the final contract set [complete]
 ```
 
 ## Core Design Clarification
@@ -374,8 +377,9 @@ flowchart TD
 
 V1.4.0 implemented these contracts in
 `src/moomail_finance_ai/agent_schemas.py`. The `InvestmentPlan` and
-`PortfolioEvidencePlan` contracts are now wired into live planning paths;
-direct `PortfolioEvidencePacket` assembly remains planned for V1.4.4.
+`PortfolioEvidencePlan` contracts are now wired into live planning paths, and
+bounded Portfolio Agent runs assemble direct `PortfolioEvidencePacket` output
+alongside compatibility result fields.
 
 ### Investment Plan
 
@@ -498,6 +502,12 @@ Current implementation note:
 - `PortfolioAgent.run()` can accept a bounded `PortfolioRequest` and plan
   `PortfolioEvidencePlan` output with resolved assets before tool scope
   selection.
+- Bounded `PortfolioRequest` execution applies deterministic freshness policy
+  directly from `PortfolioEvidencePlan`: `latest_required` calls OpenD,
+  `cached_ok` can use fresh SQL latest state, and `history_only` avoids OpenD.
+- `PortfolioAgentResult.evidence_packet` separates facts, derived metrics,
+  position changes, detected patterns, portfolio-only interpretation,
+  limitations, sentiment-context needs, warnings, and tool refs.
 - `interpret_portfolio_task()` delegates to the explicit fallback planner for
   legacy `PortfolioTask` callers; that fallback still extracts tickers with a
   deterministic regex helper.
@@ -525,10 +535,11 @@ Completed in V1.4.3:
   in my AMZN position?" and that execution passes resolved `asset_id` scope to
   `portfolio_sql_get_position_state_changes` when available.
 
-Remaining after V1.4.3:
+Remaining after V1.4.5:
 
-- Execute `PortfolioEvidencePlan` directly into a separated
-  `PortfolioEvidencePacket` instead of adapting through `PortfolioContextPlan`.
+- No remaining V1.4 task exit criteria. Future work moves to V1.5+ tracks such
+  as structured-output LLM planners, rich Investment Agent synthesis, real
+  Sentiment Agent GraphRAG retrieval, Pinecone memory, and frontend redesign.
 
 ## Non-Goals
 

@@ -319,7 +319,7 @@ def build_default_portfolio_data_service(
     return PortfolioDataService(gateway)
 
 
-def _snapshot_from_latest_state(
+def snapshot_from_latest_state(
     latest_state: dict[str, Any] | None,
     *,
     base_currency: str,
@@ -377,6 +377,9 @@ def _snapshot_from_latest_state(
         holdings=holdings,
         data_quality=DataQuality(freshness_status=_freshness_status(latest_state)),
     )
+
+
+_snapshot_from_latest_state = snapshot_from_latest_state
 
 
 def _connection_error(exc: Exception) -> PortfolioConnectionStatus:

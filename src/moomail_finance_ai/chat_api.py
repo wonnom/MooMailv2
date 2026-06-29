@@ -201,6 +201,7 @@ def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
                     for issue in result.portfolio_packet.candidate_issues
                 ],
                 "evaluation": result.evaluation.model_dump(mode="json"),
+                "evidence_packet": result.evidence_packet.model_dump(mode="json"),
                 "metrics": [metric.model_dump(mode="json") for metric in result.metrics],
                 "effective_cash": result.effective_cash.model_dump(mode="json"),
                 "storage_result": result.storage_result,

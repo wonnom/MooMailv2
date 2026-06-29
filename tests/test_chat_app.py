@@ -129,6 +129,16 @@ def test_chat_service_can_call_investment_agent_with_recorded_portfolio(tmp_path
     assert final["sentiment_packet"]["retrieval_status"] == "not_implemented"
     assert any(event["event_type"] == "tool_call" for event in final["status_events"])
     assert any(
+        event["status"] == "portfolio_evidence_plan_ready"
+        and event["phase"] == "portfolio_evidence_planner"
+        for event in final["status_events"]
+    )
+    assert any(
+        event["status"] == "portfolio_evidence_packet_ready"
+        and event["phase"] == "deterministic_tool_execution"
+        for event in final["status_events"]
+    )
+    assert any(
         event["status"] == "sentiment_stub_status"
         for event in final["status_events"]
     )

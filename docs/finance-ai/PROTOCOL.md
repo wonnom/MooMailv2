@@ -258,12 +258,11 @@ The Investment Agent routes from a typed `InvestmentPlan` before subagent calls:
 }
 ```
 
-The Investment Agent owns this plan. The current runtime adapts
-`portfolio_request` to the older `query_plan`/`PortfolioTask` path for the
-default chat route. The Portfolio Agent can also accept bounded
-`PortfolioRequest` input directly and plan portfolio evidence from it. Portfolio
-Agent may suggest sentiment candidates in its response, but it must not call
-Sentiment Agent directly.
+The Investment Agent owns this plan. The current runtime passes
+`portfolio_request` into the Portfolio Agent while still exposing the older
+`query_plan`/`PortfolioTask` compatibility fields for reports and tests.
+Portfolio Agent may suggest sentiment candidates in its response, but it must
+not call Sentiment Agent directly.
 
 ## Portfolio Evidence Plan
 
@@ -309,14 +308,57 @@ Portfolio Agent plans bounded portfolio evidence from `PortfolioRequest` into
 ```
 
 The Portfolio Agent planner must not emit sentiment routing or final-thesis
-fields. The current runtime adapts this evidence plan into `PortfolioContextPlan`
-for deterministic execution; direct `PortfolioEvidencePacket` assembly remains
-V1.4.4 work.
+fields. Bounded runs execute this evidence plan through deterministic freshness
+and allowlisted-tool policy, then assemble a separated
+`PortfolioEvidencePacket`.
+
+## Portfolio Evidence Packet
+
+Bounded Portfolio Agent runs return a first-class `PortfolioEvidencePacket`
+alongside compatibility packet fields:
+
+```json
+{
+  "portfolio_id": "portfolio_default",
+  "task_intent": "what_changed",
+  "resolved_assets": [],
+  "facts": {
+    "snapshot": {},
+    "holdings": [],
+    "cash": [],
+    "history_status": {},
+    "latest_state_available": true,
+    "portfolio_growth": [],
+    "allocation_history": []
+  },
+  "derived_metrics": {
+    "metrics": [],
+    "effective_cash": {},
+    "allocation": {},
+    "performance": {},
+    "risk": {}
+  },
+  "position_changes": [],
+  "detected_patterns": [],
+  "portfolio_only_interpretation": [],
+  "limitations": [
+    "No sentiment or fundamental evidence was reviewed by Portfolio Agent."
+  ],
+  "needs_sentiment_context": [],
+  "warnings": [],
+  "tool_refs": []
+}
+```
+
+Facts, metrics, position changes, deterministic patterns, optional
+portfolio-only interpretation, limitations, and sentiment-context needs must
+remain separated. The Portfolio Agent may label portfolio-only observations and
+limitations, but final investment synthesis and sentiment routing remain owned
+by the Investment Agent.
 
 ## Portfolio Context Plan
 
-Portfolio Agent still uses a bounded context plan as the current execution
-adapter:
+Portfolio Agent still returns a bounded context plan as a compatibility field:
 
 ```json
 {
@@ -342,7 +384,9 @@ adapter:
 }
 ```
 
-Tool execution remains deterministic after this plan is selected.
+Tool execution is selected from `PortfolioEvidencePlan`/freshness policy for
+bounded request runs. The compatibility context plan remains useful for report
+rendering and legacy `PortfolioTask` callers.
 
 ## Portfolio Snapshot Schema
 

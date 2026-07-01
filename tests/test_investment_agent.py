@@ -91,6 +91,8 @@ def test_investment_agent_validates_plan_before_subagent_calls():
     assert state.final_report is not None
     assert state.final_report.title == "Investment Planning Unavailable"
     assert "No keyword or regex planner" in state.final_report.summary
+    assert state.guardrail_review is not None
+    assert state.guardrail_review.passed is True
 
 
 def test_routing_portfolio_only_skips_sentiment():

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from moomail_finance_ai.config import OpenDConfig, load_env_file
+from moomail_finance_ai.agent_schemas import PortfolioRequest
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
 from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
@@ -13,6 +14,7 @@ from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_mod
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.opend import RecordedOpenDClient
 from moomail_finance_ai.portfolio_agent import LLMPortfolioEvaluator, PortfolioAgent
+from moomail_finance_ai.portfolio_evidence_planner import LLMPortfolioEvidencePlanner
 
 
 pytestmark = pytest.mark.live_connector
@@ -43,9 +45,23 @@ def test_live_portfolio_agent_llm_evaluator_round_trip_with_gemini(tmp_path, sam
             ]
         ),
         evaluator=LLMPortfolioEvaluator.from_env(provider="gemini", env_file=LOCAL_ENV_PATH),
+        evidence_planner=LLMPortfolioEvidencePlanner.from_env(
+            provider="gemini",
+            env_file=LOCAL_ENV_PATH,
+        ),
+    )
+    request = PortfolioRequest(
+        task_intent="full_review",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "allocation_context", "risk_context", "portfolio_patterns"],
+        source_query="Review my portfolio using only portfolio evidence",
     )
 
-    result = agent.run("Review my portfolio using only portfolio evidence", mock_investment_policy())
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert result.evaluation.summary.strip()
     assert result.evaluation.llm_model == _env("MOOMAIL_GEMINI_MODEL")

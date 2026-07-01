@@ -20,6 +20,13 @@ def test_load_opend_config_defaults():
     assert config.treat_fund_assets_as_cash_sweep is False
 
 
+def test_load_opend_config_ignores_missing_optional_env_file(tmp_path):
+    config = load_opend_config(env={}, env_file=tmp_path / "missing.env")
+
+    assert config.host == "127.0.0.1"
+    assert config.port == 11111
+
+
 def test_load_opend_config_from_env_values():
     config = load_opend_config(
         env={

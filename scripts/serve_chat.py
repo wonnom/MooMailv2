@@ -157,7 +157,7 @@ def main() -> None:
     parser.add_argument("--llm-provider", default=None, choices=["gemini", "openai"])
     parser.add_argument(
         "--default-agent",
-        default="portfolio",
+        default="investment_agent",
         choices=["portfolio", "portfolio_agent", "investment", "investment_agent"],
     )
     args = parser.parse_args()

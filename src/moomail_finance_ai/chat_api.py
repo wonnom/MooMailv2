@@ -10,11 +10,9 @@ from moomail_finance_ai.mcp.gateway import (
     StdioMCPToolGateway,
     local_stdio_server_configs,
 )
-from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.portfolio_agent import (
     PortfolioAgentResult,
     PortfolioEvaluator,
-    build_default_portfolio_agent,
 )
 from moomail_finance_ai.portfolio_data_service import (
     PortfolioConnectionStatus,
@@ -63,21 +61,7 @@ class ChatService:
         agent: str | None = None,
     ) -> PortfolioAgentResult | InvestmentAgentState:
         selected_agent = normalize_chat_agent(agent or self.default_agent)
-        if selected_agent == "portfolio":
-            portfolio_agent = build_default_portfolio_agent(
-                env_file=self.env_file,
-                from_report=self.from_report,
-                db_path=self.db_path,
-                llm_provider=self.llm_provider,
-                evaluator=self.portfolio_evaluator,
-                gateway=self.mcp_gateway(),
-            )
-            return portfolio_agent.run(
-                query,
-                mock_investment_policy(),
-                status_callback=status_callback,
-            )
-        if selected_agent == "investment":
+        if selected_agent in {"portfolio", "investment"}:
             investment_agent = self.investment_agent or build_default_investment_agent(
                 env_file=self.env_file,
                 from_report=self.from_report,

@@ -1,19 +1,14 @@
 import json
 from datetime import UTC, datetime
 
-import pytest
-
 from moomail_finance_ai.chat_api import ChatService, stream_payloads
 from moomail_finance_ai.opend import OpenDConnectionStatus, OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.portfolio_agent import PortfolioEvaluation
-from moomail_finance_ai.portfolio_evidence_planner import (
-    PortfolioEvidencePlanningUnavailableError,
-)
 from moomail_finance_ai.schemas import StatusEvent
 from scripts.serve_chat import WEB, ChatHandler
 
 
-def test_chat_service_direct_portfolio_requires_bounded_request(tmp_path):
+def test_chat_service_portfolio_selection_routes_to_investment_agent(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
@@ -22,13 +17,15 @@ def test_chat_service_direct_portfolio_requires_bounded_request(tmp_path):
         default_agent="portfolio",
     )
 
-    with pytest.raises(PortfolioEvidencePlanningUnavailableError) as exc_info:
-        service.run("Review my portfolio", agent="portfolio")
+    state = service.run("Review my portfolio", agent="portfolio")
 
-    assert "bounded PortfolioRequest" in str(exc_info.value)
+    assert state.final_report is not None
+    assert state.final_report.title == "Investment Planning Unavailable"
+    assert state.guardrail_review is not None
+    assert state.guardrail_review.passed is True
 
 
-def test_stream_endpoint_emits_portfolio_planner_error(tmp_path):
+def test_stream_endpoint_routes_portfolio_selection_to_investment_agent(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
@@ -39,9 +36,9 @@ def test_stream_endpoint_emits_portfolio_planner_error(tmp_path):
     lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
 
     assert any(line["type"] == "status" for line in lines)
-    assert lines[-1]["type"] == "error"
-    assert lines[-1]["error"]["error_type"] == "PortfolioEvidencePlanningUnavailableError"
-    assert "bounded PortfolioRequest" in lines[-1]["error"]["message"]
+    assert lines[-1]["type"] == "final"
+    assert lines[-1]["state"]["agent_type"] == "investment_agent"
+    assert lines[-1]["state"]["guardrail_result"]["passed"] is True
 
 
 def test_stream_endpoint_emits_error_event_when_agent_fails():
@@ -67,7 +64,7 @@ def test_stream_handler_stops_quietly_when_client_disconnects():
     assert writer.write_calls == 1
 
 
-def test_chat_service_streams_direct_portfolio_error(tmp_path):
+def test_chat_service_streams_portfolio_selection_through_investment_agent(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
@@ -78,13 +75,11 @@ def test_chat_service_streams_direct_portfolio_error(tmp_path):
     lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
 
     assert any(line["type"] == "status" for line in lines)
-    assert lines[-1]["type"] == "error"
-    assert "Deterministic direct-query fallback planning has been removed" in (
-        lines[-1]["error"]["message"]
-    )
+    assert lines[-1]["type"] == "final"
+    assert lines[-1]["state"]["agent_type"] == "investment_agent"
 
 
-def test_chat_service_portfolio_agent_legacy_db_still_errors_gracefully(tmp_path):
+def test_chat_service_portfolio_selection_ignores_legacy_chat_db(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     db_path = tmp_path / "legacy-chat.sqlite"
     _create_legacy_agent_runs_table(db_path)
@@ -96,8 +91,8 @@ def test_chat_service_portfolio_agent_legacy_db_still_errors_gracefully(tmp_path
 
     lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
 
-    assert lines[-1]["type"] == "error"
-    assert lines[-1]["error"]["error_type"] == "PortfolioEvidencePlanningUnavailableError"
+    assert lines[-1]["type"] == "final"
+    assert lines[-1]["state"]["agent_type"] == "investment_agent"
 
 
 def test_chat_service_returns_graceful_investment_planner_failure(tmp_path):
@@ -118,6 +113,7 @@ def test_chat_service_returns_graceful_investment_planner_failure(tmp_path):
     assert final["query_plan"]["needs_portfolio_agent"] is False
     assert final["final_report"]["title"] == "Investment Planning Unavailable"
     assert "No keyword or regex planner" in final["final_report"]["summary"]
+    assert final["guardrail_result"]["passed"] is True
 
 
 def test_default_investment_chat_does_not_require_portfolio_evaluator_llm(tmp_path):
@@ -133,6 +129,7 @@ def test_default_investment_chat_does_not_require_portfolio_evaluator_llm(tmp_pa
     assert lines[-1]["type"] == "final"
     assert final["agent_type"] == "investment_agent"
     assert final["final_report"]["title"] == "Investment Planning Unavailable"
+    assert final["guardrail_result"]["passed"] is True
 
 
 def test_chat_service_accepts_frontend_agent_name_aliases(tmp_path):
@@ -148,8 +145,7 @@ def test_chat_service_accepts_frontend_agent_name_aliases(tmp_path):
     portfolio_lines = stream_payloads(service, "Review my portfolio.", agent="portfolio_agent")
 
     assert investment_lines[-1]["state"]["agent_type"] == "investment_agent"
-    assert portfolio_lines[-1]["type"] == "error"
-    assert portfolio_lines[-1]["error"]["error_type"] == "PortfolioEvidencePlanningUnavailableError"
+    assert portfolio_lines[-1]["state"]["agent_type"] == "investment_agent"
 
 
 def test_chat_defaults_use_canonical_portfolio_history_db():
@@ -158,6 +154,7 @@ def test_chat_defaults_use_canonical_portfolio_history_db():
 
     assert str(service.db_path) == "data/portfolio-history.sqlite"
     assert 'default="data/portfolio-history.sqlite"' in serve_chat_source
+    assert 'default="investment_agent"' in serve_chat_source
     assert "investment_agent" in serve_chat_source
     assert "data/chat-portfolio-history.sqlite" not in serve_chat_source
 

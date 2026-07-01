@@ -87,6 +87,58 @@ def test_portfolio_evidence_planner_protocol_returns_plan():
     assert plan.metric_groups == ["effective_cash"]
 
 
+def test_portfolio_planner_rejects_position_changes_without_history_query():
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        freshness_requirement="history_only",
+        output_goals=["position_changes"],
+        source_query="What changed in my portfolio positions?",
+    )
+    planner = LLMPortfolioEvidencePlanner(
+        StaticPortfolioPlannerLLM(
+            _static_evidence_payload(
+                history_queries=["none"],
+                metric_groups=["performance"],
+                needs_current_values=False,
+                freshness_requirement="history_only",
+                position_change_scope="portfolio_wide",
+                persistence_mode="skip",
+            )
+        )
+    )
+
+    with pytest.raises(PortfolioEvidencePlanValidationError) as exc_info:
+        planner.plan(request, mock_investment_policy(), [])
+
+    assert "position_changes requires position_state_changes" in str(exc_info.value)
+
+
+def test_portfolio_planner_rejects_latest_required_without_current_values():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot"],
+        source_query="Show my latest portfolio snapshot.",
+    )
+    planner = LLMPortfolioEvidencePlanner(
+        StaticPortfolioPlannerLLM(
+            _static_evidence_payload(
+                history_queries=["none"],
+                metric_groups=["allocation"],
+                needs_current_values=False,
+                freshness_requirement="latest_required",
+                position_change_scope="none",
+                persistence_mode="skip",
+            )
+        )
+    )
+
+    with pytest.raises(PortfolioEvidencePlanValidationError) as exc_info:
+        planner.plan(request, mock_investment_policy(), [])
+
+    assert "latest_required requests require needs_current_values=true" in str(exc_info.value)
+
+
 def test_existing_portfolio_task_adapter_is_removed():
     with pytest.raises(PortfolioEvidencePlanningUnavailableError):
         interpret_portfolio_task("What price were my recently purchased AMZN shares?")
@@ -1046,6 +1098,35 @@ class FakePortfolioPlannerLLM:
     def generate_text(self, prompt: str, *args, **kwargs) -> str:
         context = json.loads(prompt)
         return json.dumps(_evidence_payload_for_request(context["portfolio_request"]))
+
+
+class StaticPortfolioPlannerLLM:
+    config = None
+
+    def __init__(self, payload: dict[str, Any]):
+        self.payload = payload
+
+    def generate_text(self, prompt: str, *args, **kwargs) -> str:
+        del prompt, args, kwargs
+        return json.dumps(self.payload)
+
+
+def _static_evidence_payload(**overrides) -> dict[str, Any]:
+    payload = {
+        "task_intent": "portfolio_fact",
+        "resolved_assets": [],
+        "history_queries": ["none"],
+        "metric_groups": ["allocation"],
+        "needs_current_values": True,
+        "history_window": "30d",
+        "freshness_requirement": "cached_ok",
+        "position_change_scope": "none",
+        "persistence_mode": "skip",
+        "pattern_detectors": ["stale_data"],
+        "warnings": [],
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _evidence_payload_for_request(request: dict[str, Any]) -> dict[str, Any]:

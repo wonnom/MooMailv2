@@ -58,7 +58,7 @@ def load_opend_config(
     env_file: str | Path | None = None,
 ) -> OpenDConfig:
     merged = dict(os.environ if env is None else env)
-    if env_file is not None:
+    if env_file is not None and Path(env_file).expanduser().exists():
         merged.update(load_env_file(env_file))
 
     return OpenDConfig(

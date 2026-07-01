@@ -424,6 +424,7 @@ class InvestmentAgent:
             error_message=message,
         )
         state.final_report = _planning_unavailable_report(state, message)
+        self._guardrail_node(state)
         self._emit(
             state,
             "complete_with_planning_failure",

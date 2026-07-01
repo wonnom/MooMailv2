@@ -125,7 +125,11 @@ class LLMPortfolioEvidencePlanner:
                     ),
                 }
             )
-            return PortfolioEvidencePlan.model_validate(payload)
+            plan = PortfolioEvidencePlan.model_validate(payload)
+            validate_portfolio_evidence_plan(request, plan)
+            return plan
+        except PortfolioEvidencePlanValidationError:
+            raise
         except Exception as exc:
             raise PortfolioEvidencePlanningUnavailableError(
                 "Portfolio evidence planning is unavailable because the LLM planner "
@@ -262,6 +266,81 @@ def _portfolio_planner_prompt(
     return json.dumps(context, sort_keys=True)
 
 
+def validate_portfolio_evidence_plan(
+    request: PortfolioRequest,
+    plan: PortfolioEvidencePlan,
+) -> None:
+    problems: list[str] = []
+    goals = set(request.output_goals)
+    history_queries = set(plan.history_queries)
+    metric_groups = set(plan.metric_groups)
+
+    if plan.task_intent != request.task_intent:
+        problems.append("task_intent must match the PortfolioRequest.")
+    if plan.history_window != request.time_range:
+        problems.append("history_window must match the PortfolioRequest time_range.")
+    if plan.freshness_requirement != request.freshness_requirement:
+        problems.append("freshness_requirement must match the PortfolioRequest.")
+
+    if request.freshness_requirement == "latest_required" and not plan.needs_current_values:
+        problems.append("latest_required requests require needs_current_values=true.")
+    if request.freshness_requirement == "history_only":
+        if plan.needs_current_values:
+            problems.append("history_only requests require needs_current_values=false.")
+        if plan.persistence_mode != "skip":
+            problems.append("history_only requests cannot persist a current observation.")
+    if (
+        request.freshness_requirement == "cached_ok"
+        and _goals_require_snapshot_values(goals)
+        and not plan.needs_current_values
+    ):
+        problems.append("cached_ok snapshot-valued requests require needs_current_values=true.")
+
+    if _request_requires_history(request, goals) and history_queries == {"none"}:
+        problems.append("requested historical outputs require SQL history queries.")
+
+    if "position_changes" in goals:
+        if "position_state_changes" not in history_queries:
+            problems.append("position_changes requires position_state_changes history.")
+        if plan.position_change_scope == "none":
+            problems.append("position_changes requires a non-none position_change_scope.")
+        expected_scope = _expected_position_change_scope(request, plan)
+        if expected_scope and plan.position_change_scope != expected_scope:
+            problems.append(
+                "position_change_scope must match deterministic asset-resolution scope."
+            )
+    elif (
+        plan.position_change_scope != "none"
+        and "position_state_changes" not in history_queries
+    ):
+        problems.append(
+            "position_change_scope must be none unless position_state_changes is planned."
+        )
+
+    missing_metrics = [
+        metric
+        for metric in _required_metric_groups(request, goals)
+        if metric not in metric_groups and "all" not in metric_groups
+    ]
+    if missing_metrics:
+        problems.append(
+            "metric_groups missing required groups: " + ", ".join(missing_metrics) + "."
+        )
+
+    if "portfolio_patterns" in goals and not plan.pattern_detectors:
+        problems.append("portfolio_patterns requires at least one pattern detector.")
+    if (
+        "sentiment_context_needs" in goals
+        and "sentiment_context_needed" not in plan.pattern_detectors
+    ):
+        problems.append(
+            "sentiment_context_needs requires the sentiment_context_needed pattern detector."
+        )
+
+    if problems:
+        raise PortfolioEvidencePlanValidationError("; ".join(problems))
+
+
 def _required_outputs_from_goals(goals: list[str]) -> list[str]:
     output_map = {
         "snapshot": "snapshot",
@@ -275,6 +354,60 @@ def _required_outputs_from_goals(goals: list[str]) -> list[str]:
         "sentiment_context_needs": "sentiment_candidates",
     }
     return _dedupe([output_map[goal] for goal in goals if goal in output_map])
+
+
+def _goals_require_snapshot_values(goals: set[str]) -> bool:
+    return bool(
+        goals
+        & {
+            "snapshot",
+            "allocation_context",
+            "performance_context",
+            "risk_context",
+            "effective_cash",
+            "portfolio_patterns",
+            "derived_metrics",
+            "sentiment_context_needs",
+        }
+    )
+
+
+def _request_requires_history(request: PortfolioRequest, goals: set[str]) -> bool:
+    return (
+        request.task_intent in {"full_review", "deep_dive", "compare", "what_changed"}
+        or bool(goals & {"position_changes", "performance_context", "derived_metrics"})
+    )
+
+
+def _expected_position_change_scope(
+    request: PortfolioRequest,
+    plan: PortfolioEvidencePlan,
+) -> str | None:
+    if not request.asset_hints:
+        return "portfolio_wide"
+    resolved = [
+        asset for asset in plan.resolved_assets if asset.resolution_status == "resolved"
+    ]
+    if any(asset.sql_asset_id for asset in resolved):
+        return "asset_scoped"
+    if any(_ticker_from_resolution(asset) for asset in resolved):
+        return "ticker_scoped"
+    return None
+
+
+def _required_metric_groups(request: PortfolioRequest, goals: set[str]) -> list[str]:
+    required: list[str] = []
+    if request.task_intent in {"full_review", "deep_dive", "compare"}:
+        required.extend(["allocation", "concentration", "effective_cash", "risk", "performance"])
+    if "allocation_context" in goals:
+        required.append("allocation")
+    if "risk_context" in goals:
+        required.append("risk")
+    if "effective_cash" in goals:
+        required.append("effective_cash")
+    if goals & {"performance_context", "derived_metrics", "position_changes"}:
+        required.append("performance")
+    return _dedupe(required)
 
 
 def _tickers_from_request_or_plan(

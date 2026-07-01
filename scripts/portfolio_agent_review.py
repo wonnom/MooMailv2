@@ -3,11 +3,40 @@ from __future__ import annotations
 import argparse
 import json
 
+from moomail_finance_ai.agent_schemas import AssetHint, PortfolioRequest
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.portfolio_agent import (
     PortfolioAgentResult,
     build_default_portfolio_agent,
 )
+
+
+PORTFOLIO_TASK_INTENTS = [
+    "full_review",
+    "portfolio_fact",
+    "risk_check",
+    "what_changed",
+    "deep_dive",
+    "compare",
+]
+PORTFOLIO_OUTPUT_GOALS = [
+    "snapshot",
+    "allocation_context",
+    "performance_context",
+    "risk_context",
+    "effective_cash",
+    "position_changes",
+    "portfolio_patterns",
+    "derived_metrics",
+    "sentiment_context_needs",
+]
+PORTFOLIO_FRESHNESS_REQUIREMENTS = ["latest_required", "cached_ok", "history_only"]
+DEFAULT_REVIEW_OUTPUT_GOALS = [
+    "snapshot",
+    "allocation_context",
+    "risk_context",
+    "portfolio_patterns",
+]
 
 
 def main() -> None:
@@ -17,6 +46,15 @@ def main() -> None:
     parser.add_argument("--from-report", default=None)
     parser.add_argument("--db", default="data/portfolio-history.sqlite")
     parser.add_argument("--llm-provider", default=None, choices=["gemini", "openai"])
+    parser.add_argument("--task-intent", choices=PORTFOLIO_TASK_INTENTS, default="full_review")
+    parser.add_argument("--output-goal", action="append", choices=PORTFOLIO_OUTPUT_GOALS)
+    parser.add_argument("--asset", action="append", default=[])
+    parser.add_argument("--time-range", default="30d")
+    parser.add_argument(
+        "--freshness",
+        choices=PORTFOLIO_FRESHNESS_REQUIREMENTS,
+        default="latest_required",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -27,7 +65,20 @@ def main() -> None:
         llm_provider=args.llm_provider,
     )
     try:
-        result = agent.run(" ".join(args.query), mock_investment_policy())
+        query = " ".join(args.query)
+        request = PortfolioRequest(
+            task_intent=args.task_intent,
+            asset_hints=[AssetHint(raw_input=asset) for asset in args.asset],
+            time_range=args.time_range,
+            freshness_requirement=args.freshness,
+            output_goals=args.output_goal or DEFAULT_REVIEW_OUTPUT_GOALS,
+            source_query=query,
+        )
+        result = agent.run(
+            query,
+            mock_investment_policy(),
+            portfolio_request=request,
+        )
         if args.json:
             print(json.dumps(result.model_dump(mode="json"), indent=2))
             return

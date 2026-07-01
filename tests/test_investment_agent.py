@@ -11,16 +11,16 @@ from moomail_finance_ai.portfolio_agent import (
     PortfolioEvaluation,
     PortfolioHistoryContext,
     build_effective_cash_summary,
-    plan_portfolio_context,
 )
 from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
 from moomail_finance_ai.investment_agent import (
     InvestmentAgent,
     classify_investment_query,
 )
-from moomail_finance_ai.investment_planner import InvestmentPlanValidationError
 from moomail_finance_ai.agent_schemas import (
+    AssetHint,
     InvestmentPlan,
+    PortfolioContextPlan,
     PortfolioEvidencePacket,
     PortfolioRequest,
     PortfolioTask,
@@ -34,6 +34,7 @@ def test_dependency_strategy_uses_real_langgraph_runtime():
         portfolio_agent=FakePortfolioAgent(),
         sentiment_agent=FakeSentimentAgent(),
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     assert agent.graph_runtime == "langgraph_state_graph"
@@ -41,7 +42,10 @@ def test_dependency_strategy_uses_real_langgraph_runtime():
 
 
 def test_classifier_cash_query_portfolio_only():
-    plan = classify_investment_query("How much effective cash do I have?")
+    plan = classify_investment_query(
+        "How much effective cash do I have?",
+        planner=FixtureInvestmentPlanner(),
+    )
 
     assert plan.mode == "portfolio_fact"
     assert plan.needs_portfolio_agent is True
@@ -58,6 +62,7 @@ def test_investment_agent_emits_plan_before_portfolio_call():
         portfolio_agent=portfolio_agent,
         sentiment_agent=FakeSentimentAgent(),
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("How much effective cash do I have?", status_callback=emitted.append)
@@ -79,15 +84,13 @@ def test_investment_agent_validates_plan_before_subagent_calls():
         planner=InvalidTradeIntentPlanner(),
     )
 
-    try:
-        agent.run("Show my portfolio.", status_callback=lambda _event: None)
-    except InvestmentPlanValidationError:
-        pass
-    else:
-        raise AssertionError("Expected invalid planner output to be rejected.")
+    state = agent.run("Show my portfolio.", status_callback=lambda _event: None)
 
     assert portfolio_agent.calls == 0
     assert sentiment_agent.calls == 0
+    assert state.final_report is not None
+    assert state.final_report.title == "Investment Planning Unavailable"
+    assert "No keyword or regex planner" in state.final_report.summary
 
 
 def test_routing_portfolio_only_skips_sentiment():
@@ -97,6 +100,7 @@ def test_routing_portfolio_only_skips_sentiment():
         portfolio_agent=portfolio_agent,
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("How much effective cash do I have?")
@@ -123,6 +127,7 @@ def test_full_review_routes_portfolio_then_sentiment_stub():
         portfolio_agent=portfolio_agent,
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("Review my portfolio and market sentiment.")
@@ -151,6 +156,7 @@ def test_investment_agent_routes_sentiment_without_portfolio_agent_deciding():
         portfolio_agent=portfolio_agent,
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("Review my portfolio.")
@@ -167,6 +173,7 @@ def test_full_review_includes_missing_research_without_fake_citations():
         portfolio_agent=FakePortfolioAgent(),
         sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("Review my portfolio.")
@@ -188,6 +195,7 @@ def test_user_named_sentiment_query_scopes_requested_ticker():
         portfolio_agent=FakePortfolioAgent(candidate_weights=False),
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("What does recent research say about GOOG?")
@@ -206,6 +214,7 @@ def test_golden_recent_purchase_query_uses_bounded_history_request():
         portfolio_agent=portfolio_agent,
         sentiment_agent=sentiment_agent,
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("What price did I buy my recent AMZN shares at?")
@@ -227,6 +236,7 @@ def test_streamed_status_events_include_graph_steps():
         portfolio_agent=FakePortfolioAgent(),
         sentiment_agent=FakeSentimentAgent(),
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     state = agent.run("Review my portfolio.", status_callback=emitted.append)
@@ -252,6 +262,7 @@ def test_investment_planner_trace_is_sanitized():
         portfolio_agent=FakePortfolioAgent(),
         sentiment_agent=FakeSentimentAgent(),
         ips=mock_investment_policy(),
+        planner=FixtureInvestmentPlanner(),
     )
 
     agent.run("What price did I buy my recent AMZN shares at?", status_callback=emitted.append)
@@ -309,13 +320,10 @@ class FakePortfolioAgent:
         return PortfolioAgentResult(
             run_id=f"fake_portfolio_{self.calls}",
             portfolio_id=packet.portfolio_id,
-            context_plan=plan_portfolio_context(
-                portfolio_task
-                or PortfolioTask(task_type="full_review", source_query=query)
-            ),
+            context_plan=_fake_context_plan(query, portfolio_task, portfolio_request),
             evidence_packet=PortfolioEvidencePacket(
                 portfolio_id=packet.portfolio_id,
-                task_intent=(portfolio_task.task_type if portfolio_task else "full_review"),
+                task_intent=_fake_task_intent(portfolio_task, portfolio_request),
                 facts={
                     "snapshot": {
                         "portfolio_id": packet.portfolio_id,
@@ -343,6 +351,140 @@ class FakePortfolioAgent:
             status_events=[],
             warnings=[],
         )
+
+
+class FixtureInvestmentPlanner:
+    def plan(self, query: str, ips) -> InvestmentPlan:
+        del ips
+        if query == "How much effective cash do I have?":
+            return InvestmentPlan(
+                mode="portfolio_fact",
+                needs_portfolio_agent=True,
+                needs_sentiment_agent=False,
+                portfolio_request=PortfolioRequest(
+                    task_intent="portfolio_fact",
+                    output_goals=["snapshot", "effective_cash"],
+                    source_query=query,
+                ),
+                logical_asset_hints=[],
+                themes=["portfolio_fact"],
+                freshness_requirement="latest_required",
+                answer_constraints=[
+                    "no_trade_execution",
+                    "no_order_preparation",
+                    "no_exact_share_count",
+                    "source_backed",
+                    "portfolio_only",
+                ],
+            )
+        if query == "What price did I buy my recent AMZN shares at?":
+            return InvestmentPlan(
+                mode="what_changed",
+                needs_portfolio_agent=True,
+                needs_sentiment_agent=False,
+                portfolio_request=PortfolioRequest(
+                    task_intent="what_changed",
+                    asset_hints=[AssetHint(raw_input="AMZN")],
+                    time_range="90d",
+                    freshness_requirement="history_only",
+                    output_goals=["snapshot", "position_changes", "portfolio_patterns"],
+                    source_query=query,
+                ),
+                logical_asset_hints=[AssetHint(raw_input="AMZN")],
+                themes=["position_changes"],
+                time_horizon="90d",
+                freshness_requirement="history_only",
+            )
+        if query == "What does recent research say about GOOG?":
+            return InvestmentPlan(
+                mode="deep_dive",
+                needs_portfolio_agent=False,
+                needs_sentiment_agent=True,
+                sentiment_task=SentimentTask(
+                    tickers=["GOOG"],
+                    key_questions=[query],
+                ),
+                logical_asset_hints=[AssetHint(raw_input="GOOG")],
+                themes=["research"],
+            )
+        task_intent = "deep_dive" if "market sentiment" in query else "full_review"
+        return InvestmentPlan(
+            mode="review" if task_intent == "full_review" else "deep_dive",
+            needs_portfolio_agent=True,
+            needs_sentiment_agent=True,
+            portfolio_request=PortfolioRequest(
+                task_intent=task_intent,
+                output_goals=[
+                    "snapshot",
+                    "allocation_context",
+                    "risk_context",
+                    "portfolio_patterns",
+                    "sentiment_context_needs",
+                ],
+                source_query=query,
+            ),
+            sentiment_task=SentimentTask(key_questions=[query]),
+            themes=["portfolio_review"],
+        )
+
+
+def _fake_task_intent(
+    portfolio_task: PortfolioTask | None,
+    portfolio_request: PortfolioRequest | None,
+) -> str:
+    if portfolio_request is not None:
+        return portfolio_request.task_intent
+    if portfolio_task is not None:
+        return portfolio_task.task_type
+    return "full_review"
+
+
+def _fake_context_plan(
+    query: str,
+    portfolio_task: PortfolioTask | None,
+    portfolio_request: PortfolioRequest | None,
+) -> PortfolioContextPlan:
+    intent = _fake_task_intent(portfolio_task, portfolio_request)
+    tickers = (
+        [hint.raw_input for hint in portfolio_request.asset_hints]
+        if portfolio_request is not None
+        else list(portfolio_task.requested_tickers)
+        if portfolio_task is not None
+        else []
+    )
+    if intent == "portfolio_fact":
+        return PortfolioContextPlan(
+            needs_current_snapshot=True,
+            needs_sql_history=False,
+            history_queries=["none"],
+            tickers=tickers,
+            metric_groups=["effective_cash"],
+            persist_observation=False,
+            history_window="30d",
+            row_limit=30,
+        )
+    return PortfolioContextPlan(
+        needs_current_snapshot=True,
+        needs_sql_history=True,
+        history_queries=[
+            "history_status",
+            "latest_state",
+            "portfolio_growth",
+            "allocation_history",
+            "position_state_changes",
+        ],
+        tickers=tickers,
+        metric_groups=["allocation", "concentration", "effective_cash", "risk", "performance"],
+        persist_observation=True,
+        history_window=(
+            portfolio_request.time_range
+            if portfolio_request is not None
+            else portfolio_task.history_window
+            if portfolio_task is not None
+            else "30d"
+        ),
+        row_limit=100,
+    )
 
 
 class FakeSentimentAgent:

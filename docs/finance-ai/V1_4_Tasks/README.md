@@ -32,7 +32,8 @@ In scope:
   freshness requirement, subagent calls, metric groups, and persistence mode.
 - Deterministic asset resolution from user-facing symbols/names to portfolio
   assets, SQL asset ids, and OpenD-compatible symbols.
-- Deterministic validation and fallback planners for tests/offline mode.
+- Deterministic validation, asset resolution, and backend execution policy;
+  tests use explicit fake planner outputs instead of runtime fallback planners.
 - Trace output showing planner decisions and deterministic policy decisions.
 
 Out of scope:
@@ -71,12 +72,15 @@ Completed as of 2026-06-25:
   `portfolio` values remain accepted.
 - V1.4.3 added `src/moomail_finance_ai/portfolio_evidence_planner.py`, moved
   bounded PortfolioRequest planning into an explicit `PortfolioEvidencePlan`
-  planner with deterministic asset resolution before tool scope selection, and
-  preserved current keyword behavior as an explicit fallback planner.
+  planner with deterministic asset resolution before tool scope selection.
 - V1.4.3 also lets the Portfolio Agent accept a bounded `PortfolioRequest`,
   exposes `PortfolioAgentResult.evidence_plan`, and adapts resolved
   `asset_id`/canonical-symbol scope into the current `PortfolioContextPlan`
   execution path.
+- V1.4 planner follow-up on 2026-07-01 removed deterministic keyword fallback
+  planners from Investment and Portfolio runtime paths. If LLM planning is
+  unavailable, agents return explicit graceful failure messages instead of
+  falling back to regex/keyword planning.
 
 Completed as of 2026-06-29:
 
@@ -292,7 +296,7 @@ not build the real GraphRAG system.
 | Task | LLM or guided planner? | Deterministic? | Notes |
 | --- | --- | --- | --- |
 | Interpret ambiguous user query | Yes | No | Main use of the Investment Agent planner. |
-| Classify mode/task | Yes, with deterministic fallback | Fallback only | Current keyword classifier is temporary. |
+| Classify mode/task | Yes | No | Runtime uses the LLM planner; if planning is unavailable, return a graceful failure report. |
 | Select subagents | Yes | Validated deterministically | Planner chooses Portfolio/Sentiment needs. |
 | Select logical tickers/entities/themes/time horizon | Yes | Validated deterministically | Logical hints only; not OpenD/SQL identifiers. |
 | Choose broker symbols or SQL asset ids | No | No | Belongs to Portfolio Agent Asset Resolver. |
@@ -508,16 +512,16 @@ Current implementation note:
 - `PortfolioAgentResult.evidence_packet` separates facts, derived metrics,
   position changes, detected patterns, portfolio-only interpretation,
   limitations, sentiment-context needs, warnings, and tool refs.
-- `interpret_portfolio_task()` delegates to the explicit fallback planner for
-  legacy `PortfolioTask` callers; that fallback still extracts tickers with a
-  deterministic regex helper.
+- `interpret_portfolio_task()` and `plan_portfolio_context()` raise explicit
+  unavailable-planner errors for legacy direct-query callers instead of
+  extracting tickers or choosing a context plan with keyword rules.
 - `portfolio_sql_get_position_state_changes` can receive resolved `asset_id`
   scope, ticker fallback scope, or portfolio-wide scope.
 
 Completed in V1.4.3:
 
 - Move bounded ticker/asset-scope selection into `PortfolioEvidencePlan`;
-  legacy fallback extraction remains explicit.
+  legacy fallback extraction has been removed.
 - Represent ticker/asset scope as planner output.
 - Represent the V1.4 Investment-to-Portfolio handoff as a bounded
   `PortfolioRequest`, not free-form natural language.
@@ -529,8 +533,9 @@ Completed in V1.4.3:
 - Make Portfolio Agent value-add explicit through pattern/outlier detection,
   portfolio-only interpretation, and limitations that tell the Investment Agent
   what requires sentiment or fundamental context.
-- Keep a deterministic fallback planner for tests and offline mode, but make it
-  explicit that it is a fallback implementation.
+- Use explicit fake planner outputs in tests and offline validation; runtime
+  fallback planners should remain unavailable so future work does not drift back
+  to keyword or regex planning.
 - Add tests proving a planner can resolve `AMZN` for a query like "What changed
   in my AMZN position?" and that execution passes resolved `asset_id` scope to
   `portfolio_sql_get_position_state_changes` when available.

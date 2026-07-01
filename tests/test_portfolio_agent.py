@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from moomail_finance_ai.config import OpenDConfig
-from moomail_finance_ai.agent_schemas import AssetHint, PortfolioRequest
-from moomail_finance_ai.asset_resolver import PortfolioAssetCandidate
+from moomail_finance_ai.agent_schemas import AssetHint, PortfolioEvidencePlan, PortfolioRequest
+from moomail_finance_ai.asset_resolver import PortfolioAssetCandidate, resolve_asset_hints
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
 from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
@@ -41,9 +41,20 @@ def test_portfolio_agent_runs_pipeline_through_three_mcp_modules(tmp_path, recor
             ]
         ),
         evaluator=evaluator,
+        evidence_planner=TestPortfolioEvidencePlanner(),
     )
 
-    result = agent.run("Review my portfolio risk", mock_investment_policy())
+    request = PortfolioRequest(
+        task_intent="full_review",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "allocation_context", "risk_context", "portfolio_patterns"],
+        source_query="Review my portfolio risk",
+    )
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert result.snapshot.holdings[0].ticker == "AAPL"
     assert {metric.metric_name for metric in result.metrics} == {
@@ -116,6 +127,7 @@ def test_portfolio_agent_accepts_bounded_portfolio_request(tmp_path, recorded_op
             ]
         ),
         evaluator=CapturingEvaluator(),
+        evidence_planner=TestPortfolioEvidencePlanner(),
     )
     request = PortfolioRequest(
         task_intent="what_changed",
@@ -163,6 +175,7 @@ def test_evidence_packet_contains_separated_sections(tmp_path, recorded_opend_cl
             ]
         ),
         evaluator=evaluator,
+        evidence_planner=TestPortfolioEvidencePlanner(),
     )
     request = PortfolioRequest(
         task_intent="portfolio_fact",
@@ -220,9 +233,19 @@ def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(
             ]
         ),
         evaluator=CapturingEvaluator(),
+        evidence_planner=TestPortfolioEvidencePlanner(),
     )
 
-    result = agent.run("How much effective cash do I have?", mock_investment_policy())
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=["snapshot", "effective_cash"],
+        source_query="How much effective cash do I have?",
+    )
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert result.snapshot.data_quality.missing_fields == ["quotes_for_all_positions"]
     assert result.effective_cash.cash_value == 3.0
@@ -251,11 +274,19 @@ def test_portfolio_agent_daily_storage_is_idempotent(tmp_path, recorded_opend_cl
             ]
         ),
         evaluator=CapturingEvaluator(),
+        evidence_planner=TestPortfolioEvidencePlanner(),
     )
     ips = mock_investment_policy()
+    first_request = PortfolioRequest(
+        task_intent="full_review",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "allocation_context", "risk_context", "portfolio_patterns"],
+        source_query="Review my portfolio",
+    )
+    second_request = first_request.model_copy(update={"source_query": "Review my portfolio again"})
 
-    first = agent.run("Review my portfolio", ips)
-    second = agent.run("Review my portfolio again", ips)
+    first = agent.run(first_request.source_query, ips, portfolio_request=first_request)
+    second = agent.run(second_request.source_query, ips, portfolio_request=second_request)
 
     assert first.storage_result["status"] == "inserted"
     assert first.history_context.history_status["snapshot_count"] == 0
@@ -324,9 +355,20 @@ def test_portfolio_llm_receives_evidence_not_raw_tool_authority(tmp_path, record
             ]
         ),
         evaluator=evaluator,
+        evidence_planner=TestPortfolioEvidencePlanner(),
     )
 
-    result = agent.run("Review my portfolio.", mock_investment_policy())
+    request = PortfolioRequest(
+        task_intent="full_review",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "allocation_context", "risk_context", "portfolio_patterns"],
+        source_query="Review my portfolio.",
+    )
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert evaluator.calls == 1
     assert "gateway" not in evaluator.context
@@ -462,6 +504,63 @@ class CapturingEvaluator:
             risks=["Historical depth is still limited."],
             history_observations=["Daily snapshot policy was applied."],
         )
+
+
+class TestPortfolioEvidencePlanner:
+    def plan(self, request: PortfolioRequest, ips, candidates) -> PortfolioEvidencePlan:
+        del ips
+        goals = set(request.output_goals)
+        resolved_assets = resolve_asset_hints(request.asset_hints, candidates)
+        needs_history = (
+            request.task_intent in {"full_review", "deep_dive", "compare", "what_changed"}
+            or "position_changes" in goals
+        )
+        metric_groups = _metric_groups_for_test_plan(request, goals)
+        return PortfolioEvidencePlan(
+            task_intent=request.task_intent,
+            resolved_assets=resolved_assets,
+            history_queries=(
+                [
+                    "history_status",
+                    "latest_state",
+                    "portfolio_growth",
+                    "allocation_history",
+                    "position_state_changes",
+                ]
+                if needs_history
+                else ["none"]
+            ),
+            metric_groups=metric_groups,
+            needs_current_values=request.freshness_requirement != "history_only",
+            history_window=request.time_range,
+            freshness_requirement=request.freshness_requirement,
+            position_change_scope=(
+                "asset_scoped"
+                if request.asset_hints and "position_changes" in goals
+                else "portfolio_wide"
+                if "position_changes" in goals
+                else "none"
+            ),
+            persistence_mode=(
+                "persist"
+                if request.task_intent in {"full_review", "what_changed", "deep_dive", "compare"}
+                else "skip"
+            ),
+            pattern_detectors=["stale_data", "unsupported_quote_warnings"],
+            warnings=list(request.warnings),
+        )
+
+
+def _metric_groups_for_test_plan(request: PortfolioRequest, goals: set[str]) -> list[str]:
+    if request.task_intent in {"full_review", "deep_dive", "compare"}:
+        return ["allocation", "concentration", "effective_cash", "risk", "performance"]
+    if request.task_intent == "what_changed" or "position_changes" in goals:
+        return ["performance"]
+    if request.task_intent == "risk_check" or "risk_context" in goals:
+        return ["allocation", "concentration", "effective_cash", "risk"]
+    if "effective_cash" in goals:
+        return ["effective_cash"]
+    return ["allocation"]
 
 
 class FakeLLMConfig:

@@ -1429,6 +1429,41 @@ Remaining:
   structured-output LLM planners, richer Investment Agent synthesis, real
   Sentiment Agent GraphRAG retrieval, Pinecone memory, and frontend redesign.
 
+## V1.4 Planner Follow-up: Remove Deterministic Planning Fallbacks
+
+Date: 2026-07-01
+
+Decision:
+
+- Remove deterministic keyword/regex planners from Investment Agent and
+  Portfolio Agent runtime planning paths.
+- Keep deterministic validation, asset resolution, finance metrics, freshness
+  policy, SQL/OpenD tool execution, and guardrails.
+- If the Investment LLM planner or Portfolio evidence LLM planner is
+  unavailable or emits invalid structured output, return an explicit graceful
+  failure message rather than falling back to keyword routing.
+- Free-text chat should default to Investment Agent. Direct Portfolio Agent
+  free-text calls require a bounded `PortfolioRequest` and otherwise return a
+  planner-unavailable error.
+
+Actual implementation:
+
+- Replaced `DeterministicInvestmentPlanner` with `LLMInvestmentPlanner` and
+  `UnavailableInvestmentPlanner`.
+- Replaced `DeterministicPortfolioEvidencePlanner` and fallback query planning
+  with `LLMPortfolioEvidencePlanner` and
+  `UnavailablePortfolioEvidencePlanner`.
+- Removed hidden user-query ticker extraction from Investment-to-Sentiment
+  routing.
+- Updated web chat default selection to `investment_agent`.
+
+Verification:
+
+- `.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_portfolio_planner.py tests/test_investment_agent.py tests/test_agent_trace.py tests/test_chat_app.py -q`
+  passed with `73 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests --ignore=tests/live -q` passed with
+  `246 passed, 1 warning`.
+
 ## Future Update Template
 
 ### Version X / Date

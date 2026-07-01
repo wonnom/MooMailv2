@@ -1,14 +1,19 @@
 import json
 from datetime import UTC, datetime
 
+import pytest
+
 from moomail_finance_ai.chat_api import ChatService, stream_payloads
 from moomail_finance_ai.opend import OpenDConnectionStatus, OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.portfolio_agent import PortfolioEvaluation
+from moomail_finance_ai.portfolio_evidence_planner import (
+    PortfolioEvidencePlanningUnavailableError,
+)
 from moomail_finance_ai.schemas import StatusEvent
 from scripts.serve_chat import WEB, ChatHandler
 
 
-def test_chat_service_returns_portfolio_agent_result(tmp_path):
+def test_chat_service_direct_portfolio_requires_bounded_request(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
@@ -17,14 +22,13 @@ def test_chat_service_returns_portfolio_agent_result(tmp_path):
         default_agent="portfolio",
     )
 
-    state = service.run("Review my portfolio", agent="portfolio")
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError) as exc_info:
+        service.run("Review my portfolio", agent="portfolio")
 
-    assert state.evaluation.summary == "Portfolio evaluator test summary."
-    assert state.status_events
-    assert state.snapshot.holdings
+    assert "bounded PortfolioRequest" in str(exc_info.value)
 
 
-def test_stream_endpoint_emits_status_and_final_events(tmp_path):
+def test_stream_endpoint_emits_portfolio_planner_error(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
@@ -35,8 +39,9 @@ def test_stream_endpoint_emits_status_and_final_events(tmp_path):
     lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
 
     assert any(line["type"] == "status" for line in lines)
-    assert lines[-1]["type"] == "final"
-    assert lines[-1]["state"]["final_report"]["summary"] == "Portfolio evaluator test summary."
+    assert lines[-1]["type"] == "error"
+    assert lines[-1]["error"]["error_type"] == "PortfolioEvidencePlanningUnavailableError"
+    assert "bounded PortfolioRequest" in lines[-1]["error"]["message"]
 
 
 def test_stream_endpoint_emits_error_event_when_agent_fails():
@@ -62,7 +67,7 @@ def test_stream_handler_stops_quietly_when_client_disconnects():
     assert writer.write_calls == 1
 
 
-def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
+def test_chat_service_streams_direct_portfolio_error(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
@@ -71,29 +76,15 @@ def test_chat_service_can_stream_portfolio_agent_response(tmp_path):
     )
 
     lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
-    final = lines[-1]["state"]
 
     assert any(line["type"] == "status" for line in lines)
-    assert final["agent_type"] == "portfolio_agent"
-    assert final["final_report"]["summary"] == "Portfolio evaluator test summary."
-    assert final["final_report"]["portfolio_snapshot"]["holdings"][0]["ticker"] == "AAPL"
-    assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
-    assert (
-        final["final_report"]["portfolio_analysis"]["effective_cash"]["effective_cash_value"]
-        == 100.0
+    assert lines[-1]["type"] == "error"
+    assert "Deterministic direct-query fallback planning has been removed" in (
+        lines[-1]["error"]["message"]
     )
-    assert (
-        final["final_report"]["portfolio_analysis"]["history_context"]["history_status"][
-            "snapshot_count"
-        ]
-        == 0
-    )
-    assert final["final_report"]["portfolio_analysis"]["evaluation"]["risks"] == [
-        "Concentration requires review."
-    ]
 
 
-def test_chat_service_portfolio_agent_handles_legacy_chat_db(tmp_path):
+def test_chat_service_portfolio_agent_legacy_db_still_errors_gracefully(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     db_path = tmp_path / "legacy-chat.sqlite"
     _create_legacy_agent_runs_table(db_path)
@@ -104,13 +95,12 @@ def test_chat_service_portfolio_agent_handles_legacy_chat_db(tmp_path):
     )
 
     lines = stream_payloads(service, "Review my portfolio", agent="portfolio")
-    final = lines[-1]["state"]
 
-    assert final["agent_type"] == "portfolio_agent"
-    assert final["final_report"]["portfolio_analysis"]["storage_result"]["status"] == "inserted"
+    assert lines[-1]["type"] == "error"
+    assert lines[-1]["error"]["error_type"] == "PortfolioEvidencePlanningUnavailableError"
 
 
-def test_chat_service_can_call_investment_agent_with_recorded_portfolio(tmp_path):
+def test_chat_service_returns_graceful_investment_planner_failure(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
         from_report=report_path,
@@ -124,31 +114,25 @@ def test_chat_service_can_call_investment_agent_with_recorded_portfolio(tmp_path
 
     assert any(line["type"] == "status" for line in lines)
     assert final["agent_type"] == "investment_agent"
-    assert final["investment_plan"]["needs_portfolio_agent"] is True
-    assert final["query_plan"]["needs_sentiment_agent"] is True
-    assert final["sentiment_packet"]["retrieval_status"] == "not_implemented"
-    assert any(event["event_type"] == "tool_call" for event in final["status_events"])
-    assert any(
-        event["status"] == "portfolio_evidence_plan_ready"
-        and event["phase"] == "portfolio_evidence_planner"
-        for event in final["status_events"]
+    assert final["investment_plan"]["mode"] == "unsupported"
+    assert final["query_plan"]["needs_portfolio_agent"] is False
+    assert final["final_report"]["title"] == "Investment Planning Unavailable"
+    assert "No keyword or regex planner" in final["final_report"]["summary"]
+
+
+def test_default_investment_chat_does_not_require_portfolio_evaluator_llm(tmp_path):
+    service = ChatService(
+        from_report=None,
+        db_path=tmp_path / "default-investment-chat.sqlite",
+        default_agent="investment",
     )
-    assert any(
-        event["status"] == "portfolio_evidence_packet_ready"
-        and event["phase"] == "deterministic_tool_execution"
-        for event in final["status_events"]
-    )
-    assert any(
-        event["status"] == "sentiment_stub_status"
-        for event in final["status_events"]
-    )
-    assert final["final_report"]["portfolio_analysis"]["allocation"]["by_asset"]
-    assert final["final_report"]["portfolio_analysis"]["risk"]
-    assert "Sentiment Agent GraphRAG retrieval is not implemented." in (
-        final["final_report"]["missing_data"]
-    )
-    assert final["guardrail_result"]["passed"] is True
-    assert final["guardrail_result"]["checks"]
+
+    lines = stream_payloads(service, "Review my portfolio.", agent="investment")
+    final = lines[-1]["state"]
+
+    assert lines[-1]["type"] == "final"
+    assert final["agent_type"] == "investment_agent"
+    assert final["final_report"]["title"] == "Investment Planning Unavailable"
 
 
 def test_chat_service_accepts_frontend_agent_name_aliases(tmp_path):
@@ -164,7 +148,8 @@ def test_chat_service_accepts_frontend_agent_name_aliases(tmp_path):
     portfolio_lines = stream_payloads(service, "Review my portfolio.", agent="portfolio_agent")
 
     assert investment_lines[-1]["state"]["agent_type"] == "investment_agent"
-    assert portfolio_lines[-1]["state"]["agent_type"] == "portfolio_agent"
+    assert portfolio_lines[-1]["type"] == "error"
+    assert portfolio_lines[-1]["error"]["error_type"] == "PortfolioEvidencePlanningUnavailableError"
 
 
 def test_chat_defaults_use_canonical_portfolio_history_db():
@@ -197,8 +182,8 @@ def test_frontend_files_include_streaming_and_citation_controls():
 
     assert "/static/app.js" in html
     assert "agentSelect" in html
-    assert 'value="portfolio_agent" selected>Portfolio<' in html
-    assert 'value="investment_agent">Investment<' in html
+    assert 'value="investment_agent" selected>Investment<' in html
+    assert 'value="portfolio_agent">Portfolio<' in html
     assert 'value="investment">Investment<' not in html
     assert "Investment Legacy" not in html
     assert "chat-controls" in html

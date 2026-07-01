@@ -56,9 +56,10 @@ from moomail_finance_ai.asset_resolver import (
 )
 from moomail_finance_ai.portfolio_data_service import snapshot_from_latest_state
 from moomail_finance_ai.portfolio_evidence_planner import (
-    DeterministicPortfolioEvidencePlanner,
+    LLMPortfolioEvidencePlanner,
+    PortfolioEvidencePlanningUnavailableError,
     PortfolioEvidencePlanner,
-    fallback_portfolio_task_from_query,
+    UnavailablePortfolioEvidencePlanner,
     portfolio_evidence_plan_to_context_plan,
     portfolio_request_to_task,
 )
@@ -193,11 +194,28 @@ class LLMPortfolioEvaluator:
 
 
 @dataclass
+class UnavailablePortfolioEvaluator:
+    reason: str
+
+    def evaluate(self, **kwargs) -> PortfolioEvaluation:
+        del kwargs
+        return PortfolioEvaluation(
+            summary="Portfolio evaluator is unavailable because no LLM evaluator is configured.",
+            open_questions=["Configure the Portfolio Agent evaluator LLM and retry."],
+            warnings=[self.reason],
+        )
+
+
+@dataclass
 class PortfolioAgent:
     gateway: MCPToolGateway
     evaluator: PortfolioEvaluator
     evidence_planner: PortfolioEvidencePlanner = field(
-        default_factory=DeterministicPortfolioEvidencePlanner
+        default_factory=lambda: UnavailablePortfolioEvidencePlanner(
+            "Portfolio evidence planning requires a bounded PortfolioRequest and a "
+            "configured LLM planner. No deterministic keyword or regex fallback planner "
+            "is available."
+        )
     )
     base_currency: str = "USD"
     min_snapshots_for_history: int = 2
@@ -255,8 +273,14 @@ class PortfolioAgent:
                 runtime_requires_current_snapshot=evidence_plan.needs_current_values,
             )
         else:
-            task = portfolio_task or interpret_portfolio_task(query)
-            plan = plan_portfolio_context(task)
+            del portfolio_task
+            message = (
+                "Portfolio Agent planning requires a bounded PortfolioRequest from the "
+                "Investment Agent or another LLM-guided caller. Deterministic direct-query "
+                "fallback planning has been removed."
+            )
+            emit("portfolio_evidence_planner_unavailable", message)
+            raise PortfolioEvidencePlanningUnavailableError(message)
         emit(
             "planning_portfolio_context",
             f"Planned bounded portfolio context for {task.task_type}.",
@@ -926,15 +950,46 @@ def build_default_portfolio_agent(
                 db_path=db_path,
             )
         )
+    evidence_planner = _build_default_portfolio_evidence_planner(
+        provider=llm_provider,
+        env_file=env_file,
+    )
     return PortfolioAgent(
         gateway=gateway,
-        evaluator=evaluator
-        or LLMPortfolioEvaluator.from_env(
+        evaluator=evaluator or _build_default_portfolio_evaluator(
             provider=llm_provider,
             env_file=env_file,
         ),
+        evidence_planner=evidence_planner,
         base_currency=config.base_currency,
     )
+
+
+def _build_default_portfolio_evaluator(
+    *,
+    provider: str | None,
+    env_file: str | Path | None,
+) -> PortfolioEvaluator:
+    try:
+        return LLMPortfolioEvaluator.from_env(provider=provider, env_file=env_file)
+    except Exception:
+        return UnavailablePortfolioEvaluator(
+            "Portfolio evaluation requires a configured LLM provider, API key, and model."
+        )
+
+
+def _build_default_portfolio_evidence_planner(
+    *,
+    provider: str | None,
+    env_file: str | Path | None,
+) -> PortfolioEvidencePlanner:
+    try:
+        return LLMPortfolioEvidencePlanner.from_env(provider=provider, env_file=env_file)
+    except Exception:
+        return UnavailablePortfolioEvidencePlanner(
+            "Portfolio evidence planning requires a configured LLM provider, API key, "
+            "and model. No deterministic keyword or regex fallback planner is available."
+        )
 
 
 def build_default_portfolio_agent_with_mock_policy(
@@ -962,83 +1017,18 @@ def build_default_portfolio_agent_with_mock_policy(
 
 
 def interpret_portfolio_task(query: str) -> PortfolioTask:
-    return fallback_portfolio_task_from_query(query)
+    del query
+    raise PortfolioEvidencePlanningUnavailableError(
+        "interpret_portfolio_task requires an LLM-guided PortfolioRequest. "
+        "Deterministic direct-query interpretation has been removed."
+    )
 
 
 def plan_portfolio_context(task: PortfolioTask) -> PortfolioContextPlan:
-    if task.persistence_mode == "persist":
-        persist_observation = True
-    elif task.persistence_mode == "skip":
-        persist_observation = False
-    else:
-        persist_observation = task.task_type in {
-            "full_review",
-            "what_changed",
-            "deep_dive",
-            "compare",
-        }
-
-    if task.task_type in {"full_review", "deep_dive", "compare"}:
-        return PortfolioContextPlan(
-            needs_current_snapshot=True,
-            needs_sql_history=True,
-            history_queries=[
-                "history_status",
-                "latest_state",
-                "portfolio_growth",
-                "allocation_history",
-                "position_state_changes",
-            ],
-            tickers=task.requested_tickers,
-            metric_groups=[
-                "allocation",
-                "concentration",
-                "effective_cash",
-                "risk",
-                "performance",
-            ],
-            persist_observation=persist_observation,
-            history_window=task.history_window,
-            row_limit=100,
-        )
-    if task.task_type == "what_changed":
-        return PortfolioContextPlan(
-            needs_current_snapshot=True,
-            needs_sql_history=True,
-            history_queries=[
-                "history_status",
-                "latest_state",
-                "portfolio_growth",
-                "allocation_history",
-                "position_state_changes",
-            ],
-            tickers=task.requested_tickers,
-            metric_groups=["allocation", "effective_cash", "performance"],
-            persist_observation=persist_observation,
-            history_window=task.history_window or "90d",
-            row_limit=100,
-        )
-    if task.task_type == "risk_check":
-        return PortfolioContextPlan(
-            needs_current_snapshot=True,
-            needs_sql_history=False,
-            history_queries=["none"],
-            tickers=task.requested_tickers,
-            metric_groups=["allocation", "concentration", "effective_cash", "risk"],
-            persist_observation=persist_observation,
-            history_window=task.history_window,
-            row_limit=30,
-        )
-    metric_groups = _metric_groups_for_portfolio_fact(task)
-    return PortfolioContextPlan(
-        needs_current_snapshot=True,
-        needs_sql_history=False,
-        history_queries=["none"],
-        tickers=task.requested_tickers,
-        metric_groups=metric_groups,
-        persist_observation=persist_observation,
-        history_window=task.history_window,
-        row_limit=30,
+    del task
+    raise PortfolioEvidencePlanningUnavailableError(
+        "plan_portfolio_context requires an LLM PortfolioEvidencePlan. "
+        "Deterministic PortfolioTask-to-context planning has been removed."
     )
 
 
@@ -1721,20 +1711,6 @@ def _dedupe(values: list[str]) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
-
-
-def _metric_groups_for_portfolio_fact(task: PortfolioTask) -> list[str]:
-    outputs = set(task.required_outputs)
-    metric_groups = []
-    if "allocation" in outputs:
-        metric_groups.append("allocation")
-    if "effective_cash" in outputs:
-        metric_groups.append("effective_cash")
-    if "risk" in outputs or "candidate_issues" in outputs:
-        metric_groups.extend(["allocation", "concentration", "risk"])
-    if not metric_groups:
-        metric_groups.append("allocation")
-    return _dedupe(metric_groups)
 
 
 def _history_skip_reason(plan: PortfolioContextPlan) -> str:

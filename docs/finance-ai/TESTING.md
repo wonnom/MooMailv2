@@ -57,9 +57,9 @@ test when that backend exists.
 | `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, separated evidence packet assembly, pattern thresholds, daily SQL idempotency, LLM input boundaries, and evaluator JSON parsing/recovery |
 | `tests/test_agent_schemas.py` | Agent Pydantic contracts, V1.4 planner/evidence fixtures, guardrail schema, and trace schema |
 | `tests/test_asset_resolver.py` | V1.4 deterministic asset resolver behavior, candidate precedence, explicit failure statuses, non-blocking warnings, and sanitized trace |
-| `tests/test_investment_planner.py` | V1.4 Investment Agent fallback planner, bounded PortfolioRequest output, logical asset hints, sentiment-task ownership, golden prompts, and plan fixtures |
+| `tests/test_investment_planner.py` | V1.4 LLM-backed Investment Agent planner parsing, graceful unavailable-planner failure, bounded PortfolioRequest output, logical asset hints, and plan fixtures |
 | `tests/test_investment_agent.py` | Thin LangGraph Investment Agent planning/validation, bounded PortfolioRequest runtime handoff, fake subagent call counts, sentiment routing, missing-research synthesis, and status events |
-| `tests/test_portfolio_planner.py` | Deterministic Portfolio Agent task interpretation, context planning, V1.4 PortfolioEvidencePlan planning, cached/history-only freshness policy, asset-resolution scope, history/persistence minimization, and tool trace entries |
+| `tests/test_portfolio_planner.py` | V1.4 LLM-backed PortfolioEvidencePlan parsing, direct-query graceful failure, cached/history-only freshness policy, asset-resolution scope, history/persistence minimization, and tool trace entries |
 | `tests/test_sentiment_agent_stub.py` | Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
 | `tests/test_investment_guardrails.py` | Deterministic investment no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
 | `tests/test_agent_trace.py` | Agent trace sanitizer, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |

@@ -22,17 +22,22 @@ from moomail_finance_ai.schemas import (
 )
 from moomail_finance_ai.investment_guardrails import review_investment_report
 from moomail_finance_ai.investment_planner import (
-    DeterministicInvestmentPlanner,
     InvestmentPlanValidationError,
+    InvestmentPlanningUnavailableError,
     InvestmentPlanner,
-    extract_ticker_strings,
+    LLMInvestmentPlanner,
+    UnavailableInvestmentPlanner,
     investment_plan_to_query_plan,
     validate_investment_plan,
+)
+from moomail_finance_ai.portfolio_evidence_planner import (
+    PortfolioEvidencePlanningUnavailableError,
 )
 from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
 from moomail_finance_ai.agent_trace import sanitize_trace_event
 from moomail_finance_ai.agent_schemas import (
     InvestmentAgentState,
+    InvestmentPlan,
     InvestmentQueryPlan,
     PortfolioContextPlan,
     PortfolioTask,
@@ -69,7 +74,12 @@ class InvestmentAgent:
     portfolio_agent: PortfolioAgentProtocol
     sentiment_agent: SentimentAgentProtocol = field(default_factory=SentimentAgentStub)
     ips: InvestmentPolicy = field(default_factory=mock_investment_policy)
-    planner: InvestmentPlanner = field(default_factory=DeterministicInvestmentPlanner)
+    planner: InvestmentPlanner = field(
+        default_factory=lambda: UnavailableInvestmentPlanner(
+            "Investment planning requires a configured LLM planner. No deterministic "
+            "keyword or regex fallback planner is available."
+        )
+    )
     graph_runtime: str = field(init=False)
     _status_callback: Callable[[TraceEvent], None] | None = field(
         default=None,
@@ -91,6 +101,8 @@ class InvestmentAgent:
             if isinstance(result, InvestmentAgentState):
                 return result
             return InvestmentAgentState.model_validate(result)
+        except (InvestmentPlanningUnavailableError, InvestmentPlanValidationError) as exc:
+            return self._planning_failure_state(state, exc)
         except Exception as exc:
             self._emit_error(state, exc, status="investment_agent_error")
             raise
@@ -209,14 +221,29 @@ class InvestmentAgent:
             event_type="subagent_call",
             subagent="portfolio_agent",
         )
-        result = self.portfolio_agent.run(
-            state.query_plan.portfolio_task.source_query,
-            state.ips,
-            portfolio_task=state.query_plan.portfolio_task,
-            portfolio_request=(
-                state.investment_plan.portfolio_request if state.investment_plan else None
-            ),
-        )
+        try:
+            result = self.portfolio_agent.run(
+                state.query_plan.portfolio_task.source_query,
+                state.ips,
+                portfolio_task=state.query_plan.portfolio_task,
+                portfolio_request=(
+                    state.investment_plan.portfolio_request if state.investment_plan else None
+                ),
+            )
+        except PortfolioEvidencePlanningUnavailableError as exc:
+            warning = str(exc) or exc.__class__.__name__
+            state.warnings = _dedupe([*state.warnings, warning])
+            self._emit(
+                state,
+                "portfolio_evidence_planner_unavailable",
+                "Portfolio evidence planning is unavailable; continuing with a limitation.",
+                event_type="error",
+                subagent="portfolio_agent",
+                phase="portfolio_evidence_planner",
+                error_type=exc.__class__.__name__,
+                error_message=warning,
+            )
+            return state
         state.portfolio_packet = adapt_portfolio_result_to_evidence_packet(result, state.ips)
         self._emit_portfolio_evidence_trace(state, result)
         self._emit_portfolio_tool_trace(state, state.portfolio_packet.tool_calls)
@@ -375,6 +402,35 @@ class InvestmentAgent:
             metadata={"error_location": "investment_agent.run"},
         )
 
+    def _planning_failure_state(
+        self,
+        state: InvestmentAgentState,
+        exc: BaseException,
+    ) -> InvestmentAgentState:
+        message = str(exc) or exc.__class__.__name__
+        state.ips = state.ips or self.ips
+        state.portfolio_id = state.ips.portfolio_id if state.ips else state.portfolio_id
+        state.mode = "unsupported"
+        state.investment_plan = _planning_unavailable_plan(message)
+        state.query_plan = investment_plan_to_query_plan(state.investment_plan)
+        state.warnings = _dedupe([*state.warnings, message])
+        self._emit(
+            state,
+            "investment_planner_unavailable",
+            "Investment planning is unavailable; no deterministic fallback was used.",
+            event_type="error",
+            phase="investment_planner",
+            error_type=exc.__class__.__name__,
+            error_message=message,
+        )
+        state.final_report = _planning_unavailable_report(state, message)
+        self._emit(
+            state,
+            "complete_with_planning_failure",
+            "Investment Agent stopped before subagent calls because planning failed.",
+        )
+        return state
+
     def _emit_portfolio_tool_trace(
         self,
         state: InvestmentAgentState,
@@ -425,8 +481,15 @@ class InvestmentAgent:
         )
 
 
-def classify_investment_query(query: str) -> InvestmentQueryPlan:
-    planner = DeterministicInvestmentPlanner()
+def classify_investment_query(
+    query: str,
+    planner: InvestmentPlanner | None = None,
+) -> InvestmentQueryPlan:
+    if planner is None:
+        raise InvestmentPlanningUnavailableError(
+            "classify_investment_query requires an injected LLM-backed planner. "
+            "Deterministic keyword classification has been removed."
+        )
     return investment_plan_to_query_plan(planner.plan(query, mock_investment_policy()))
 
 
@@ -526,6 +589,10 @@ def build_default_investment_agent(
     gateway: MCPToolGateway | None = None,
     gateway_mode: str = "stdio",
 ) -> InvestmentAgent:
+    planner = _build_default_investment_planner(
+        provider=llm_provider,
+        env_file=env_file,
+    )
     return InvestmentAgent(
         portfolio_agent=build_default_portfolio_agent(
             env_file=env_file,
@@ -538,7 +605,22 @@ def build_default_investment_agent(
         ),
         sentiment_agent=SentimentAgentStub(),
         ips=ips or mock_investment_policy(),
+        planner=planner,
     )
+
+
+def _build_default_investment_planner(
+    *,
+    provider: str | None,
+    env_file: str | Path | None,
+) -> InvestmentPlanner:
+    try:
+        return LLMInvestmentPlanner.from_env(provider=provider, env_file=env_file)
+    except Exception:
+        return UnavailableInvestmentPlanner(
+            "Investment planning requires a configured LLM provider, API key, and model. "
+            "No deterministic keyword or regex fallback planner is available.",
+        )
 
 
 def _portfolio_tool_trace_event(tool_call: str) -> dict:
@@ -601,7 +683,7 @@ def _sentiment_task_from_plan_and_candidates(
     query: str,
 ) -> SentimentTask:
     candidate_tickers = [candidate.ticker for candidate in candidates if candidate.ticker]
-    tickers = _dedupe([*task.tickers, *candidate_tickers, *_extract_tickers(query)])
+    tickers = _dedupe([*task.tickers, *candidate_tickers])
     candidate_themes = [
         str(candidate.source_portfolio_facts.get("theme"))
         for candidate in candidates
@@ -682,7 +764,7 @@ def _summary_text(state: InvestmentAgentState, portfolio_summary: str) -> str:
 
 
 def _missing_data(state: InvestmentAgentState) -> list[str]:
-    missing = []
+    missing = list(state.warnings)
     if state.portfolio_packet:
         missing.extend(state.portfolio_packet.warnings)
     if state.sentiment_packet is not None and state.sentiment_packet.retrieval_status in {
@@ -692,6 +774,69 @@ def _missing_data(state: InvestmentAgentState) -> list[str]:
         missing.append("Sentiment Agent GraphRAG retrieval is not implemented.")
         missing.extend(state.sentiment_packet.data_quality.missing_fields)
     return _dedupe(missing)
+
+
+def _planning_unavailable_plan(message: str) -> InvestmentPlan:
+    return InvestmentPlan(
+        mode="unsupported",
+        needs_portfolio_agent=False,
+        needs_sentiment_agent=False,
+        portfolio_request=None,
+        sentiment_task=None,
+        logical_asset_hints=[],
+        themes=["planning_unavailable"],
+        time_horizon=None,
+        freshness_requirement="cached_ok",
+        answer_constraints=[
+            "no_trade_execution",
+            "no_order_preparation",
+            "no_exact_share_count",
+            "source_backed",
+        ],
+        warnings=[message],
+    )
+
+
+def _planning_unavailable_report(
+    state: InvestmentAgentState,
+    message: str,
+) -> FinalReport:
+    missing_data = _dedupe([*state.warnings, message])
+    return FinalReport(
+        run_id=state.run_id,
+        mode="review",
+        title="Investment Planning Unavailable",
+        as_of=datetime.now(UTC),
+        summary=(
+            "The Investment Agent could not create a structured LLM plan, so it stopped "
+            "before calling portfolio or sentiment subagents. No keyword or regex planner "
+            "was used as a fallback."
+        ),
+        portfolio_snapshot={},
+        portfolio_analysis={},
+        sentiment_analysis={},
+        recommendations=[
+            Recommendation(
+                title="Configure or retry the LLM planner",
+                rationale=message,
+                constraints=[
+                    "No deterministic keyword or regex planning fallback is available.",
+                    "No trade placement, order preparation, or exact share-count instruction was produced.",
+                ],
+                missing_data=missing_data,
+            )
+        ],
+        missing_data=missing_data,
+        assumptions=[
+            "Planning must come from the configured LLM-backed planner.",
+            "Deterministic validation and tool execution remain available only after a valid plan exists.",
+        ],
+        citations=[],
+        disclaimer=(
+            "This is investment analysis for personal decision support, not licensed "
+            "financial advice."
+        ),
+    )
 
 
 def _portfolio_snapshot_payload(state: InvestmentAgentState) -> dict:
@@ -764,10 +909,6 @@ def _final_report_mode(mode: str) -> str:
     if mode in {"risk_check", "what_changed", "deep_dive", "compare", "review"}:
         return mode
     return "review"
-
-
-def _extract_tickers(query: str) -> list[str]:
-    return extract_ticker_strings(query)
 
 
 def _dedupe(values: list[str]) -> list[str]:

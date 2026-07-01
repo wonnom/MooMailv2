@@ -11,14 +11,16 @@ metric groups, pattern detectors, and persistence policy.
 
 ## Status
 
-Complete as of 2026-06-25.
+Complete as of 2026-06-25. Updated on 2026-07-01 to remove the
+deterministic direct-query fallback from runtime planning.
 
 ## Implemented In
 
 - `src/moomail_finance_ai/portfolio_evidence_planner.py`
-  - Added the `PortfolioEvidencePlanner` protocol, deterministic
-    `PortfolioRequest -> PortfolioEvidencePlan` planner, request/task/context
-    adapters, and explicit keyword fallback planner for existing query behavior.
+  - Added the `PortfolioEvidencePlanner` protocol,
+    `LLMPortfolioEvidencePlanner`, `UnavailablePortfolioEvidencePlanner`,
+    request/task/context adapters, and explicit graceful failure when the LLM
+    planner is unavailable.
   - Planner resolves `AssetHint` values before choosing history queries, metric
     groups, position-change scope, current-value dependency, persistence mode,
     and pattern detectors.
@@ -28,8 +30,9 @@ Complete as of 2026-06-25.
   - `PortfolioAgent.run` now accepts an optional bounded `PortfolioRequest`
     with supplied asset candidates and stores the resulting `evidence_plan` in
     `PortfolioAgentResult`.
-  - The existing `PortfolioTask` path remains stable; its keyword/rule query
-    fallback now delegates to the explicit fallback planner.
+  - Direct free-text Portfolio Agent planning now fails gracefully unless the
+    caller supplies a bounded `PortfolioRequest`; the old `PortfolioTask`
+    keyword/rule fallback no longer runs.
   - Position-state change reads can now pass resolved `asset_id` scope to
     `portfolio_sql_get_position_state_changes` when available, falling back to
     ticker or portfolio-wide scope otherwise.
@@ -39,7 +42,7 @@ Complete as of 2026-06-25.
     current execution adapter.
 - Tests and fixtures
   - Expanded `tests/test_portfolio_planner.py` with the V1.4.3 planner,
-    resolver, scope, pattern-detector, fallback, and trace/status cases.
+    resolver, scope, pattern-detector, graceful-failure, and trace/status cases.
   - Updated `tests/test_portfolio_agent.py` for the bounded `PortfolioRequest`
     path.
   - Added `tests/fixtures/agent/portfolio_evidence_plan_cash_query.json` and
@@ -54,8 +57,9 @@ Complete as of 2026-06-25.
    request requires asset-specific history.
 4. Planner chooses portfolio evidence subtasks and pattern detectors without
    deciding sentiment need or final thesis.
-5. Current deterministic fallback behavior is preserved as an explicit fallback
-   planner, not hidden inline extraction.
+5. Current deterministic fallback behavior is removed from runtime planning;
+   unavailable LLM planning returns explicit failure messages instead of hidden
+   inline extraction.
 
 ## Dependency Graph
 
@@ -69,7 +73,7 @@ V1.4.0 contracts
   │   ├── E. Select history queries and metric groups
   │   ├── F. Select position-change scope
   │   ├── G. Select freshness/current-value dependency
-  │   └── H. Preserve fallback planner behavior explicitly
+  │   └── H. Remove fallback planner behavior from runtime paths
   └── I. Add planner tests
 ```
 
@@ -107,7 +111,7 @@ V1.4.0 contracts
 
 | Task | Description | Depends on | Test |
 | --- | --- | --- | --- |
-| H | Make the current keyword planner an explicit fallback implementation. | A, B | `test_fallback_portfolio_planner_matches_current_cash_query_behavior` |
+| H | Remove the current keyword planner from runtime paths and surface graceful unavailable-planner errors. | A, B | `test_fallback_portfolio_planner_has_been_removed` |
 | H1 | Ensure Portfolio Agent planner never emits `needs_sentiment_agent` or final recommendation fields. | A, D | `test_portfolio_evidence_plan_has_no_sentiment_routing_or_final_thesis` |
 | H2 | Add pattern detectors for concentration, allocation drift, cash/effective-cash, large position changes, average-cost shifts, stale data, and unsupported quote warnings. | E, F, G | `test_portfolio_planner_selects_pattern_detectors` |
 | I | Emit planned, skipped, and validation trace entries for the new planner. | H | `test_portfolio_planner_trace_includes_request_resolution_and_evidence_scope` |

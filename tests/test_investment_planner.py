@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from moomail_finance_ai.agent_schemas import InvestmentPlan
 from moomail_finance_ai.investment_planner import (
-    DeterministicInvestmentPlanner,
     InvestmentPlanner,
+    InvestmentPlanningUnavailableError,
+    LLMInvestmentPlanner,
+    UnavailableInvestmentPlanner,
     investment_plan_to_query_plan,
     validate_investment_plan,
 )
@@ -16,56 +20,37 @@ from moomail_finance_ai.mocks import mock_investment_policy
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "agent"
 
 
-def test_investment_planner_protocol_returns_plan():
-    planner: InvestmentPlanner = DeterministicInvestmentPlanner()
+def test_llm_investment_planner_protocol_returns_plan():
+    planner: InvestmentPlanner = LLMInvestmentPlanner(
+        FakeLLM(json.dumps(_cash_plan_payload()))
+    )
 
-    plan = planner.plan("Review my portfolio.", mock_investment_policy())
+    plan = planner.plan("How much effective cash do I have?", mock_investment_policy())
 
     assert isinstance(plan, InvestmentPlan)
-    assert plan.mode == "review"
+    assert plan.mode == "portfolio_fact"
     assert plan.needs_portfolio_agent is True
-
-
-def test_fallback_planner_returns_portfolio_request_for_portfolio_query():
-    plan = DeterministicInvestmentPlanner().plan(
-        "How much effective cash do I have?",
-        mock_investment_policy(),
-    )
-
+    assert plan.needs_sentiment_agent is False
     assert plan.portfolio_request is not None
-    assert plan.portfolio_request.task_intent == "portfolio_fact"
-    assert "effective_cash" in plan.portfolio_request.output_goals
+    assert plan.portfolio_request.output_goals == ["snapshot", "effective_cash"]
 
 
-def test_planner_maps_cash_query_to_portfolio_fact_request():
-    plan = DeterministicInvestmentPlanner().plan(
-        "How much effective cash do I have?",
-        mock_investment_policy(),
-    )
+def test_llm_planner_maps_plan_to_query_plan_without_keyword_classifier():
+    planner = LLMInvestmentPlanner(FakeLLM(json.dumps(_cash_plan_payload())))
+
+    plan = planner.plan("How much effective cash do I have?", mock_investment_policy())
     query_plan = investment_plan_to_query_plan(plan)
 
-    assert plan.mode == "portfolio_fact"
-    assert plan.portfolio_request is not None
-    assert plan.portfolio_request.task_intent == "portfolio_fact"
-    assert plan.needs_sentiment_agent is False
+    assert query_plan.mode == "portfolio_fact"
     assert query_plan.portfolio_task is not None
     assert query_plan.portfolio_task.task_type == "portfolio_fact"
+    assert query_plan.portfolio_task.required_outputs == ["snapshot", "effective_cash"]
 
 
-def test_planner_maps_recent_purchase_query_to_position_change_request():
-    plan = DeterministicInvestmentPlanner().plan(
-        "What price did I buy my recent AMZN shares at?",
-        mock_investment_policy(),
-    )
+def test_llm_planner_keeps_asset_hints_logical():
+    planner = LLMInvestmentPlanner(FakeLLM(json.dumps(_recent_purchase_payload())))
 
-    assert plan.mode == "what_changed"
-    assert plan.portfolio_request is not None
-    assert plan.portfolio_request.task_intent == "what_changed"
-    assert "position_changes" in plan.portfolio_request.output_goals
-
-
-def test_planner_keeps_asset_hints_logical():
-    plan = DeterministicInvestmentPlanner().plan(
+    plan = planner.plan(
         "What price did I buy my recent AMZN shares at?",
         mock_investment_policy(),
     )
@@ -74,69 +59,25 @@ def test_planner_keeps_asset_hints_logical():
     assert plan.logical_asset_hints[0].raw_input != "US.AMZN"
     assert plan.portfolio_request is not None
     assert plan.portfolio_request.asset_hints[0].raw_input == "AMZN"
+    assert plan.portfolio_request.freshness_requirement == "history_only"
 
 
-def test_planner_sets_freshness_requirement():
-    planner = DeterministicInvestmentPlanner()
+def test_llm_planner_invalid_output_fails_without_deterministic_fallback():
+    planner = LLMInvestmentPlanner(FakeLLM("not json"))
 
-    history_plan = planner.plan(
-        "What price did I buy my recent AMZN shares at?",
-        mock_investment_policy(),
-    )
-    cash_plan = planner.plan("How much cash do I have now?", mock_investment_policy())
+    with pytest.raises(InvestmentPlanningUnavailableError) as exc_info:
+        planner.plan("Review my portfolio.", mock_investment_policy())
 
-    assert history_plan.freshness_requirement == "history_only"
-    assert history_plan.portfolio_request is not None
-    assert history_plan.portfolio_request.freshness_requirement == "history_only"
-    assert cash_plan.freshness_requirement == "latest_required"
+    assert "No deterministic fallback planner" in str(exc_info.value)
 
 
-def test_portfolio_request_carries_source_query():
-    query = "What price did I buy my recent AMZN shares at?"
+def test_unavailable_planner_raises_graceful_failure_message():
+    planner = UnavailableInvestmentPlanner("LLM planner is not configured.")
 
-    plan = DeterministicInvestmentPlanner().plan(query, mock_investment_policy())
+    with pytest.raises(InvestmentPlanningUnavailableError) as exc_info:
+        planner.plan("Review my portfolio.", mock_investment_policy())
 
-    assert plan.portfolio_request is not None
-    assert plan.portfolio_request.source_query == query
-
-
-def test_planner_emits_sentiment_task_for_broad_review():
-    plan = DeterministicInvestmentPlanner().plan(
-        "Review my portfolio and market sentiment.",
-        mock_investment_policy(),
-    )
-
-    assert plan.needs_sentiment_agent is True
-    assert plan.sentiment_task is not None
-    assert plan.sentiment_task.key_questions == ["Review my portfolio and market sentiment."]
-
-
-def test_planner_skips_sentiment_for_mechanical_portfolio_fact():
-    plan = DeterministicInvestmentPlanner().plan(
-        "How much effective cash do I have?",
-        mock_investment_policy(),
-    )
-
-    assert plan.needs_sentiment_agent is False
-    assert plan.sentiment_task is None
-
-
-def test_investment_planner_golden_prompts():
-    planner = DeterministicInvestmentPlanner()
-    cases = [
-        ("How much cash/effective cash do I have?", "portfolio_fact", False),
-        ("What price did I buy my recent AMZN shares at?", "what_changed", False),
-        ("Review my portfolio.", "review", True),
-        ("Check my portfolio concentration risk.", "risk_check", True),
-        ("What does recent research say about GOOG?", "deep_dive", True),
-    ]
-
-    for query, mode, needs_sentiment in cases:
-        plan = planner.plan(query, mock_investment_policy())
-        validate_investment_plan(plan)
-        assert plan.mode == mode
-        assert plan.needs_sentiment_agent is needs_sentiment
-        assert plan.needs_portfolio_agent is True
+    assert str(exc_info.value) == "LLM planner is not configured."
 
 
 def test_investment_plan_fixtures_validate():
@@ -147,4 +88,74 @@ def test_investment_plan_fixtures_validate():
     ]:
         payload = json.loads((FIXTURE_DIR / fixture_name).read_text(encoding="utf-8"))
         plan = InvestmentPlan.model_validate(payload)
+        validate_investment_plan(plan)
         assert plan.model_dump(mode="json")
+
+
+def _cash_plan_payload() -> dict:
+    return {
+        "mode": "portfolio_fact",
+        "needs_portfolio_agent": True,
+        "needs_sentiment_agent": False,
+        "portfolio_request": {
+            "task_intent": "portfolio_fact",
+            "asset_hints": [],
+            "time_range": "30d",
+            "freshness_requirement": "latest_required",
+            "output_goals": ["snapshot", "effective_cash"],
+            "source_query": "How much effective cash do I have?",
+            "warnings": [],
+        },
+        "sentiment_task": None,
+        "logical_asset_hints": [],
+        "themes": ["portfolio_fact"],
+        "time_horizon": "30d",
+        "freshness_requirement": "latest_required",
+        "answer_constraints": [
+            "no_trade_execution",
+            "no_order_preparation",
+            "no_exact_share_count",
+            "source_backed",
+            "portfolio_only",
+        ],
+        "warnings": [],
+    }
+
+
+def _recent_purchase_payload() -> dict:
+    return {
+        "mode": "what_changed",
+        "needs_portfolio_agent": True,
+        "needs_sentiment_agent": False,
+        "portfolio_request": {
+            "task_intent": "what_changed",
+            "asset_hints": [{"raw_input": "AMZN"}],
+            "time_range": "90d",
+            "freshness_requirement": "history_only",
+            "output_goals": ["snapshot", "position_changes"],
+            "source_query": "What price did I buy my recent AMZN shares at?",
+            "warnings": [],
+        },
+        "sentiment_task": None,
+        "logical_asset_hints": [{"raw_input": "AMZN"}],
+        "themes": ["position_changes"],
+        "time_horizon": "90d",
+        "freshness_requirement": "history_only",
+        "answer_constraints": [
+            "no_trade_execution",
+            "no_order_preparation",
+            "no_exact_share_count",
+            "source_backed",
+        ],
+        "warnings": [],
+    }
+
+
+class FakeLLM:
+    config = None
+
+    def __init__(self, text: str):
+        self.text = text
+
+    def generate_text(self, *args, **kwargs) -> str:
+        return self.text

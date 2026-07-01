@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -29,69 +30,50 @@ from moomail_finance_ai.portfolio_agent import (
     plan_portfolio_context,
 )
 from moomail_finance_ai.portfolio_evidence_planner import (
-    DeterministicPortfolioEvidencePlanner,
-    FallbackPortfolioEvidencePlanner,
+    LLMPortfolioEvidencePlanner,
+    PortfolioEvidencePlanningUnavailableError,
     PortfolioEvidencePlanValidationError,
     PortfolioEvidencePlanner,
     portfolio_evidence_plan_to_context_plan,
-    portfolio_task_to_request,
 )
 from moomail_finance_ai.sql_store import PortfolioSqlStore
 from moomail_finance_ai.agent_schemas import PortfolioTask
 
 
-def test_portfolio_task_interpreter_cash_weight():
-    task = interpret_portfolio_task("How much effective cash do I have?")
+def test_portfolio_task_interpreter_requires_llm_request():
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError) as exc_info:
+        interpret_portfolio_task("How much effective cash do I have?")
 
-    assert task.task_type == "portfolio_fact"
-    assert task.required_outputs == ["snapshot", "effective_cash"]
-    assert task.persistence_mode == "auto"
-    assert "cash" in task.focus_areas
+    assert "Deterministic direct-query interpretation has been removed" in str(exc_info.value)
 
 
-def test_cash_weight_plan_minimal_context():
+def test_portfolio_task_context_planner_requires_evidence_plan():
     task = PortfolioTask(
         task_type="portfolio_fact",
         source_query="How much effective cash do I have?",
         required_outputs=["snapshot", "effective_cash"],
     )
-    plan = plan_portfolio_context(task)
 
-    assert plan.needs_current_snapshot is True
-    assert plan.needs_sql_history is False
-    assert plan.history_queries == ["none"]
-    assert plan.metric_groups == ["effective_cash"]
-    assert plan.persist_observation is False
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError) as exc_info:
+        plan_portfolio_context(task)
 
-
-def test_what_changed_plan_requests_history():
-    task = interpret_portfolio_task("What changed in my portfolio allocation?")
-    plan = plan_portfolio_context(task)
-
-    assert task.task_type == "what_changed"
-    assert plan.needs_sql_history is True
-    assert plan.history_queries == [
-        "history_status",
-        "latest_state",
-        "portfolio_growth",
-        "allocation_history",
-        "position_state_changes",
-    ]
-    assert plan.persist_observation is True
-    assert plan.row_limit == 100
+    assert "Deterministic PortfolioTask-to-context planning has been removed" in str(
+        exc_info.value
+    )
 
 
-def test_purchase_cost_query_routes_to_position_change_history():
-    task = interpret_portfolio_task("What price were my recently purchased AMZN shares?")
-    plan = plan_portfolio_context(task)
+def test_direct_portfolio_agent_query_requires_bounded_request(tmp_path, recorded_opend_client):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    agent = _agent(store, recorded_opend_client, CapturingEvaluator())
 
-    assert task.task_type == "what_changed"
-    assert task.requested_tickers == ["AMZN"]
-    assert "position_state_changes" in plan.history_queries
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError) as exc_info:
+        agent.run("What price were my recently purchased AMZN shares?", mock_investment_policy())
+
+    assert "bounded PortfolioRequest" in str(exc_info.value)
 
 
 def test_portfolio_evidence_planner_protocol_returns_plan():
-    planner: PortfolioEvidencePlanner = DeterministicPortfolioEvidencePlanner()
+    planner: PortfolioEvidencePlanner = _fixture_evidence_planner()
     request = PortfolioRequest(
         task_intent="portfolio_fact",
         output_goals=["snapshot", "effective_cash"],
@@ -105,19 +87,9 @@ def test_portfolio_evidence_planner_protocol_returns_plan():
     assert plan.metric_groups == ["effective_cash"]
 
 
-def test_existing_portfolio_task_can_be_adapted_to_request():
-    task = interpret_portfolio_task("What price were my recently purchased AMZN shares?")
-
-    request = portfolio_task_to_request(task)
-
-    assert request.task_intent == "what_changed"
-    assert request.asset_hints[0].raw_input == "AMZN"
-    assert request.output_goals == [
-        "snapshot",
-        "performance_context",
-        "position_changes",
-        "sentiment_context_needs",
-    ]
+def test_existing_portfolio_task_adapter_is_removed():
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError):
+        interpret_portfolio_task("What price were my recently purchased AMZN shares?")
 
 
 def test_portfolio_planner_maps_request_to_evidence_subtasks():
@@ -130,7 +102,7 @@ def test_portfolio_planner_maps_request_to_evidence_subtasks():
         source_query="What changed in my AMZN position?",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(
+    plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         _asset_candidates(),
@@ -160,7 +132,7 @@ def test_portfolio_planner_warns_on_incoherent_output_goal():
         source_query="Show a position-change history as a portfolio fact.",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(
+    plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         [],
@@ -178,7 +150,7 @@ def test_portfolio_planner_resolves_assets_before_tool_scope():
         source_query="What changed in my AMZN position?",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(
+    plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         _asset_candidates(),
@@ -196,7 +168,7 @@ def test_portfolio_planner_uses_resolved_asset_id_for_history_scope():
         output_goals=["position_changes"],
         source_query="What changed in my AMZN position?",
     )
-    evidence_plan = DeterministicPortfolioEvidencePlanner().plan(
+    evidence_plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         _asset_candidates(),
@@ -216,7 +188,7 @@ def test_portfolio_planner_preserves_mixed_asset_and_ticker_history_scopes():
         output_goals=["position_changes"],
         source_query="What changed in AMZN and BRK.B?",
     )
-    evidence_plan = DeterministicPortfolioEvidencePlanner().plan(
+    evidence_plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         _asset_candidates(
@@ -247,7 +219,7 @@ def test_portfolio_planner_surfaces_unresolved_asset_warnings():
         source_query="Review my mystery holding in context.",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(
+    plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         [],
@@ -265,7 +237,7 @@ def test_no_hidden_ticker_extraction_when_request_has_asset_hints():
         source_query="What changed in AMZN? Ignore the MSFT text here.",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(
+    plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         _asset_candidates(
@@ -288,7 +260,7 @@ def test_portfolio_planner_selects_allowlisted_history_queries():
         source_query="Compare my portfolio exposures.",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(request, mock_investment_policy(), [])
+    plan = _fixture_evidence_planner().plan(request, mock_investment_policy(), [])
 
     assert set(plan.history_queries) <= {
         "none",
@@ -308,7 +280,7 @@ def test_portfolio_planner_selects_metric_groups():
         source_query="Check concentration risk.",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(request, mock_investment_policy(), [])
+    plan = _fixture_evidence_planner().plan(request, mock_investment_policy(), [])
 
     assert plan.metric_groups == ["allocation", "concentration", "effective_cash", "risk"]
 
@@ -321,7 +293,7 @@ def test_position_change_scope_is_asset_scoped_for_resolved_asset():
         source_query="What changed in my AMZN position?",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(
+    plan = _fixture_evidence_planner().plan(
         request,
         mock_investment_policy(),
         _asset_candidates(),
@@ -341,7 +313,11 @@ def test_position_change_plan_has_sql_tool_arguments(tmp_path, recorded_opend_cl
             ]
         )
     )
-    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    agent = PortfolioAgent(
+        gateway=gateway,
+        evaluator=CapturingEvaluator(),
+        evidence_planner=_fixture_evidence_planner(),
+    )
     request = PortfolioRequest(
         task_intent="what_changed",
         asset_hints=[AssetHint(raw_input="AMZN")],
@@ -392,7 +368,11 @@ def test_position_change_plan_converts_non_day_history_windows(
             ]
         )
     )
-    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    agent = PortfolioAgent(
+        gateway=gateway,
+        evaluator=CapturingEvaluator(),
+        evidence_planner=_fixture_evidence_planner(),
+    )
     request = PortfolioRequest(
         task_intent="what_changed",
         asset_hints=[AssetHint(raw_input="AMZN")],
@@ -432,7 +412,11 @@ def test_position_change_plan_executes_mixed_asset_and_ticker_scopes(
             ]
         )
     )
-    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    agent = PortfolioAgent(
+        gateway=gateway,
+        evaluator=CapturingEvaluator(),
+        evidence_planner=_fixture_evidence_planner(),
+    )
     request = PortfolioRequest(
         task_intent="what_changed",
         asset_hints=[AssetHint(raw_input="AMZN"), AssetHint(raw_input="BRK.B")],
@@ -508,7 +492,11 @@ def test_cached_ok_uses_fresh_sql_without_opend(tmp_path):
             ]
         )
     )
-    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    agent = PortfolioAgent(
+        gateway=gateway,
+        evaluator=CapturingEvaluator(),
+        evidence_planner=_fixture_evidence_planner(),
+    )
     request = PortfolioRequest(
         task_intent="portfolio_fact",
         freshness_requirement="cached_ok",
@@ -549,7 +537,11 @@ def test_history_only_query_skips_opend_and_scopes_position_changes_to_resolved_
             ]
         )
     )
-    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    agent = PortfolioAgent(
+        gateway=gateway,
+        evaluator=CapturingEvaluator(),
+        evidence_planner=_fixture_evidence_planner(),
+    )
     request = PortfolioRequest(
         task_intent="what_changed",
         asset_hints=[AssetHint(raw_input="AAPL")],
@@ -592,7 +584,11 @@ def test_stale_cache_returns_warning_in_evidence_packet(tmp_path):
             ]
         )
     )
-    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    agent = PortfolioAgent(
+        gateway=gateway,
+        evaluator=CapturingEvaluator(),
+        evidence_planner=_fixture_evidence_planner(),
+    )
     request = PortfolioRequest(
         task_intent="portfolio_fact",
         freshness_requirement="cached_ok",
@@ -628,12 +624,12 @@ def test_portfolio_planner_sets_current_value_dependency_and_persistence():
         source_query="Review my portfolio.",
     )
 
-    history_plan = DeterministicPortfolioEvidencePlanner().plan(
+    history_plan = _fixture_evidence_planner().plan(
         history_request,
         mock_investment_policy(),
         [],
     )
-    review_plan = DeterministicPortfolioEvidencePlanner().plan(
+    review_plan = _fixture_evidence_planner().plan(
         review_request,
         mock_investment_policy(),
         [],
@@ -645,24 +641,13 @@ def test_portfolio_planner_sets_current_value_dependency_and_persistence():
     assert review_plan.persistence_mode == "persist"
 
 
-def test_fallback_portfolio_planner_matches_current_cash_query_behavior():
-    evidence_plan = FallbackPortfolioEvidencePlanner().plan_from_query(
-        "How much effective cash do I have?",
-        mock_investment_policy(),
-        [],
-    )
-    context_plan = portfolio_evidence_plan_to_context_plan(evidence_plan)
-
-    assert evidence_plan.task_intent == "portfolio_fact"
-    assert evidence_plan.history_queries == ["none"]
-    assert evidence_plan.metric_groups == ["effective_cash"]
-    assert evidence_plan.persistence_mode == "skip"
-    assert context_plan.needs_sql_history is False
-    assert context_plan.persist_observation is False
+def test_fallback_portfolio_planner_has_been_removed():
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError):
+        interpret_portfolio_task("How much effective cash do I have?")
 
 
 def test_portfolio_evidence_plan_has_no_sentiment_routing_or_final_thesis():
-    plan = DeterministicPortfolioEvidencePlanner().plan(
+    plan = _fixture_evidence_planner().plan(
         PortfolioRequest(
             task_intent="full_review",
             output_goals=["snapshot", "sentiment_context_needs"],
@@ -691,7 +676,7 @@ def test_portfolio_planner_selects_pattern_detectors():
         source_query="Review cash, drift, and position changes.",
     )
 
-    plan = DeterministicPortfolioEvidencePlanner().plan(request, mock_investment_policy(), [])
+    plan = _fixture_evidence_planner().plan(request, mock_investment_policy(), [])
 
     assert {
         "concentration",
@@ -741,14 +726,21 @@ def test_portfolio_planner_rejects_required_unresolved_asset_before_tools():
     )
 
     with pytest.raises(PortfolioEvidencePlanValidationError):
-        DeterministicPortfolioEvidencePlanner().plan(request, mock_investment_policy(), [])
+        _fixture_evidence_planner().plan(request, mock_investment_policy(), [])
 
 
-def test_full_review_plan_matches_broad_portfolio_context():
-    task = interpret_portfolio_task("Review my portfolio risk")
-    plan = plan_portfolio_context(task)
+def test_full_review_evidence_plan_matches_broad_portfolio_context():
+    evidence_plan = _fixture_evidence_planner().plan(
+        PortfolioRequest(
+            task_intent="full_review",
+            output_goals=["snapshot", "allocation_context", "risk_context"],
+            source_query="Review my portfolio risk",
+        ),
+        mock_investment_policy(),
+        [],
+    )
+    plan = portfolio_evidence_plan_to_context_plan(evidence_plan)
 
-    assert task.task_type == "full_review"
     assert plan.needs_current_snapshot is True
     assert plan.needs_sql_history is True
     assert plan.history_queries == [
@@ -772,8 +764,17 @@ def test_cash_query_execution_skips_history_and_persistence(tmp_path, recorded_o
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     evaluator = CapturingEvaluator()
     agent = _agent(store, recorded_opend_client, evaluator)
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=["snapshot", "effective_cash"],
+        source_query="How much effective cash do I have?",
+    )
 
-    result = agent.run("How much effective cash do I have?", mock_investment_policy())
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert result.context_plan is not None
     assert result.context_plan.needs_sql_history is False
@@ -789,10 +790,7 @@ def test_cash_query_execution_skips_history_and_persistence(tmp_path, recorded_o
         and "not_needed_for_cash_query" in call
         for call in result.tool_calls
     )
-    assert any(
-        call.startswith(f"planned:{OPEND_SERVER}:opend_get_portfolio_context")
-        for call in result.tool_calls
-    )
+    assert _actual("opend_get_portfolio_context", server=OPEND_SERVER) in result.tool_calls
     assert evaluator.context["history_context"].history_status["skipped"] is True
 
 
@@ -802,8 +800,17 @@ def test_what_changed_execution_reads_growth_and_allocation_history(
 ):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     agent = _agent(store, recorded_opend_client, CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        output_goals=["snapshot", "position_changes"],
+        source_query="What changed in my portfolio allocation?",
+    )
 
-    result = agent.run("What changed in my portfolio allocation?", mock_investment_policy())
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert result.context_plan is not None
     assert result.context_plan.needs_sql_history is True
@@ -836,11 +843,20 @@ def test_named_ticker_change_query_scopes_position_history_tool(
     agent = PortfolioAgent(
         gateway=gateway,
         evaluator=CapturingEvaluator(),
+        evidence_planner=_fixture_evidence_planner(),
     )
 
     result = agent.run(
         "What price were my recently purchased AMZN shares?",
         mock_investment_policy(),
+        portfolio_request=PortfolioRequest(
+            task_intent="what_changed",
+            asset_hints=[AssetHint(raw_input="AMZN")],
+            time_range="90d",
+            output_goals=["position_changes"],
+            source_query="What price were my recently purchased AMZN shares?",
+        ),
+        asset_candidates=_asset_candidates(),
     )
 
     position_change_calls = [
@@ -853,14 +869,14 @@ def test_named_ticker_change_query_scopes_position_history_tool(
     assert result.context_plan is not None
     assert result.context_plan.tickers == ["AMZN"]
     assert len(position_change_calls) == 1
-    assert position_change_calls[0]["ticker"] == "AMZN"
+    assert position_change_calls[0]["asset_id"] == "asset_amzn"
     assert position_change_calls[0]["lookback_days"] == 90.0
     assert position_change_calls[0]["until"] == result.snapshot.as_of.isoformat()
     assert any(
         call.startswith(
             f"actual_detail:{PORTFOLIO_SQL_SERVER}:portfolio_sql_get_position_state_changes"
         )
-        and "ticker=AMZN" in call
+        and "asset_id=asset_amzn" in call
         for call in result.tool_calls
     )
 
@@ -934,13 +950,18 @@ def test_explicit_persist_skip_does_not_write_daily_value_snapshot(
 ):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     agent = _agent(store, recorded_opend_client, CapturingEvaluator())
-    task = PortfolioTask(
-        task_type="full_review",
+    request = PortfolioRequest(
+        task_intent="full_review",
+        output_goals=["snapshot", "portfolio_patterns"],
         source_query="Review my portfolio without storing this observation.",
-        persistence_mode="skip",
+        warnings=["skip_persistence"],
     )
 
-    result = agent.run(task.source_query, mock_investment_policy(), portfolio_task=task)
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert result.context_plan is not None
     assert result.context_plan.needs_sql_history is True
@@ -962,8 +983,17 @@ def test_portfolio_trace_includes_planned_actual_and_skipped_tools(
 ):
     store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
     agent = _agent(store, recorded_opend_client, CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=["snapshot", "effective_cash"],
+        source_query="How much effective cash do I have?",
+    )
 
-    result = agent.run("How much effective cash do I have?", mock_investment_policy())
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
 
     assert any(call.startswith("planned:") for call in result.tool_calls)
     assert any(call.startswith("skipped:") for call in result.tool_calls)
@@ -986,6 +1016,7 @@ def _agent(store, recorded_opend_client, evaluator):
             ]
         ),
         evaluator=evaluator,
+        evidence_planner=_fixture_evidence_planner(),
     )
 
 
@@ -1003,6 +1034,114 @@ def _asset_candidates(*extra_candidates: PortfolioAssetCandidate) -> list[Portfo
 
 def _actual(tool_name: str, *, server: str = PORTFOLIO_SQL_SERVER) -> str:
     return f"{server}:{tool_name}"
+
+
+def _fixture_evidence_planner() -> LLMPortfolioEvidencePlanner:
+    return LLMPortfolioEvidencePlanner(FakePortfolioPlannerLLM())
+
+
+class FakePortfolioPlannerLLM:
+    config = None
+
+    def generate_text(self, prompt: str, *args, **kwargs) -> str:
+        context = json.loads(prompt)
+        return json.dumps(_evidence_payload_for_request(context["portfolio_request"]))
+
+
+def _evidence_payload_for_request(request: dict[str, Any]) -> dict[str, Any]:
+    goals = set(request.get("output_goals") or [])
+    task_intent = request["task_intent"]
+    freshness = request.get("freshness_requirement") or "cached_ok"
+    needs_history = (
+        task_intent in {"full_review", "deep_dive", "compare", "what_changed"}
+        or "position_changes" in goals
+        or "performance_context" in goals
+    )
+    history_queries = (
+        [
+            "history_status",
+            "latest_state",
+            "portfolio_growth",
+            "allocation_history",
+            "position_state_changes",
+        ]
+        if needs_history
+        else ["none"]
+    )
+    warnings = []
+    if "sentiment_context_needs" in goals:
+        warnings.append(
+            "Portfolio evidence planner does not route Sentiment Agent; "
+            "Investment Agent owns sentiment routing."
+        )
+    if task_intent == "portfolio_fact" and "position_changes" in goals:
+        warnings.append(
+            "position_changes was requested for a portfolio_fact; evidence is scoped to "
+            "portfolio-only history."
+        )
+    metric_groups = _metric_groups_for_request(task_intent, goals)
+    return {
+        "task_intent": task_intent,
+        "resolved_assets": [],
+        "history_queries": history_queries,
+        "metric_groups": metric_groups,
+        "needs_current_values": freshness != "history_only",
+        "history_window": request.get("time_range") or "30d",
+        "freshness_requirement": freshness,
+        "position_change_scope": (
+            "asset_scoped"
+            if request.get("asset_hints") and "position_changes" in goals
+            else "portfolio_wide"
+            if "position_changes" in goals
+            else "none"
+        ),
+        "persistence_mode": _persistence_for_request(request, task_intent, freshness),
+        "pattern_detectors": _pattern_detectors_for_request(goals),
+        "warnings": warnings,
+    }
+
+
+def _metric_groups_for_request(task_intent: str, goals: set[str]) -> list[str]:
+    if task_intent in {"full_review", "deep_dive", "compare"}:
+        return ["allocation", "concentration", "effective_cash", "risk", "performance"]
+    if task_intent == "what_changed" or "position_changes" in goals:
+        return ["performance"]
+    if task_intent == "risk_check" or "risk_context" in goals:
+        return ["allocation", "concentration", "effective_cash", "risk"]
+    if "effective_cash" in goals:
+        return ["effective_cash"]
+    if "allocation_context" in goals:
+        return ["allocation"]
+    return ["allocation"]
+
+
+def _persistence_for_request(request: dict[str, Any], task_intent: str, freshness: str) -> str:
+    if "skip_persistence" in (request.get("warnings") or []):
+        return "skip"
+    if freshness == "history_only" or task_intent == "portfolio_fact":
+        return "skip"
+    if task_intent in {"full_review", "what_changed", "deep_dive", "compare"}:
+        return "persist"
+    return "auto"
+
+
+def _pattern_detectors_for_request(goals: set[str]) -> list[str]:
+    detectors = ["stale_data", "unsupported_quote_warnings"]
+    if {"allocation_context", "risk_context"} & goals:
+        detectors.extend(["concentration", "allocation_drift"])
+    if "effective_cash" in goals:
+        detectors.append("cash_effective_cash")
+    if "position_changes" in goals:
+        detectors.extend(
+            [
+                "large_position_changes",
+                "average_cost_shifts",
+                "portfolio_outliers",
+            ]
+        )
+    if "sentiment_context_needs" in goals:
+        detectors.append("sentiment_context_needed")
+    return list(dict.fromkeys(detectors))
 
 
 class CapturingEvaluator:

@@ -8,14 +8,16 @@ from moomail_finance_ai.portfolio_agent import (
     PortfolioEvaluation,
     PortfolioHistoryContext,
     build_effective_cash_summary,
-    plan_portfolio_context,
 )
 from moomail_finance_ai.sentiment_agent_stub import SentimentAgentStub
 from moomail_finance_ai.investment_agent import InvestmentAgent
 from moomail_finance_ai.agent_schemas import (
+    InvestmentPlan,
+    PortfolioContextPlan,
     PortfolioEvidencePacket,
     PortfolioRequest,
     PortfolioTask,
+    SentimentTask,
     TraceEvent,
 )
 from moomail_finance_ai.agent_trace import sanitize_trace_event, trace_event_to_public_dict
@@ -49,6 +51,7 @@ def test_trace_includes_graph_tool_sentiment_and_guardrail_events():
         portfolio_agent=TracePortfolioAgent(),
         sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
+        planner=TraceInvestmentPlanner(),
     )
 
     state = agent.run("Review my portfolio.", status_callback=emitted.append)
@@ -98,6 +101,7 @@ def test_agent_emits_error_trace_when_graph_fails():
         portfolio_agent=ExplodingPortfolioAgent(),
         sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
+        planner=TraceInvestmentPlanner(),
     )
 
     try:
@@ -117,6 +121,7 @@ def test_terminal_summary_includes_guardrails_and_trace():
         portfolio_agent=TracePortfolioAgent(),
         sentiment_agent=SentimentAgentStub(),
         ips=mock_investment_policy(),
+        planner=TraceInvestmentPlanner(),
     )
     state = agent.run("Review my portfolio.")
 
@@ -152,10 +157,7 @@ class TracePortfolioAgent:
         return PortfolioAgentResult(
             run_id="trace_portfolio_run",
             portfolio_id=packet.portfolio_id,
-            context_plan=plan_portfolio_context(
-                portfolio_task
-                or PortfolioTask(task_type="full_review", source_query="Review")
-            ),
+            context_plan=_trace_context_plan(portfolio_task),
             evidence_packet=PortfolioEvidencePacket(
                 portfolio_id=packet.portfolio_id,
                 task_intent=(portfolio_task.task_type if portfolio_task else "full_review"),
@@ -193,6 +195,48 @@ class TracePortfolioAgent:
             status_events=[],
             warnings=[],
         )
+
+
+class TraceInvestmentPlanner:
+    def plan(self, query: str, ips) -> InvestmentPlan:
+        del ips
+        return InvestmentPlan(
+            mode="review",
+            needs_portfolio_agent=True,
+            needs_sentiment_agent=True,
+            portfolio_request=PortfolioRequest(
+                task_intent="full_review",
+                output_goals=[
+                    "snapshot",
+                    "allocation_context",
+                    "risk_context",
+                    "portfolio_patterns",
+                    "sentiment_context_needs",
+                ],
+                source_query=query,
+            ),
+            sentiment_task=SentimentTask(key_questions=[query]),
+            themes=["portfolio_review"],
+        )
+
+
+def _trace_context_plan(portfolio_task: PortfolioTask | None) -> PortfolioContextPlan:
+    return PortfolioContextPlan(
+        needs_current_snapshot=True,
+        needs_sql_history=True,
+        history_queries=[
+            "history_status",
+            "latest_state",
+            "portfolio_growth",
+            "allocation_history",
+            "position_state_changes",
+        ],
+        tickers=list(portfolio_task.requested_tickers) if portfolio_task else [],
+        metric_groups=["allocation", "concentration", "effective_cash", "risk", "performance"],
+        persist_observation=True,
+        history_window=portfolio_task.history_window if portfolio_task else "30d",
+        row_limit=100,
+    )
 
 
 class ExplodingPortfolioAgent:

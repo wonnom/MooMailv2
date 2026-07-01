@@ -12,19 +12,23 @@ broker-specific symbols.
 
 ## Status
 
-Complete as of 2026-06-25.
+Complete as of 2026-06-25. Updated on 2026-07-01 to remove the
+deterministic keyword fallback from runtime planning.
 
 ## Implemented In
 
 - `src/moomail_finance_ai/investment_planner.py`
-  - Added the `InvestmentPlanner` protocol, deterministic fallback planner,
-    planner validation, and adapter from V1.4 `InvestmentPlan` to the existing
-    `InvestmentQueryPlan`/`PortfolioTask` runtime path.
+  - Added the `InvestmentPlanner` protocol, `LLMInvestmentPlanner`,
+    `UnavailableInvestmentPlanner`, planner validation, and adapter from V1.4
+    `InvestmentPlan` to the existing `InvestmentQueryPlan`/`PortfolioTask`
+    runtime path.
   - Planner emits logical `AssetHint` values, not OpenD-prefixed symbols or SQL
     asset ids.
-  - Planner maps cash/fact, recent purchase/history, full review, risk,
+  - The LLM planner maps cash/fact, recent purchase/history, full review, risk,
     comparison, and sentiment/research prompts into bounded `PortfolioRequest`
-    and optional `SentimentTask` contracts.
+    and optional `SentimentTask` contracts. If the LLM planner is unavailable or
+    emits invalid JSON, the agent returns an explicit planning-unavailable
+    report instead of falling back to keyword routing.
 - `src/moomail_finance_ai/investment_agent.py`
   - Replaced the graph's classifier entry with `load_ips -> plan_investment ->
     validate_plan -> call_portfolio`.
@@ -52,7 +56,9 @@ Complete as of 2026-06-25.
    asset hints and output goals.
 3. Broad investment queries can request both Portfolio Agent and Sentiment Agent
    stub without the Portfolio Agent deciding sentiment need.
-4. The deterministic fallback planner remains available for tests/offline mode.
+4. No deterministic keyword planner is used for tests/offline mode; tests inject
+   explicit fake planner outputs and runtime returns graceful failure if the LLM
+   planner is unavailable.
 5. Planner decisions are visible in sanitized trace/status output.
 
 ## Dependency Graph
@@ -61,8 +67,8 @@ Complete as of 2026-06-25.
 V1.4.0 contracts
   ├── V1.4.1 validation
   │   ├── A. Add Investment planner interface
-  │   ├── B. Implement deterministic fallback planner
-  │   ├── C. Optional structured-output LLM planner shell
+  │   ├── B. Implement LLM structured-output planner
+  │   ├── C. Return graceful failure when LLM planning is unavailable
   │   ├── D. Validate planner output
   │   ├── E. Integrate plan into LangGraph nodes
   │   ├── F. Route PortfolioRequest and SentimentTask
@@ -77,7 +83,7 @@ V1.4.0 contracts
 | Task | Description | Depends on | Test |
 | --- | --- | --- | --- |
 | A | Define a planner interface, for example `InvestmentPlanner.plan(query, ips) -> InvestmentPlan`. | V1.4.0 | `test_investment_planner_protocol_returns_plan` |
-| B | Implement a deterministic fallback planner that mirrors current supported modes while outputting typed contracts. | A | `test_fallback_planner_returns_portfolio_request_for_portfolio_query` |
+| B | Implement an LLM structured-output planner that emits typed contracts. | A | `test_llm_investment_planner_protocol_returns_plan` |
 | D | Validate planner output with the V1.4 plan validator before any subagent call. | V1.4.1, B | `test_investment_agent_validates_plan_before_subagent_calls` |
 | E | Replace the current query-classification node with a planner node in `InvestmentAgent`. | A, B, D | `test_investment_agent_emits_plan_before_portfolio_call` |
 
@@ -103,9 +109,9 @@ V1.4.0 contracts
 
 | Task | Description | Depends on | Test |
 | --- | --- | --- | --- |
-| C | Add a structured-output LLM planner shell only if it can be disabled cleanly in tests. | A | Optional: `test_llm_planner_can_be_replaced_with_fake` |
+| C | Add an unavailable-planner path that returns graceful failure instead of deterministic keyword routing. | A | `test_unavailable_planner_raises_graceful_failure_message` |
 | G | Emit trace entries for planner start, planner output summary, validation result, and subagent routing. | E, D | `test_investment_planner_trace_is_sanitized` |
-| H | Add golden prompt cases for cash query, AMZN recent purchase, full review, risk check, and market-sentiment query. | B, F, G | `test_investment_planner_golden_prompts` |
+| H | Add explicit structured-output fixtures for cash query, AMZN recent purchase, full review, risk check, and market-sentiment query. | B, F, G | `test_investment_plan_fixtures_validate` |
 
 ## Tests To Add Or Update
 

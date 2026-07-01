@@ -1462,7 +1462,11 @@ Verification:
 - `.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_portfolio_planner.py tests/test_investment_agent.py tests/test_agent_trace.py tests/test_chat_app.py -q`
   passed with `73 passed, 1 warning`.
 - `.venv/bin/python -m pytest tests --ignore=tests/live -q` passed with
-  `246 passed, 1 warning`.
+  `250 passed, 1 warning` after the no-mistakes review fix commit.
+- `no-mistakes axi` review found planner-contract and direct-Portfolio-call
+  issues; the fix commit `no-mistakes(review): Validate planner contracts and
+  chat routing` addressed them, but the no-mistakes run itself could not
+  continue because the review worker ran out of workspace credits.
 
 ## Future Update Template
 

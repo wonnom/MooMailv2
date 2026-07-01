@@ -56,6 +56,7 @@ class PortfolioAgentProtocol(Protocol):
         *,
         status_callback=None,
         portfolio_task: PortfolioTask | None = None,
+        portfolio_request=None,
     ) -> PortfolioAgentResult: ...
 
 
@@ -212,8 +213,12 @@ class InvestmentAgent:
             state.query_plan.portfolio_task.source_query,
             state.ips,
             portfolio_task=state.query_plan.portfolio_task,
+            portfolio_request=(
+                state.investment_plan.portfolio_request if state.investment_plan else None
+            ),
         )
         state.portfolio_packet = adapt_portfolio_result_to_evidence_packet(result, state.ips)
+        self._emit_portfolio_evidence_trace(state, result)
         self._emit_portfolio_tool_trace(state, state.portfolio_packet.tool_calls)
         return state
 
@@ -388,7 +393,36 @@ class InvestmentAgent:
                 input_summary=event["input_summary"],
                 output_summary=event["output_summary"],
                 metadata=event["metadata"],
+                phase="deterministic_tool_execution",
             )
+
+    def _emit_portfolio_evidence_trace(
+        self,
+        state: InvestmentAgentState,
+        result: PortfolioAgentResult,
+    ) -> None:
+        if result.evidence_plan is not None:
+            self._emit(
+                state,
+                "portfolio_evidence_plan_ready",
+                "Portfolio Agent returned a bounded evidence plan.",
+                phase="portfolio_evidence_planner",
+                metadata={
+                    "portfolio_task_intent": result.evidence_plan.task_intent,
+                    "asset_hint_count": len(result.evidence_plan.resolved_assets),
+                    "warning_count": len(result.evidence_plan.warnings),
+                },
+            )
+        self._emit(
+            state,
+            "portfolio_evidence_packet_ready",
+            "Portfolio Agent returned separated deterministic evidence.",
+            phase="deterministic_tool_execution",
+            metadata={
+                "portfolio_task_intent": result.evidence_packet.task_intent,
+                "warning_count": len(result.evidence_packet.warnings),
+            },
+        )
 
 
 def classify_investment_query(query: str) -> InvestmentQueryPlan:
@@ -419,6 +453,7 @@ def adapt_portfolio_result_to_evidence_packet(
     return PortfolioAgentEvidencePacket(
         portfolio_id=result.portfolio_id,
         context_plan=context_plan,
+        evidence_packet=result.evidence_packet,
         base_packet=result.portfolio_packet,
         history_context=result.history_context.model_dump(mode="json"),
         effective_cash=result.effective_cash.model_dump(mode="json"),
@@ -466,7 +501,10 @@ def synthesize_final_report(state: InvestmentAgentState) -> FinalReport:
         recommendations=recommendations,
         missing_data=missing_data,
         assumptions=[
-            "The Investment Agent uses a thin LangGraph supervisor with a Portfolio Agent subagent.",
+            (
+                "The Investment Agent uses a thin LangGraph supervisor with a "
+                "Portfolio Agent subagent."
+            ),
             "Neo4j GraphRAG and Pinecone memory are intentionally not connected in Task 2.",
         ],
         citations=[],
@@ -667,6 +705,11 @@ def _portfolio_analysis_payload(state: InvestmentAgentState) -> dict:
         return {}
     payload = {
         "context_plan": state.portfolio_packet.context_plan.model_dump(mode="json"),
+        "evidence_packet": (
+            state.portfolio_packet.evidence_packet.model_dump(mode="json")
+            if state.portfolio_packet.evidence_packet
+            else None
+        ),
         "history_context": state.portfolio_packet.history_context,
         "effective_cash": state.portfolio_packet.effective_cash,
         "sentiment_candidates": [

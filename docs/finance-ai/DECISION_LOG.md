@@ -31,7 +31,7 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-25
+Date: 2026-06-29
 
 Current status:
 
@@ -50,10 +50,11 @@ Current status:
 - V1.3.4 agent gateway migration is complete: Portfolio Agent and Investment
   Agent now use the backend `MCPToolGateway`; `StdioMCPToolGateway` is the
   default local runtime and `DirectToolGateway` remains test/dev parity support.
-- V1.4.0 through V1.4.3 are complete: typed planner contracts, deterministic
-  asset resolution/validation, live Investment Agent `InvestmentPlan`
-  planning, and Portfolio Agent `PortfolioEvidencePlan` planning are
-  implemented. Direct evidence-packet execution remains V1.4.4 work.
+- V1.4 is complete: typed planner contracts, deterministic asset
+  resolution/validation, live Investment Agent `InvestmentPlan` planning,
+  Portfolio Agent `PortfolioEvidencePlan` planning, deterministic evidence-plan
+  execution, separated `PortfolioEvidencePacket` output, and trace/evaluation
+  closeout are implemented.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1.1 task tracking lives under `docs/finance-ai/V1_1_Tasks/`.
@@ -75,7 +76,7 @@ Current status:
 | V1.3.2 | Complete | Gateway modes: direct parity adapter and stdio MCP client runtime with permission profiles. |
 | V1.3.3 | Complete | Deterministic portfolio data lane for backend APIs and frontend dashboard refresh independent from agent runs. |
 | V1.3.4 | Complete | Portfolio Agent and Investment Agent migrated to the gateway runtime; legacy custom stdio removed from runtime code. |
-| V1.4 | In progress | V1.4.0 through V1.4.3 complete; direct Portfolio evidence-packet execution and final trace/evaluation closeout remain planned. |
+| V1.4 | Complete | Structured Investment/Portfolio planning, deterministic asset resolution, policy-aware evidence execution, separated evidence packets, trace/evaluation closeout, and docs/tests. |
 
 ## Timeline
 
@@ -1325,7 +1326,7 @@ Decision:
 - Preserve the current keyword/rule Portfolio Agent behavior as an explicit
   fallback planner rather than hidden inline extraction inside execution.
 - Keep execution on the existing deterministic `PortfolioContextPlan` adapter
-  until V1.4.4 builds direct evidence-plan execution and
+  for V1.4.3; V1.4.4 later built direct evidence-plan execution and
   `PortfolioEvidencePacket` assembly.
 
 Actual implementation:
@@ -1352,8 +1353,81 @@ Verification:
 
 Remaining:
 
-- V1.4.4 must execute `PortfolioEvidencePlan` directly into a separated
-  `PortfolioEvidencePacket` rather than adapting through `PortfolioContextPlan`.
+- No remaining exit criteria for V1.4.3. V1.4.4 later completed direct
+  evidence-plan execution and separated `PortfolioEvidencePacket` assembly.
+
+## V1.4.4 and V1.4.5 Closeout: Evidence Execution and Trace/Evaluation Gate
+
+Date: 2026-06-29
+
+Decision:
+
+- Execute bounded `PortfolioEvidencePlan` runs through deterministic freshness
+  and allowlisted-tool policy, then return a separated
+  `PortfolioEvidencePacket` while preserving compatibility result fields.
+- Wire the live Investment Agent to pass its typed `PortfolioRequest` into the
+  Portfolio Agent at runtime.
+- Treat V1.4.5 as a release gate: add trace/evaluation regressions, prove the
+  deterministic dashboard lane remains independent, update docs, and run the
+  full non-live suite.
+
+Actual implementation:
+
+- `PortfolioAgent.run` now plans bounded evidence from `PortfolioRequest`,
+  enforces `latest_required`, `cached_ok`, and `history_only` policy
+  deterministically, reads SQL latest/history when allowed, calls OpenD only
+  when policy requires or cache fallback needs it, and returns
+  `PortfolioAgentResult.evidence_packet`.
+- `PortfolioEvidencePacket` separates facts, derived metrics, position changes,
+  deterministic detected patterns, portfolio-only interpretation, limitations,
+  sentiment-context needs, warnings, and tool refs.
+- Stable detector thresholds live in `PORTFOLIO_PATTERN_THRESHOLDS`.
+- Investment Agent calls pass the typed `PortfolioRequest` into the Portfolio
+  Agent and emit sanitized `portfolio_evidence_plan_ready`,
+  `portfolio_evidence_packet_ready`, and deterministic tool-execution trace
+  phases.
+- Chat API payloads expose the evidence packet under portfolio analysis.
+- Tests cover cached SQL without OpenD, history-only no-OpenD execution,
+  stale-cache warnings, asset-scoped position-change calls, evidence packet
+  sections, pattern thresholds, Portfolio Agent LLM input boundaries, dashboard
+  no-agent/no-LLM independence, and golden recent-purchase handoff behavior.
+
+Tradeoffs accepted:
+
+- Legacy `PortfolioContextPlan`, `PortfolioAgentPacket`, and `PortfolioTask`
+  compatibility fields remain because existing reports, frontend payloads, and
+  tests still consume them.
+- The Portfolio Agent can reuse SQL latest-state reconstruction for cached
+  evidence runs. If no fresh SQL snapshot exists and OpenD is unavailable, it
+  returns explicit stale/missing limitations instead of inventing current
+  values.
+- Portfolio-only LLM evaluation remains optional explanation over collected
+  evidence; it still does not own finance math, freshness decisions, SQL reads,
+  OpenD calls, persistence, or sentiment routing.
+
+Verification:
+
+- `.venv/bin/python -m pytest tests/test_portfolio_agent.py tests/test_portfolio_planner.py -q`
+  passed with `51 passed`.
+- `.venv/bin/python -m pytest tests/test_portfolio_data_service.py tests/test_mcp_gateway.py -q`
+  passed with `11 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests/test_mcp_tool_contracts.py -q` passed with
+  `6 passed`.
+- `.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_asset_resolver.py -q`
+  passed with `23 passed`.
+- `.venv/bin/python -m pytest tests/test_investment_agent.py tests/test_chat_app.py -q`
+  passed with `22 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests/test_portfolio_data_service.py -q` passed
+  with `7 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests --ignore=tests/live -q` passed with
+  `251 passed, 1 warning`.
+- `git diff --check` passed.
+
+Remaining:
+
+- No remaining V1.4 exit criteria. Future work moves to V1.5+ tracks:
+  structured-output LLM planners, richer Investment Agent synthesis, real
+  Sentiment Agent GraphRAG retrieval, Pinecone memory, and frontend redesign.
 
 ## Future Update Template
 

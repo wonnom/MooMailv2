@@ -21,6 +21,7 @@ from moomail_finance_ai.investment_agent import (
 from moomail_finance_ai.investment_planner import InvestmentPlanValidationError
 from moomail_finance_ai.agent_schemas import (
     InvestmentPlan,
+    PortfolioEvidencePacket,
     PortfolioRequest,
     PortfolioTask,
     SentimentPacket,
@@ -198,6 +199,28 @@ def test_user_named_sentiment_query_scopes_requested_ticker():
     assert sentiment_agent.last_task.tickers == ["GOOG"]
 
 
+def test_golden_recent_purchase_query_uses_bounded_history_request():
+    portfolio_agent = FakePortfolioAgent()
+    sentiment_agent = FakeSentimentAgent()
+    agent = InvestmentAgent(
+        portfolio_agent=portfolio_agent,
+        sentiment_agent=sentiment_agent,
+        ips=mock_investment_policy(),
+    )
+
+    state = agent.run("What price did I buy my recent AMZN shares at?")
+
+    assert portfolio_agent.calls == 1
+    assert portfolio_agent.last_request is not None
+    assert portfolio_agent.last_request.task_intent == "what_changed"
+    assert portfolio_agent.last_request.asset_hints[0].raw_input == "AMZN"
+    assert portfolio_agent.last_request.freshness_requirement == "history_only"
+    assert "position_changes" in portfolio_agent.last_request.output_goals
+    assert sentiment_agent.calls == 0
+    assert state.portfolio_packet is not None
+    assert state.portfolio_packet.evidence_packet is not None
+
+
 def test_streamed_status_events_include_graph_steps():
     emitted = []
     agent = InvestmentAgent(
@@ -250,6 +273,7 @@ class FakePortfolioAgent:
         self.calls = 0
         self.queries: list[str] = []
         self.last_task: PortfolioTask | None = None
+        self.last_request: PortfolioRequest | None = None
         self.candidate_weights = candidate_weights
 
     def run(
@@ -259,11 +283,13 @@ class FakePortfolioAgent:
         *,
         status_callback=None,
         portfolio_task: PortfolioTask | None = None,
+        portfolio_request: PortfolioRequest | None = None,
     ) -> PortfolioAgentResult:
         del status_callback
         self.calls += 1
         self.queries.append(query)
         self.last_task = portfolio_task
+        self.last_request = portfolio_request
         packet = mock_portfolio_packet()
         if not self.candidate_weights:
             holdings = [
@@ -286,6 +312,23 @@ class FakePortfolioAgent:
             context_plan=plan_portfolio_context(
                 portfolio_task
                 or PortfolioTask(task_type="full_review", source_query=query)
+            ),
+            evidence_packet=PortfolioEvidencePacket(
+                portfolio_id=packet.portfolio_id,
+                task_intent=(portfolio_task.task_type if portfolio_task else "full_review"),
+                facts={
+                    "snapshot": {
+                        "portfolio_id": packet.portfolio_id,
+                        "holding_count": len(packet.snapshot.holdings),
+                    }
+                },
+                derived_metrics={
+                    "metrics": [metric.model_dump(mode="json") for metric in metrics]
+                },
+                limitations=[
+                    "No sentiment or fundamental evidence was reviewed by Portfolio Agent."
+                ],
+                tool_refs=["fake_portfolio_agent"],
             ),
             snapshot=packet.snapshot,
             portfolio_packet=packet,

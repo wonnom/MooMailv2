@@ -47,11 +47,12 @@ Implemented and useful today:
   latest SQL-backed dashboard snapshots, manual refresh, metrics, and canonical
   SQL history updates without invoking agents or LLMs.
 - `PortfolioAgent`: bounded-planning Python Portfolio Agent that can accept a
-  bounded `PortfolioRequest`, produce a `PortfolioEvidencePlan`, adapt it into
-  the current `PortfolioContextPlan`, execute selected MCP tools
-  deterministically, then ask an LLM evaluator to answer portfolio-only
-  questions from the collected packet. Legacy `PortfolioTask` callers use an
-  explicit fallback planner.
+  bounded `PortfolioRequest`, produce a `PortfolioEvidencePlan`, enforce
+  deterministic freshness/tool policy, execute selected MCP tools
+  deterministically, assemble a separated `PortfolioEvidencePacket`, then ask
+  an LLM evaluator to answer portfolio-only questions from collected evidence.
+  Legacy `PortfolioTask` callers use an explicit fallback planner and
+  compatibility result fields remain available.
 - `InvestmentAgent`: thin LangGraph supervisor that routes portfolio-only
   and portfolio-plus-sentiment queries through structured agent packets.
 - `SentimentAgentStub`: deterministic missing-research Sentiment Agent stub
@@ -76,6 +77,10 @@ Implemented and useful today:
   planner that accepts bounded `PortfolioRequest` input, resolves assets before
   tool scope selection, emits `PortfolioEvidencePlan`, and preserves current
   keyword behavior as an explicit fallback planner.
+- `PortfolioEvidencePacket` runtime output: bounded Portfolio Agent runs now
+  separate deterministic facts, metrics, position changes, detected patterns,
+  portfolio-only interpretation, limitations, sentiment-context needs,
+  warnings, and tool refs.
 - `scripts/portfolio_agent_review.py`: terminal Portfolio Agent review.
 - `scripts/investment_agent_review.py`: terminal Investment Agent review.
 - `scripts/serve_chat.py`: local chat frontend server.
@@ -96,10 +101,9 @@ Important limitations:
   the stub must not invent research claims, citations, or sentiment.
 - The Portfolio Agent bounded planner is implemented inside the existing Python
   Portfolio Agent path, not as a separate compiled LangGraph subgraph.
-- The live Investment Agent emits and validates `InvestmentPlan`. The
-  Portfolio Agent can now accept bounded `PortfolioRequest` input and produce a
-  `PortfolioEvidencePlan`, but current execution still adapts that plan through
-  `PortfolioContextPlan` until V1.4.4 returns separated evidence packets.
+- The live Investment Agent emits and validates `InvestmentPlan`, passes the
+  typed `PortfolioRequest` into the Portfolio Agent at runtime, and carries the
+  returned evidence packet forward for synthesis and chat payloads.
 - Pinecone memory is not connected.
 - The deterministic dashboard lane, Portfolio Agent, and Investment Agent
   path use the gateway. `RegisteredMCPModule` remains underneath FastMCP and
@@ -475,10 +479,10 @@ V1.4 task maps:
 | V1.4.1 | complete as of 2026-06-24 | Implement deterministic asset resolution and validation before tool execution. |
 | V1.4.2 | complete as of 2026-06-25 | Move Investment Agent routing into a structured planner that emits bounded subagent requests. |
 | V1.4.3 | complete as of 2026-06-25 | Move Portfolio Agent planning into bounded portfolio evidence planning over resolved assets and requested output goals. |
-| V1.4.4 | planned | Execute Portfolio evidence plans deterministically and return separated evidence packets. |
-| V1.4.5 | planned | Add trace/evaluation coverage, update docs, and close the V1.4 gate. |
+| V1.4.4 | complete as of 2026-06-29 | Execute Portfolio evidence plans deterministically and return separated evidence packets. |
+| V1.4.5 | complete as of 2026-06-29 | Add trace/evaluation coverage, update docs, and close the V1.4 gate. |
 
-V1.4.0 through V1.4.3 implementation reality:
+V1.4.0 through V1.4.5 implementation reality:
 
 - `agent_schemas.py` now defines the typed planner vocabulary and separated
   evidence packet contracts used by later V1.4 tasks.
@@ -493,10 +497,13 @@ V1.4.0 through V1.4.3 implementation reality:
   validated `PortfolioEvidencePlan` outputs with deterministic asset resolution,
   allowlisted history queries, metric groups, position-change scope, freshness
   dependency, persistence mode, and pattern detectors.
-- Portfolio Agent execution still uses the current `PortfolioContextPlan`
-  adapter, including explicit position-change scope entries for mixed
-  asset-id/ticker history reads. V1.4.4 must execute evidence plans into
-  separated `PortfolioEvidencePacket` outputs.
+- Portfolio Agent bounded request execution now enforces deterministic
+  `latest_required`/`cached_ok`/`history_only` freshness policy, preserves
+  mixed asset-id/ticker position-change scopes, and returns separated
+  `PortfolioEvidencePacket` output while retaining compatibility result fields.
+- Investment Agent runtime now passes the typed `PortfolioRequest` to the
+  Portfolio Agent and emits sanitized evidence-plan/evidence-packet trace
+  phases.
 
 V1.4 should focus on structured planning for the Investment Agent and Portfolio
 Agent:

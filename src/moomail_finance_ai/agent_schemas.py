@@ -468,6 +468,7 @@ class SentimentCandidate(StrictModel):
 class PortfolioAgentEvidencePacket(StrictModel):
     portfolio_id: str
     context_plan: PortfolioContextPlan
+    evidence_packet: PortfolioEvidencePacket | None = None
     base_packet: PortfolioAgentPacket | None = None
     history_context: dict[str, Any] = Field(default_factory=dict)
     effective_cash: dict[str, Any] = Field(default_factory=dict)

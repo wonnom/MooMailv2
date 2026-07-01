@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -20,7 +21,7 @@ from moomail_finance_ai.mcp.opend_mcp import SERVER_NAME as OPEND_SERVER
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import SERVER_NAME as PORTFOLIO_SQL_SERVER
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
-from moomail_finance_ai.mocks import mock_investment_policy
+from moomail_finance_ai.mocks import mock_investment_policy, mock_portfolio_packet
 from moomail_finance_ai.portfolio_agent import (
     PortfolioAgent,
     PortfolioEvaluation,
@@ -492,6 +493,125 @@ def test_portfolio_request_planner_warnings_are_result_warnings(
     assert result.evidence_plan is not None
     assert any("does not route" in warning for warning in result.evidence_plan.warnings)
     assert any("does not route" in warning for warning in result.warnings)
+
+
+def test_cached_ok_uses_fresh_sql_without_opend(tmp_path):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    store.store_portfolio_observation(
+        mock_portfolio_packet().snapshot.model_copy(update={"as_of": datetime.now(UTC)})
+    )
+    gateway = RecordingGateway(
+        DirectToolGateway(
+            [
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        )
+    )
+    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="cached_ok",
+        output_goals=["snapshot", "effective_cash"],
+        source_query="How much effective cash do I have?",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
+
+    assert result.evidence_plan is not None
+    assert result.evidence_plan.freshness_requirement == "cached_ok"
+    assert all(server_name != OPEND_SERVER for server_name, *_ in gateway.calls)
+    assert result.snapshot.holdings[0].ticker == "MSFT"
+    assert result.storage_result["status"] == "skipped"
+    assert result.storage_result["reason"] == (
+        "cached_sql_latest_state_has_no_current_opend_observation"
+    )
+    assert (
+        result.evidence_packet.derived_metrics["effective_cash"]["effective_cash_value"]
+        == 5000.0
+    )
+
+
+def test_history_only_query_skips_opend_and_scopes_position_changes_to_resolved_asset(
+    tmp_path,
+):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    store.store_portfolio_observation(mock_portfolio_packet().snapshot)
+    gateway = RecordingGateway(
+        DirectToolGateway(
+            [
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        )
+    )
+    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="AAPL")],
+        freshness_requirement="history_only",
+        output_goals=["position_changes"],
+        source_query="What price did I buy recent AAPL shares at?",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
+
+    position_change_calls = [
+        arguments
+        for server_name, tool_name, arguments, consumer in gateway.calls
+        if server_name == PORTFOLIO_SQL_SERVER
+        and tool_name == "portfolio_sql_get_position_state_changes"
+        and consumer == "portfolio_agent"
+    ]
+    assert all(server_name != OPEND_SERVER for server_name, *_ in gateway.calls)
+    assert result.evidence_plan is not None
+    assert result.evidence_plan.position_change_scope == "asset_scoped"
+    assert result.evidence_plan.resolved_assets[0].sql_asset_id == "asset_aapl_us"
+    assert position_change_calls[0]["asset_id"] == "asset_aapl_us"
+    assert result.storage_result["reason"] == "history_only_sql_has_no_current_opend_observation"
+    assert "No position-state changes matched the resolved scope and time range." in (
+        result.evidence_packet.limitations
+    )
+
+
+def test_stale_cache_returns_warning_in_evidence_packet(tmp_path):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    gateway = RecordingGateway(
+        DirectToolGateway(
+            [
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        )
+    )
+    agent = PortfolioAgent(gateway=gateway, evaluator=CapturingEvaluator())
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="cached_ok",
+        output_goals=["snapshot"],
+        source_query="Show my portfolio snapshot.",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
+
+    assert result.snapshot.total_value.amount == 0.0
+    assert any("OpenD current context is unavailable" in warning for warning in result.warnings)
+    assert any(
+        "OpenD current context is unavailable" in limitation
+        for limitation in result.evidence_packet.limitations
+    )
 
 
 def test_portfolio_planner_sets_current_value_dependency_and_persistence():

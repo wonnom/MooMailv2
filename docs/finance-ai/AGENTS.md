@@ -68,9 +68,8 @@ Current limitations:
   structured-output planner yet.
 - Ticker/asset-scope selection is now explicit `AssetHint` planner output at the
   Investment Agent layer, and the Portfolio Agent has a bounded
-  `PortfolioRequest` evidence-planning path. The default Investment Agent chat
-  flow still uses the older `PortfolioTask` compatibility adapter until direct
-  evidence-packet execution lands.
+  `PortfolioRequest` evidence-planning and evidence-packet execution path.
+  Legacy `PortfolioTask` compatibility remains for older callers.
 - The final Investment Agent synthesis is deterministic/template-style. The
   Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
   Investment Agent itself does not yet perform a rich LLM synthesis pass.
@@ -102,11 +101,12 @@ logical asset hints against actual portfolio data and plan only inside the
 portfolio evidence domain. Sentiment Agent should eventually plan research
 retrieval, but it should not make portfolio allocation or trade decisions.
 
-Implementation status as of 2026-06-25: V1.4.0 through V1.4.3 added the typed
+Implementation status as of 2026-06-29: V1.4.0 through V1.4.5 added the typed
 planner contracts, deterministic asset resolver/validator primitives, live
-Investment Agent `InvestmentPlan` planning/validation, and Portfolio Agent
-`PortfolioEvidencePlan` planning. Direct evidence-packet execution remains
-planned for V1.4.4.
+Investment Agent `InvestmentPlan` planning/validation, Portfolio Agent
+`PortfolioEvidencePlan` planning, deterministic evidence-plan execution,
+separated `PortfolioEvidencePacket` output, and trace/evaluation closeout
+coverage.
 
 ### Supported Modes
 
@@ -206,18 +206,17 @@ which portfolio context is needed for the assigned task:
 - required metric groups
 - persistence for review-style runs
 
-The V1.4.3 planner path accepts a bounded `PortfolioRequest`, validates and
+The V1.4 planner path accepts a bounded `PortfolioRequest`, validates and
 resolves asset hints against supplied candidates, produces a
-`PortfolioEvidencePlan`, then adapts that plan into the current
-`PortfolioContextPlan` execution path. Existing keyword/rule query behavior is
-preserved as an explicit fallback planner for legacy `PortfolioTask` callers.
-Execution remains deterministic once the context plan is selected. This is
+`PortfolioEvidencePlan`, then enforces deterministic freshness/tool policy and
+assembles a separated `PortfolioEvidencePacket`. Existing keyword/rule query
+behavior is preserved as an explicit fallback planner for legacy
+`PortfolioTask` callers. Compatibility `context_plan` and `portfolio_packet`
+fields remain available for current reports. Execution remains deterministic
+once the evidence plan is selected. This is
 implemented inside the existing Python Portfolio Agent path, not as a separate
 compiled LangGraph subgraph. The Portfolio Agent returns structured portfolio
 evidence and candidate sentiment scope, not final investment advice.
-
-V1.4.3 does not assemble the final separated `PortfolioEvidencePacket`; that
-remains planned for V1.4.4.
 
 The Portfolio Agent should add value as a portfolio analyst assistant: it should
 surface concentration, allocation drift, cash/cash-equivalent effects,
@@ -233,6 +232,9 @@ Current behavior:
   allocation history, and position-state changes.
 - Bounded `PortfolioRequest` runs can preserve resolved `asset_id` and
   canonical-symbol scope for position-state change reads.
+- Bounded `PortfolioRequest` runs obey deterministic freshness policy:
+  `latest_required` calls OpenD, `cached_ok` can use fresh SQL latest state
+  without OpenD, and `history_only` reads SQL history without OpenD.
 - Each run returns planned, actual, and skipped tool entries in
   `PortfolioAgentResult.tool_calls`.
 
@@ -263,7 +265,9 @@ Stable output fields:
 
 - `PortfolioAgentResult.effective_cash`
 - `PortfolioAgentResult.history_context`
+- `PortfolioAgentResult.evidence_packet`
 - `final_report.portfolio_analysis.effective_cash`
+- `final_report.portfolio_analysis.evidence_packet`
 - `final_report.portfolio_analysis.history_context`
 - `final_report.portfolio_analysis.storage_result`
 - `final_report.portfolio_analysis.metrics_storage_result`

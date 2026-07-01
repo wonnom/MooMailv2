@@ -170,6 +170,15 @@ manual refresh results through backend APIs without starting an agent run. The
 backend owns MCP access through the gateway; the frontend must never call MCP
 directly.
 
+### FR-20: V1.4 Structured Evidence Packets
+
+The Investment Agent must send a bounded `PortfolioRequest` when portfolio
+evidence is needed. The Portfolio Agent must resolve logical asset hints,
+produce a validated `PortfolioEvidencePlan`, execute deterministic freshness
+and tool policy, and return a `PortfolioEvidencePacket` that separates facts,
+derived metrics, position changes, detected patterns, portfolio-only
+interpretation, limitations, sentiment-context needs, warnings, and tool refs.
+
 ## Non-Functional Requirements
 
 ### NFR-1: Local-First

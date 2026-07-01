@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
 from moomail_finance_ai.mcp.gateway import DirectToolGateway
@@ -142,6 +143,16 @@ def test_portfolio_refresh_route_delegates_without_reading_chat_payload():
 
     assert captured[0]["status"] == "refreshed"
     assert captured[0]["connection"]["status"] == "connected"
+
+
+def test_dashboard_refresh_does_not_call_agents_or_llm():
+    source = Path("src/moomail_finance_ai/portfolio_data_service.py").read_text(encoding="utf-8")
+
+    assert "PortfolioAgent" not in source
+    assert "InvestmentAgent" not in source
+    assert "SentimentAgent" not in source
+    assert "LLMPortfolioEvaluator" not in source
+    assert "build_llm_client" not in source
 
 
 class StaticPortfolioDataService:

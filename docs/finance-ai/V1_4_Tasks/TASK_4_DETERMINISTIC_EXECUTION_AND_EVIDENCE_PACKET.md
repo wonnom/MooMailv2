@@ -12,7 +12,40 @@ portfolio-only explanation or pattern ranking after facts are collected.
 
 ## Status
 
-Planned.
+Complete as of 2026-06-29.
+
+## Implemented In
+
+- `src/moomail_finance_ai/portfolio_agent.py`
+  - Added policy-aware execution for bounded `PortfolioEvidencePlan` runs:
+    `latest_required` calls OpenD, `cached_ok` can use fresh SQL latest state
+    without OpenD, and `history_only` reads SQL history without OpenD.
+  - Added first-class `PortfolioAgentResult.evidence_packet` assembly with
+    separated facts, derived metrics, position changes, deterministic detected
+    patterns, portfolio-only interpretation, limitations, sentiment-context
+    needs, warnings, and tool refs.
+  - Added stable detector thresholds for concentration, effective cash,
+    allocation materiality, large quantity changes, and average-cost shifts.
+  - Kept legacy `PortfolioTask`/`PortfolioContextPlan` compatibility while
+    making bounded `PortfolioRequest` execution follow the evidence plan and
+    freshness policy directly.
+- `src/moomail_finance_ai/investment_agent.py`
+  - Passes the typed `PortfolioRequest` from the Investment planner into the
+    Portfolio Agent at runtime and carries the returned evidence packet forward
+    in the Investment-facing portfolio packet.
+  - Emits sanitized evidence-plan/evidence-packet trace phases plus planned,
+    actual, and skipped Portfolio Agent tool trace events.
+- `src/moomail_finance_ai/agent_schemas.py`
+  - Added optional `evidence_packet` to `PortfolioAgentEvidencePacket` for
+    Investment Agent synthesis and chat payloads.
+- `src/moomail_finance_ai/portfolio_data_service.py`
+  - Exposed the SQL latest-state-to-snapshot conversion for cached Portfolio
+    Agent evidence policy reuse.
+- Tests
+  - Added deterministic coverage for cached SQL freshness, history-only no-OpenD
+    execution, stale-cache warnings, evidence packet separation, pattern
+    detector thresholds, Portfolio Agent LLM input boundaries, and dashboard
+    independence.
 
 ## Exit Criteria
 
@@ -106,6 +139,41 @@ V1.4.3 PortfolioEvidencePlan
 .venv/bin/python -m pytest tests/test_portfolio_data_service.py tests/test_mcp_gateway.py -q
 .venv/bin/python -m pytest tests/test_mcp_tool_contracts.py -q
 ```
+
+## Verification
+
+Run on 2026-06-29:
+
+```text
+.venv/bin/python -m pytest tests/test_portfolio_agent.py tests/test_portfolio_planner.py -q
+51 passed in 0.62s
+
+.venv/bin/python -m pytest tests/test_portfolio_data_service.py tests/test_mcp_gateway.py -q
+11 passed, 1 warning in 0.39s
+
+.venv/bin/python -m pytest tests/test_mcp_tool_contracts.py -q
+6 passed in 0.21s
+
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+251 passed, 1 warning in 8.77s
+
+git diff --check
+passed
+```
+
+The warnings are the existing LangGraph dependency deprecation warning.
+
+Not run:
+
+- `tests/live`: opt-in live connector/OpenD tests are not required for this
+  deterministic evidence-execution task.
+
+## Remaining
+
+No remaining exit criteria for V1.4.4. The Portfolio Agent still returns
+legacy `context_plan`/`portfolio_packet` fields for compatibility, but bounded
+`PortfolioRequest` runs now also return the separated `PortfolioEvidencePacket`
+and follow deterministic evidence-plan freshness/tool policy.
 
 ## Notes
 

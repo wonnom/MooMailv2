@@ -23,6 +23,7 @@ from moomail_finance_ai.mcp.portfolio_sql_mcp import (
 )
 from moomail_finance_ai.mcp.gateway import (
     DirectToolGateway,
+    MCPGatewayError,
     MCPToolGateway,
     StdioMCPToolGateway,
     local_stdio_server_configs,
@@ -35,15 +36,25 @@ from moomail_finance_ai.opend_portfolio import (
     build_portfolio_agent_packet,
 )
 from moomail_finance_ai.schemas import (
+    DataQuality,
     InvestmentPolicy,
+    Money,
     PortfolioAgentPacket,
     PortfolioSnapshot,
     StrictModel,
     StatusEvent,
 )
 from moomail_finance_ai.agent_schemas import PortfolioContextPlan, PortfolioTask
-from moomail_finance_ai.agent_schemas import PortfolioEvidencePlan, PortfolioRequest
-from moomail_finance_ai.asset_resolver import PortfolioAssetCandidate
+from moomail_finance_ai.agent_schemas import (
+    PortfolioEvidencePacket,
+    PortfolioEvidencePlan,
+    PortfolioRequest,
+)
+from moomail_finance_ai.asset_resolver import (
+    PortfolioAssetCandidate,
+    build_portfolio_asset_candidates,
+)
+from moomail_finance_ai.portfolio_data_service import snapshot_from_latest_state
 from moomail_finance_ai.portfolio_evidence_planner import (
     DeterministicPortfolioEvidencePlanner,
     PortfolioEvidencePlanner,
@@ -84,11 +95,21 @@ class PortfolioHistoryContext(StrictModel):
     position_state_changes: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class PortfolioCurrentContext(StrictModel):
+    snapshot: PortfolioSnapshot
+    source_report: OpenDFieldReport | None = None
+    source: str
+    history_status: dict[str, Any] | None = None
+    latest_portfolio_state: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class PortfolioAgentResult(StrictModel):
     run_id: str
     portfolio_id: str
     context_plan: PortfolioContextPlan | None = None
     evidence_plan: PortfolioEvidencePlan | None = None
+    evidence_packet: PortfolioEvidencePacket
     snapshot: PortfolioSnapshot
     portfolio_packet: PortfolioAgentPacket
     metrics: list[MetricResult]
@@ -116,6 +137,15 @@ class PortfolioEvaluator(Protocol):
         history_status: dict[str, Any],
         history_context: PortfolioHistoryContext | None = None,
     ) -> PortfolioEvaluation: ...
+
+
+PORTFOLIO_PATTERN_THRESHOLDS: dict[str, float] = {
+    "single_position_concentration_weight": 0.25,
+    "effective_cash_target_gap": 0.02,
+    "large_allocation_weight": 0.10,
+    "large_quantity_delta_abs": 1.0,
+    "average_cost_delta_pct": 0.05,
+}
 
 
 @dataclass
@@ -196,10 +226,16 @@ class PortfolioAgent:
                 "planning_portfolio_evidence",
                 "Planning bounded portfolio evidence from PortfolioRequest.",
             )
-            evidence_plan = self.evidence_planner.plan(
+            planner_candidates = self._asset_candidates_for_request(
                 portfolio_request,
                 ips,
                 asset_candidates or [],
+                emit,
+            )
+            evidence_plan = self.evidence_planner.plan(
+                portfolio_request,
+                ips,
+                planner_candidates,
             )
             for resolution in evidence_plan.resolved_assets:
                 emit(
@@ -214,7 +250,10 @@ class PortfolioAgent:
                 portfolio_request,
                 evidence_plan,
             )
-            plan = portfolio_evidence_plan_to_context_plan(evidence_plan)
+            plan = portfolio_evidence_plan_to_context_plan(
+                evidence_plan,
+                runtime_requires_current_snapshot=evidence_plan.needs_current_values,
+            )
         else:
             task = portfolio_task or interpret_portfolio_task(query)
             plan = plan_portfolio_context(task)
@@ -222,22 +261,42 @@ class PortfolioAgent:
             "planning_portfolio_context",
             f"Planned bounded portfolio context for {task.task_type}.",
         )
-        self._record_planned_tools(plan)
+        self._record_planned_tools(plan, evidence_plan=evidence_plan)
 
         self._initialize_sql_if_needed(plan, emit)
-        snapshot, source_report = self._read_current_context(ips, plan, emit)
+        current_context = (
+            self._read_current_context_for_evidence_plan(ips, evidence_plan, plan, emit)
+            if evidence_plan is not None
+            else self._read_current_context(ips, plan, emit)
+        )
+        snapshot = current_context.snapshot
+        source_report = current_context.source_report
         snapshot_json = snapshot.model_dump(mode="json")
         ips_json = ips.model_dump(mode="json")
 
         metrics = self._calculate_metrics(snapshot_json, ips_json, plan, emit)
-        history_context = self._read_history_context(ips, snapshot, plan, emit)
+        history_context = self._read_history_context(
+            ips,
+            snapshot,
+            plan,
+            emit,
+            current_context=current_context,
+        )
         history_status = history_context.history_status
         portfolio_packet = _portfolio_packet_with_history(
             build_portfolio_agent_packet(snapshot, ips, source_report),
             history_status,
         )
         effective_cash = build_effective_cash_summary(snapshot)
-        pending_storage_result = _pending_storage_result(snapshot)
+        pending_storage_result = (
+            _pending_storage_result(snapshot)
+            if source_report is not None
+            else _skipped_storage_result(
+                snapshot,
+                plan,
+                reason=f"{current_context.source}_has_no_current_opend_observation",
+            )
+        )
 
         emit("evaluating_portfolio", "Running the LLM portfolio-only evaluator.")
         evaluation = self.evaluator.evaluate(
@@ -259,15 +318,44 @@ class PortfolioAgent:
             ),
         )
 
-        storage_result = self._write_portfolio_history(
-            snapshot,
-            snapshot_json,
-            source_report,
-            plan,
-            ips,
-            emit,
+        storage_result = (
+            self._write_portfolio_history(
+                snapshot,
+                snapshot_json,
+                source_report,
+                plan,
+                ips,
+                emit,
+            )
+            if source_report is not None
+            else _skipped_storage_result(
+                snapshot,
+                plan,
+                reason=f"{current_context.source}_has_no_current_opend_observation",
+            )
         )
         metrics_storage_result = _metrics_storage_skip_result(storage_result)
+        result_warnings = _result_warnings(
+            portfolio_packet,
+            history_status,
+            evaluation,
+            plan,
+            current_context_warnings=current_context.warnings,
+        )
+        evidence_packet = _build_evidence_packet(
+            portfolio_id=snapshot.portfolio_id,
+            task_intent=evidence_plan.task_intent if evidence_plan else task.task_type,
+            evidence_plan=evidence_plan,
+            snapshot=snapshot,
+            portfolio_packet=portfolio_packet,
+            metrics=metrics,
+            effective_cash=effective_cash,
+            history_context=history_context,
+            evaluation=evaluation,
+            warnings=result_warnings,
+            tool_calls=list(self.tool_calls),
+            ips=ips,
+        )
 
         emit("complete", "Portfolio Agent run complete.")
         return PortfolioAgentResult(
@@ -275,6 +363,7 @@ class PortfolioAgent:
             portfolio_id=snapshot.portfolio_id,
             context_plan=plan,
             evidence_plan=evidence_plan,
+            evidence_packet=evidence_packet,
             snapshot=snapshot,
             portfolio_packet=portfolio_packet,
             metrics=metrics,
@@ -286,13 +375,38 @@ class PortfolioAgent:
             evaluation=evaluation,
             tool_calls=list(self.tool_calls),
             status_events=status_events,
-            warnings=_result_warnings(portfolio_packet, history_status, evaluation, plan),
+            warnings=_dedupe([*result_warnings, *evidence_packet.warnings]),
         )
 
     def close(self) -> None:
         close = getattr(self.gateway, "close", None)
         if callable(close):
             close()
+
+    def _asset_candidates_for_request(
+        self,
+        request: PortfolioRequest,
+        ips: InvestmentPolicy,
+        fixture_candidates: list[PortfolioAssetCandidate | dict[str, Any]],
+        emit,
+    ) -> list[PortfolioAssetCandidate]:
+        if not request.asset_hints:
+            return build_portfolio_asset_candidates(fixture_candidates=fixture_candidates)
+        latest_state = self._read_sql_latest_state_for_policy(ips, emit)
+        sql_rows = []
+        if latest_state is not None:
+            sql_rows.extend(latest_state.get("active_positions") or [])
+            sql_rows.extend(latest_state.get("weights") or [])
+        candidates = build_portfolio_asset_candidates(
+            sql_assets=sql_rows,
+            fixture_candidates=fixture_candidates,
+        )
+        if candidates:
+            emit(
+                "portfolio_asset_candidates_ready",
+                "Loaded SQL/latest portfolio asset candidates for deterministic resolution.",
+            )
+        return candidates
 
     def _initialize_sql_if_needed(self, plan: PortfolioContextPlan, emit) -> None:
         if not (plan.needs_sql_history or plan.persist_observation):
@@ -306,7 +420,7 @@ class PortfolioAgent:
         ips: InvestmentPolicy,
         plan: PortfolioContextPlan,
         emit,
-    ) -> tuple[PortfolioSnapshot, OpenDFieldReport]:
+    ) -> PortfolioCurrentContext:
         if not plan.needs_current_snapshot:
             raise ValueError("Portfolio Agent currently requires a current snapshot.")
         emit("retrieving_opend_portfolio", "Reading current portfolio context from OpenD MCP.")
@@ -315,10 +429,125 @@ class PortfolioAgent:
             "opend_get_portfolio_context",
             {"portfolio_id": ips.portfolio_id, "base_currency": self.base_currency},
         )
-        return (
-            PortfolioSnapshot.model_validate(context["snapshot"]),
-            OpenDFieldReport.model_validate(context["source_report"]),
+        return PortfolioCurrentContext(
+            snapshot=PortfolioSnapshot.model_validate(context["snapshot"]),
+            source_report=OpenDFieldReport.model_validate(context["source_report"]),
+            source="opend_current_context",
         )
+
+    def _read_current_context_for_evidence_plan(
+        self,
+        ips: InvestmentPolicy,
+        evidence_plan: PortfolioEvidencePlan,
+        plan: PortfolioContextPlan,
+        emit,
+    ) -> PortfolioCurrentContext:
+        if evidence_plan.freshness_requirement == "latest_required":
+            return self._read_current_context(ips, plan, emit)
+
+        latest_state = self._read_sql_latest_state_for_policy(ips, emit)
+        policy_history_status = self._read_history_status_for_policy(ips, emit)
+        sql_snapshot = snapshot_from_latest_state(latest_state, base_currency=self.base_currency)
+
+        if evidence_plan.freshness_requirement == "history_only":
+            emit(
+                "skipping_opend_history_only",
+                "OpenD current context skipped by history_only evidence policy.",
+            )
+            return PortfolioCurrentContext(
+                snapshot=sql_snapshot
+                or _empty_portfolio_snapshot(
+                    ips.portfolio_id,
+                    base_currency=self.base_currency,
+                    reason="history_only_sql_snapshot_unavailable",
+                ),
+                source="history_only_sql",
+                history_status=policy_history_status,
+                latest_portfolio_state=latest_state,
+                warnings=(
+                    []
+                    if sql_snapshot is not None
+                    else ["No stored SQL latest state was available for a history_only run."]
+                ),
+            )
+
+        if _history_status_is_fresh(policy_history_status) and sql_snapshot is not None:
+            emit(
+                "using_cached_sql_latest_state",
+                "Using fresh SQL latest state for cached_ok evidence policy.",
+            )
+            return PortfolioCurrentContext(
+                snapshot=sql_snapshot,
+                source="cached_sql_latest_state",
+                history_status=policy_history_status,
+                latest_portfolio_state=latest_state,
+            )
+
+        try:
+            return self._read_current_context(ips, plan, emit)
+        except MCPGatewayError as exc:
+            warning = (
+                "Cached portfolio data is stale or missing and OpenD current context is "
+                f"unavailable: {exc}"
+            )
+            emit("stale_cache_warning", warning)
+            return PortfolioCurrentContext(
+                snapshot=sql_snapshot
+                or _empty_portfolio_snapshot(
+                    ips.portfolio_id,
+                    base_currency=self.base_currency,
+                    reason="cached_ok_current_context_unavailable",
+                ),
+                source="stale_or_missing_cached_sql",
+                history_status=policy_history_status,
+                latest_portfolio_state=latest_state,
+                warnings=[warning],
+            )
+
+    def _read_sql_latest_state_for_policy(
+        self,
+        ips: InvestmentPolicy,
+        emit,
+    ) -> dict[str, Any] | None:
+        try:
+            self._call(PORTFOLIO_SQL_SERVER, "portfolio_sql_initialize", {})
+            latest_state = self._call(
+                PORTFOLIO_SQL_SERVER,
+                "portfolio_sql_get_latest_portfolio_state",
+                {"portfolio_id": ips.portfolio_id},
+            )
+            if latest_state:
+                self.tool_calls.append(
+                    "actual_detail:"
+                    f"{PORTFOLIO_SQL_SERVER}:portfolio_sql_get_latest_portfolio_state "
+                    "policy_probe=true"
+                )
+            return latest_state
+        except MCPGatewayError:
+            emit(
+                "skipping_sql_latest_state",
+                "SQL latest-state policy probe skipped because SQL MCP is unavailable.",
+            )
+            return None
+
+    def _read_history_status_for_policy(self, ips: InvestmentPolicy, emit) -> dict[str, Any] | None:
+        try:
+            self._call(PORTFOLIO_SQL_SERVER, "portfolio_sql_initialize", {})
+            return self._call(
+                PORTFOLIO_SQL_SERVER,
+                "portfolio_sql_get_history_status",
+                {
+                    "portfolio_id": ips.portfolio_id,
+                    "now": datetime.now(UTC).isoformat(),
+                    "min_snapshots_for_history": 1,
+                },
+            )
+        except MCPGatewayError:
+            emit(
+                "skipping_history_status",
+                "SQL history-status policy probe skipped because SQL MCP is unavailable.",
+            )
+            return None
 
     def _calculate_metrics(
         self,
@@ -353,6 +582,8 @@ class PortfolioAgent:
         snapshot: PortfolioSnapshot,
         plan: PortfolioContextPlan,
         emit,
+        *,
+        current_context: PortfolioCurrentContext | None = None,
     ) -> PortfolioHistoryContext:
         if not plan.needs_sql_history:
             emit("skipping_history_reads", "SQL history reads skipped by context plan.")
@@ -378,21 +609,27 @@ class PortfolioAgent:
         position_state_changes: list[dict[str, Any]] = []
 
         if "history_status" in plan.history_queries:
-            history_status = self._call(
-                PORTFOLIO_SQL_SERVER,
-                "portfolio_sql_get_history_status",
-                {
-                    "portfolio_id": ips.portfolio_id,
-                    "now": snapshot.as_of.isoformat(),
-                    "min_snapshots_for_history": self.min_snapshots_for_history,
-                },
-            )
+            if current_context and current_context.history_status is not None:
+                history_status = current_context.history_status
+            else:
+                history_status = self._call(
+                    PORTFOLIO_SQL_SERVER,
+                    "portfolio_sql_get_history_status",
+                    {
+                        "portfolio_id": ips.portfolio_id,
+                        "now": snapshot.as_of.isoformat(),
+                        "min_snapshots_for_history": self.min_snapshots_for_history,
+                    },
+                )
         if "latest_state" in plan.history_queries:
-            latest_portfolio_state = self._call(
-                PORTFOLIO_SQL_SERVER,
-                "portfolio_sql_get_latest_portfolio_state",
-                {"portfolio_id": ips.portfolio_id},
-            )
+            if current_context and current_context.latest_portfolio_state is not None:
+                latest_portfolio_state = current_context.latest_portfolio_state
+            else:
+                latest_portfolio_state = self._call(
+                    PORTFOLIO_SQL_SERVER,
+                    "portfolio_sql_get_latest_portfolio_state",
+                    {"portfolio_id": ips.portfolio_id},
+                )
         if "portfolio_growth" in plan.history_queries:
             portfolio_growth = self._call(
                 PORTFOLIO_SQL_SERVER,
@@ -543,16 +780,45 @@ class PortfolioAgent:
             "data_quality_events_stored": data_quality_result["events_stored"],
         }
 
-    def _record_planned_tools(self, plan: PortfolioContextPlan) -> None:
-        if plan.needs_sql_history or plan.persist_observation:
+    def _record_planned_tools(
+        self,
+        plan: PortfolioContextPlan,
+        *,
+        evidence_plan: PortfolioEvidencePlan | None = None,
+    ) -> None:
+        needs_policy_sql = bool(
+            evidence_plan
+            and evidence_plan.needs_current_values
+            and evidence_plan.freshness_requirement == "cached_ok"
+        )
+        needs_history_only_sql = bool(
+            evidence_plan and evidence_plan.freshness_requirement == "history_only"
+        )
+        if (
+            plan.needs_sql_history
+            or plan.persist_observation
+            or needs_policy_sql
+            or needs_history_only_sql
+        ):
             self.tool_calls.append(f"planned:{PORTFOLIO_SQL_SERVER}:portfolio_sql_initialize")
         else:
             self.tool_calls.append(
                 f"skipped:{PORTFOLIO_SQL_SERVER}:portfolio_sql_initialize "
                 "reason=no_sql_history_or_persistence"
             )
-        if plan.needs_current_snapshot:
+        if plan.needs_current_snapshot and (
+            evidence_plan is None or evidence_plan.freshness_requirement == "latest_required"
+        ):
             self.tool_calls.append(f"planned:{OPEND_SERVER}:opend_get_portfolio_context")
+        elif evidence_plan is not None and evidence_plan.freshness_requirement == "history_only":
+            self.tool_calls.append(
+                f"skipped:{OPEND_SERVER}:opend_get_portfolio_context reason=history_only"
+            )
+        elif evidence_plan is not None and evidence_plan.freshness_requirement == "cached_ok":
+            self.tool_calls.append(
+                f"skipped:{OPEND_SERVER}:opend_get_portfolio_context "
+                "reason=cached_ok_until_sql_cache_insufficient"
+            )
         if plan.metric_groups:
             self.tool_calls.append(
                 f"planned:{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
@@ -563,10 +829,15 @@ class PortfolioAgent:
                 f"skipped:{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
                 "reason=no_metric_groups_requested"
             )
-        self._record_planned_history_tools(plan)
+        self._record_planned_history_tools(plan, evidence_plan=evidence_plan)
         self._record_planned_persistence_tools(plan)
 
-    def _record_planned_history_tools(self, plan: PortfolioContextPlan) -> None:
+    def _record_planned_history_tools(
+        self,
+        plan: PortfolioContextPlan,
+        *,
+        evidence_plan: PortfolioEvidencePlan | None = None,
+    ) -> None:
         history_tools = {
             "history_status": "portfolio_sql_get_history_status",
             "latest_state": "portfolio_sql_get_latest_portfolio_state",
@@ -574,14 +845,22 @@ class PortfolioAgent:
             "allocation_history": "portfolio_sql_get_allocation_history",
             "position_state_changes": "portfolio_sql_get_position_state_changes",
         }
+        policy_queries = set()
+        if evidence_plan and evidence_plan.freshness_requirement in {"cached_ok", "history_only"}:
+            policy_queries.update({"history_status", "latest_state"})
         if not plan.needs_sql_history:
             reason = _history_skip_reason(plan)
-            for tool_name in history_tools.values():
+            for query_name, tool_name in history_tools.items():
+                if query_name in policy_queries:
+                    self.tool_calls.append(
+                        f"planned:{PORTFOLIO_SQL_SERVER}:{tool_name} reason=freshness_policy"
+                    )
+                    continue
                 self.tool_calls.append(
                     f"skipped:{PORTFOLIO_SQL_SERVER}:{tool_name} reason={reason}"
                 )
             return
-        requested = set(plan.history_queries)
+        requested = set(plan.history_queries) | policy_queries
         for query_name, tool_name in history_tools.items():
             prefix = "planned" if query_name in requested else "skipped"
             suffix = "" if query_name in requested else " reason=not_requested_by_context_plan"
@@ -1045,13 +1324,16 @@ def _pending_storage_result(snapshot: PortfolioSnapshot) -> dict[str, Any]:
 
 
 def _skipped_storage_result(
-    snapshot: PortfolioSnapshot, plan: PortfolioContextPlan
+    snapshot: PortfolioSnapshot,
+    plan: PortfolioContextPlan,
+    *,
+    reason: str = "persist_observation_false",
 ) -> dict[str, Any]:
     return {
         "status": "skipped",
         "portfolio_id": snapshot.portfolio_id,
         "snapshot_date": snapshot.as_of.date().isoformat(),
-        "reason": "persist_observation_false",
+        "reason": reason,
         "context_plan": plan.model_dump(mode="json"),
         "weight_rows_stored": 0,
     }
@@ -1078,17 +1360,356 @@ def _portfolio_packet_with_history(
     return packet.model_copy(update={"performance": performance})
 
 
+def _build_evidence_packet(
+    *,
+    portfolio_id: str,
+    task_intent: str,
+    evidence_plan: PortfolioEvidencePlan | None,
+    snapshot: PortfolioSnapshot,
+    portfolio_packet: PortfolioAgentPacket,
+    metrics: list[MetricResult],
+    effective_cash: EffectiveCashSummary,
+    history_context: PortfolioHistoryContext,
+    evaluation: PortfolioEvaluation,
+    warnings: list[str],
+    tool_calls: list[str],
+    ips: InvestmentPolicy,
+) -> PortfolioEvidencePacket:
+    valid_task_intents = {
+        "full_review",
+        "portfolio_fact",
+        "risk_check",
+        "what_changed",
+        "deep_dive",
+        "compare",
+    }
+    packet_intent = task_intent if task_intent in valid_task_intents else "full_review"
+    detected_patterns = _detect_portfolio_patterns(
+        evidence_plan=evidence_plan,
+        snapshot=snapshot,
+        portfolio_packet=portfolio_packet,
+        effective_cash=effective_cash,
+        history_context=history_context,
+        ips=ips,
+        warnings=warnings,
+    )
+    limitations = _evidence_limitations(evidence_plan, history_context, warnings)
+    return PortfolioEvidencePacket(
+        portfolio_id=portfolio_id,
+        task_intent=packet_intent,
+        resolved_assets=evidence_plan.resolved_assets if evidence_plan else [],
+        facts=_evidence_facts(snapshot, history_context),
+        derived_metrics={
+            "metrics": [metric.model_dump(mode="json") for metric in metrics],
+            "effective_cash": effective_cash.model_dump(mode="json"),
+            "allocation": {
+                key: [item.model_dump(mode="json") for item in values]
+                for key, values in portfolio_packet.allocation.items()
+            },
+            "performance": portfolio_packet.performance.model_dump(mode="json"),
+            "risk": portfolio_packet.risk.model_dump(mode="json"),
+        },
+        position_changes=_sanitize_position_changes(history_context.position_state_changes),
+        detected_patterns=detected_patterns,
+        portfolio_only_interpretation=_portfolio_interpretation(evaluation),
+        limitations=limitations,
+        needs_sentiment_context=_sentiment_context_needs(evidence_plan, detected_patterns),
+        warnings=_dedupe(warnings),
+        tool_refs=list(tool_calls),
+    )
+
+
+def _evidence_facts(
+    snapshot: PortfolioSnapshot,
+    history_context: PortfolioHistoryContext,
+) -> dict[str, Any]:
+    return {
+        "snapshot": {
+            "portfolio_id": snapshot.portfolio_id,
+            "as_of": snapshot.as_of.isoformat(),
+            "base_currency": snapshot.base_currency,
+            "total_value": snapshot.total_value.model_dump(mode="json"),
+            "holding_count": len(snapshot.holdings),
+            "cash_balance_count": len(snapshot.cash),
+            "freshness_status": snapshot.data_quality.freshness_status,
+        },
+        "holdings": [
+            {
+                "asset_id": holding.asset_id,
+                "ticker": holding.ticker,
+                "name": holding.name,
+                "asset_type": holding.asset_type,
+                "exchange": holding.exchange,
+                "currency": holding.currency,
+                "quantity": holding.quantity,
+                "market_price": holding.market_price,
+                "market_value": holding.market_value,
+                "portfolio_weight": holding.portfolio_weight,
+                "unrealized_pnl": holding.unrealized_pnl,
+            }
+            for holding in snapshot.holdings
+        ],
+        "cash": [
+            {
+                "currency": cash.currency,
+                "amount": cash.amount,
+                "weight": cash.weight,
+            }
+            for cash in snapshot.cash
+        ],
+        "history_status": history_context.history_status,
+        "latest_state_available": history_context.latest_portfolio_state is not None,
+        "portfolio_growth": list(history_context.portfolio_growth),
+        "allocation_history": list(history_context.allocation_history),
+    }
+
+
+def _sanitize_position_changes(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized = []
+    for change in changes:
+        payload = dict(change)
+        payload.pop("account_id", None)
+        sanitized.append(payload)
+    return sanitized
+
+
+def _detect_portfolio_patterns(
+    *,
+    evidence_plan: PortfolioEvidencePlan | None,
+    snapshot: PortfolioSnapshot,
+    portfolio_packet: PortfolioAgentPacket,
+    effective_cash: EffectiveCashSummary,
+    history_context: PortfolioHistoryContext,
+    ips: InvestmentPolicy,
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    detectors = set(evidence_plan.pattern_detectors if evidence_plan else [])
+    if not detectors:
+        detectors = {
+            "concentration",
+            "cash_effective_cash",
+            "stale_data",
+            "unsupported_quote_warnings",
+            "portfolio_outliers",
+        }
+    patterns: list[dict[str, Any]] = []
+    if "concentration" in detectors:
+        limit = max(
+            ips.max_single_stock_concentration,
+            PORTFOLIO_PATTERN_THRESHOLDS["single_position_concentration_weight"],
+        )
+        for holding in snapshot.holdings:
+            if abs(holding.portfolio_weight) > limit:
+                patterns.append(
+                    {
+                        "type": "concentration",
+                        "severity": "high",
+                        "ticker": holding.ticker,
+                        "weight": holding.portfolio_weight,
+                        "threshold": limit,
+                        "description": "Holding weight exceeds the concentration threshold.",
+                    }
+                )
+    if "cash_effective_cash" in detectors:
+        gap = effective_cash.effective_cash_weight - ips.target_cash_allocation
+        if abs(gap) >= PORTFOLIO_PATTERN_THRESHOLDS["effective_cash_target_gap"]:
+            patterns.append(
+                {
+                    "type": "cash_effective_cash",
+                    "severity": "medium",
+                    "effective_cash_weight": effective_cash.effective_cash_weight,
+                    "target_cash_allocation": ips.target_cash_allocation,
+                    "description": "Effective cash differs from the IPS target cash allocation.",
+                }
+            )
+    if "stale_data" in detectors:
+        freshness = str(
+            (history_context.history_status.get("data_quality") or {}).get(
+                "freshness_status",
+                snapshot.data_quality.freshness_status,
+            )
+        )
+        if freshness != "fresh" or snapshot.data_quality.freshness_status != "fresh":
+            patterns.append(
+                {
+                    "type": "stale_data",
+                    "severity": "medium",
+                    "freshness_status": freshness,
+                    "description": "Portfolio evidence is not confirmed fresh.",
+                }
+            )
+    if "unsupported_quote_warnings" in detectors:
+        quote_warnings = [
+            warning
+            for warning in warnings
+            if "quote" in warning.casefold()
+            or "unsupported" in warning.casefold()
+            or "otc" in warning.casefold()
+        ]
+        for warning in quote_warnings:
+            patterns.append(
+                {
+                    "type": "unsupported_quote_warnings",
+                    "severity": "medium",
+                    "description": warning,
+                }
+            )
+    if "large_position_changes" in detectors:
+        for change in history_context.position_state_changes:
+            quantity_delta = change.get("quantity_delta")
+            if quantity_delta is not None and abs(float(quantity_delta)) >= (
+                PORTFOLIO_PATTERN_THRESHOLDS["large_quantity_delta_abs"]
+            ):
+                patterns.append(
+                    {
+                        "type": "large_position_changes",
+                        "severity": "medium",
+                        "ticker": change.get("ticker"),
+                        "quantity_delta": quantity_delta,
+                        "description": "Position quantity changed by the configured threshold.",
+                    }
+                )
+    if "average_cost_shifts" in detectors:
+        for change in history_context.position_state_changes:
+            previous = change.get("previous_average_cost")
+            delta = change.get("average_cost_delta")
+            if previous in (None, 0) or delta is None:
+                continue
+            pct_delta = abs(float(delta)) / abs(float(previous))
+            if pct_delta >= PORTFOLIO_PATTERN_THRESHOLDS["average_cost_delta_pct"]:
+                patterns.append(
+                    {
+                        "type": "average_cost_shifts",
+                        "severity": "medium",
+                        "ticker": change.get("ticker"),
+                        "average_cost_delta_pct": pct_delta,
+                        "description": "Average cost changed by the configured threshold.",
+                    }
+                )
+    if "allocation_drift" in detectors:
+        for holding in snapshot.holdings:
+            if abs(holding.portfolio_weight) >= (
+                PORTFOLIO_PATTERN_THRESHOLDS["large_allocation_weight"]
+            ):
+                patterns.append(
+                    {
+                        "type": "allocation_drift",
+                        "severity": "low",
+                        "ticker": holding.ticker,
+                        "weight": holding.portfolio_weight,
+                        "description": (
+                            "Holding is material enough to include in allocation review."
+                        ),
+                    }
+                )
+    if "portfolio_outliers" in detectors:
+        for issue in portfolio_packet.candidate_issues:
+            patterns.append(
+                {
+                    "type": issue.issue_type,
+                    "severity": issue.severity,
+                    "description": issue.description,
+                    "evidence": list(issue.evidence),
+                }
+            )
+    return patterns
+
+
+def _portfolio_interpretation(evaluation: PortfolioEvaluation) -> list[str]:
+    values = [evaluation.summary]
+    values.extend(evaluation.strengths)
+    values.extend(evaluation.risks)
+    values.extend(evaluation.ips_mismatches)
+    values.extend(evaluation.history_observations)
+    values.extend(evaluation.open_questions)
+    return _dedupe([value for value in values if value])
+
+
+def _evidence_limitations(
+    evidence_plan: PortfolioEvidencePlan | None,
+    history_context: PortfolioHistoryContext,
+    warnings: list[str],
+) -> list[str]:
+    limitations = ["No sentiment or fundamental evidence was reviewed by Portfolio Agent."]
+    if history_context.history_status.get("skipped"):
+        limitations.append("SQL history was skipped because the evidence plan did not need it.")
+    if (
+        evidence_plan
+        and "position_state_changes" in evidence_plan.history_queries
+        and not history_context.position_state_changes
+    ):
+        limitations.append("No position-state changes matched the resolved scope and time range.")
+    for asset in evidence_plan.resolved_assets if evidence_plan else []:
+        if asset.resolution_status != "resolved":
+            limitations.append(
+                f"Asset hint '{asset.input}' resolved as {asset.resolution_status}."
+            )
+    for warning in warnings:
+        lowered = warning.casefold()
+        if "stale" in lowered or "no stored" in lowered or "unavailable" in lowered:
+            limitations.append(warning)
+    return _dedupe(limitations)
+
+
+def _sentiment_context_needs(
+    evidence_plan: PortfolioEvidencePlan | None,
+    detected_patterns: list[dict[str, Any]],
+) -> list[str]:
+    if not evidence_plan:
+        return []
+    if "sentiment_context_needed" not in evidence_plan.pattern_detectors:
+        return []
+    needs = [
+        "Investment Agent may request Sentiment Agent context for market or fundamental evidence."
+    ]
+    if detected_patterns:
+        needs.append("Portfolio patterns are available as candidate context for sentiment review.")
+    return needs
+
+
+def _history_status_is_fresh(history_status: dict[str, Any] | None) -> bool:
+    if not history_status:
+        return False
+    data_quality = history_status.get("data_quality") or {}
+    return data_quality.get("freshness_status") == "fresh"
+
+
+def _empty_portfolio_snapshot(
+    portfolio_id: str,
+    *,
+    base_currency: str,
+    reason: str,
+) -> PortfolioSnapshot:
+    now = datetime.now(UTC)
+    return PortfolioSnapshot(
+        portfolio_id=portfolio_id,
+        as_of=now,
+        base_currency=base_currency,
+        total_value=Money(amount=0.0, currency=base_currency, source="empty", as_of=now),
+        cash=[],
+        holdings=[],
+        data_quality=DataQuality(
+            freshness_status="unknown",
+            missing_fields=["portfolio_snapshot"],
+            warnings=[f"Portfolio snapshot unavailable: {reason}."],
+        ),
+    )
+
+
 def _result_warnings(
     packet: PortfolioAgentPacket,
     history_status: dict[str, Any],
     evaluation: PortfolioEvaluation,
     plan: PortfolioContextPlan,
+    *,
+    current_context_warnings: list[str] | None = None,
 ) -> list[str]:
     warnings = list(packet.data_quality.warnings)
     warnings.extend(plan.warnings)
     warnings.extend(packet.performance.warnings)
     warnings.extend(history_status.get("data_quality", {}).get("warnings", []))
     warnings.extend(evaluation.warnings)
+    warnings.extend(current_context_warnings or [])
     return _dedupe(warnings)
 
 

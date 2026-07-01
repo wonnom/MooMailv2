@@ -313,10 +313,13 @@ The Portfolio Agent uses a bounded-planning deterministic path:
 3. Produce a `PortfolioEvidencePlan` with allowlisted history queries, metric
    groups, freshness/current-value dependency, persistence mode, and pattern
    detectors.
-4. Adapt the evidence plan into the current `PortfolioContextPlan` execution
-   path.
-5. Execute the selected MCP tools deterministically.
-6. Return portfolio evidence plus candidate sentiment scope.
+4. Execute the evidence plan through deterministic freshness/tool policy:
+   `latest_required` calls OpenD, `cached_ok` can use fresh SQL latest state,
+   and `history_only` avoids OpenD.
+5. Execute the selected MCP tools deterministically through the permissioned
+   gateway.
+6. Return a separated `PortfolioEvidencePacket` plus compatibility portfolio
+   packet fields and candidate sentiment scope.
 
 Portfolio Agent must not call Sentiment Agent. It may suggest sentiment
 candidates; Investment Agent decides whether to invoke the Sentiment Agent.
@@ -334,6 +337,9 @@ Current planner behavior:
 - Bounded `PortfolioRequest` runs preserve resolved `asset_id` scope for
   position-state change reads when SQL asset identity is available, falling back
   to ticker or portfolio-wide scope otherwise.
+- `cached_ok` bounded runs can satisfy current-value needs from fresh SQL latest
+  state without calling OpenD; stale/missing cache with unavailable OpenD returns
+  explicit limitations.
 - `PortfolioAgentResult.tool_calls` records planned, actual, and skipped tool
   entries so traces show why a tool did or did not run.
 

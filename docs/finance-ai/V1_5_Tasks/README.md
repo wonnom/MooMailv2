@@ -66,7 +66,8 @@ The following decisions are fixed for the V1.5 implementation:
 
 ## Review Follow-Ups For V1.5
 
-The 2026-07-16 planner/dashboard review identified two required follow-ups:
+The 2026-07-16 planner/dashboard and main-branch comparison identified four
+required follow-ups:
 
 1. Structured planner normalization must remain fail-closed. If envelope
    unwrapping and schema-field filtering leave no planner-controlled fields, the
@@ -78,6 +79,13 @@ The 2026-07-16 planner/dashboard review identified two required follow-ups:
    In particular, `portfolio_evidence_planner_unavailable` and other terminal
    agent/subagent planning failures must remain in chat/trace and must not
    replace the last valid dashboard with a degraded final report.
+3. Deterministic safety validation must inspect the original user query, not
+   only the LLM-produced `InvestmentPlan`. The validator must enforce
+   `PortfolioRequest.source_query` integrity and block trade/order intent even
+   when planner output rewrites or omits the original request.
+4. Explicit OpenD configuration paths must fail clearly when missing. Omitting
+   an optional env file may use documented defaults, but a caller-provided typo
+   or deleted path must not silently select the default host or account index.
 
 ## Questions To Resolve
 
@@ -101,6 +109,8 @@ The 2026-07-16 planner/dashboard review identified two required follow-ups:
   documented degraded-mode policy.
 - Safety checks for trade/order requests remain deterministic and cannot be
   bypassed by planner output.
+- Original-query and source-query integrity checks run before subagent calls so
+  an LLM cannot rewrite away blocked trade/order intent.
 - Tests continue to run without hosted LLM calls by using fakes, fixtures, or an
   explicitly named deterministic test planner.
 - The frontend exposes no Portfolio Agent selector; all chat submissions enter
@@ -111,3 +121,5 @@ The 2026-07-16 planner/dashboard review identified two required follow-ups:
   become executable plans through model defaults.
 - Investment planner, Portfolio evidence planner, and stream failures preserve
   the last valid deterministic dashboard while surfacing errors in chat/trace.
+- Explicitly supplied missing OpenD env-file paths fail with an actionable
+  configuration error instead of silently using default connection settings.

@@ -1,4 +1,9 @@
-import { addStatus, addUserMessage, renderStreamError } from "./chat_panel.js";
+import {
+  addStatus,
+  addUserMessage,
+  renderAgentError,
+  renderStreamError,
+} from "./chat_panel.js";
 import { ui } from "./dom.js";
 import { resizeChatTo, restoreChatLayout, setChatHidden, setChatWidth } from "./layout.js";
 import {
@@ -11,7 +16,6 @@ import {
 import {
   renderCurrentAllocation,
   renderState,
-  resetReportView,
   setAllocationView,
 } from "./report_components.js";
 import { runChatStream } from "./stream_client.js";
@@ -75,7 +79,7 @@ async function runChat(query, agent) {
     await runChatStream(query, agent, {
       onStatus: addStatus,
       onFinal: renderFinalState,
-      onError: renderStreamError,
+      onError: renderAgentError,
     });
   } finally {
     setRunning(false);
@@ -84,7 +88,7 @@ async function runChat(query, agent) {
 
 function renderFinalState(state) {
   if (!state.final_report) {
-    renderStreamError({
+    renderAgentError({
       error_type: "MissingFinalReport",
       message: "The backend returned a final event without a final report.",
       timestamp: new Date().toISOString(),
@@ -92,14 +96,26 @@ function renderFinalState(state) {
     });
     return;
   }
+  const planningFailure = state.status_events.find(
+    (event) =>
+      event.status === "investment_planner_unavailable" ||
+      event.status === "complete_with_planning_failure",
+  );
+  if (planningFailure) {
+    renderAgentError({
+      error_type: "InvestmentPlanningUnavailable",
+      message: state.final_report.summary || planningFailure.message,
+      timestamp: planningFailure.timestamp,
+      traceback: [],
+    });
+    return;
+  }
   renderState(state);
+  ui.portfolioDashboardMeta.textContent = "";
 }
 
 function clearRun() {
   ui.statusList.replaceChildren();
-  resetReportView();
-  ui.guardrailBadge.textContent = "Running";
-  ui.guardrailBadge.className = "badge";
 }
 
 function setRunning(running) {
@@ -145,7 +161,15 @@ async function refreshDashboard() {
       );
     }
   } catch (error) {
-    renderStreamError(streamErrorFromException(error));
+    const streamError = streamErrorFromException(error);
+    addStatus(
+      {
+        status: "refresh_failed",
+        message: streamError.message,
+        timestamp: streamError.timestamp ?? new Date().toISOString(),
+      },
+      "error",
+    );
   } finally {
     setDashboardBusy(false);
   }

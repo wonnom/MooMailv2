@@ -108,6 +108,8 @@ class LLMPortfolioEvidencePlanner:
                 temperature=0.0,
             )
             payload = _extract_json_object(text)
+            payload = _unwrap_evidence_plan_payload(payload)
+            payload = _select_evidence_plan_fields(payload)
             payload.update(
                 {
                     "task_intent": request.task_intent,
@@ -157,6 +159,14 @@ Rules:
 - Do not invent SQL asset ids, broker symbols, or holdings. Use only the provided
   resolved assets.
 - Use only the allowed enum values provided in the prompt.
+- Return the PortfolioEvidencePlan fields directly at the top level. Do not wrap
+  them in an evidence_plan, plan, result, response, or data property.
+- Return only fields present in output_shape. Do not add subtasks,
+  freshness_dependency, rationale, or other explanatory properties.
+- Include every metric group listed in deterministic_requirements.required_metric_groups.
+- position_change_scope must be none unless history_queries includes
+  position_state_changes. When it does, use the exact scope in
+  deterministic_requirements.position_change_scope.
 - If a requested output is incoherent, preserve the bounded request and add a
   warning rather than changing the mission.
 """.strip()
@@ -209,11 +219,21 @@ def _portfolio_planner_prompt(
     resolutions: list[AssetResolution],
     validation_warnings: list[str],
 ) -> str:
+    goals = set(request.output_goals)
     context = {
         "portfolio_request": request.model_dump(mode="json"),
         "investment_policy": ips.model_dump(mode="json"),
         "resolved_assets": [resolution.model_dump(mode="json") for resolution in resolutions],
         "validation_warnings": validation_warnings,
+        "deterministic_requirements": {
+            "required_metric_groups": _required_metric_groups(request, goals),
+            "requires_history": _request_requires_history(request, goals),
+            "position_change_scope": (
+                _expected_position_change_scope_from_resolutions(request, resolutions)
+                if "position_changes" in goals
+                else "none_unless_position_state_changes_is_selected"
+            ),
+        },
         "allowed_values": {
             "history_queries": [
                 "none",
@@ -264,6 +284,21 @@ def _portfolio_planner_prompt(
         },
     }
     return json.dumps(context, sort_keys=True)
+
+
+def _unwrap_evidence_plan_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept a harmless single-key envelope around an otherwise structured plan."""
+    for key in ("evidence_plan", "plan", "result", "response", "data"):
+        wrapped = payload.get(key)
+        if len(payload) == 1 and isinstance(wrapped, dict):
+            return wrapped
+    return payload
+
+
+def _select_evidence_plan_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep only schema fields; unknown LLM commentary cannot affect execution."""
+    allowed = PortfolioEvidencePlan.model_fields.keys()
+    return {key: value for key, value in payload.items() if key in allowed}
 
 
 def validate_portfolio_evidence_plan(
@@ -383,10 +418,20 @@ def _expected_position_change_scope(
     request: PortfolioRequest,
     plan: PortfolioEvidencePlan,
 ) -> str | None:
+    return _expected_position_change_scope_from_resolutions(
+        request,
+        plan.resolved_assets,
+    )
+
+
+def _expected_position_change_scope_from_resolutions(
+    request: PortfolioRequest,
+    resolutions: list[AssetResolution],
+) -> str | None:
     if not request.asset_hints:
         return "portfolio_wide"
     resolved = [
-        asset for asset in plan.resolved_assets if asset.resolution_status == "resolved"
+        asset for asset in resolutions if asset.resolution_status == "resolved"
     ]
     if any(asset.sql_asset_id for asset in resolved):
         return "asset_scoped"

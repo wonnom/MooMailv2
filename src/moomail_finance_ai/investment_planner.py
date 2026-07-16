@@ -104,6 +104,9 @@ Plan the user's mission and bounded subagent requests. You may choose:
 Rules:
 - Do not choose OpenD symbols, broker identifiers, SQL asset ids, SQL queries, or tool names.
 - Use logical asset hints exactly as the user wrote them, such as AMZN or Berkshire Class B.
+- time_horizon and portfolio_request.time_range must be null or a compact duration made
+  from a positive integer plus d, w, m, or y (examples: 30d, 12w, 6m, 1y). Use 1y for
+  a general long-term review; never return phrases such as "Long-term".
 - Block trade execution, order preparation, exact share-count instructions, and order placement
   by returning mode unsupported with no subagent calls and an explanatory warning.
 - For portfolio-only mechanical facts, skip sentiment unless the user explicitly asks for
@@ -199,6 +202,7 @@ def _investment_planner_prompt(*, query: str, ips: InvestmentPolicy) -> str:
                 "unsupported",
             ],
             "freshness_requirement": ["latest_required", "cached_ok", "history_only"],
+            "time_window_format": "positive integer plus d, w, m, or y; examples: 30d, 12w, 6m, 1y",
             "portfolio_task_intent": [
                 "full_review",
                 "portfolio_fact",

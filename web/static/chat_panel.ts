@@ -60,6 +60,29 @@ export function renderStreamError(error: StreamError): void {
   );
 }
 
+export function renderAgentError(error: StreamError): void {
+  const message = error.message || "The agent failed before returning a report.";
+  addStatus(
+    {
+      status: "agent_failed",
+      message,
+      timestamp: error.timestamp ?? new Date().toISOString(),
+    },
+    "error",
+  );
+  ui.traceOutput.textContent = JSON.stringify(
+    {
+      status: "agent_failed",
+      error_type: error.error_type || "Error",
+      message,
+      timestamp: error.timestamp ?? new Date().toISOString(),
+      traceback: error.traceback ?? [],
+    },
+    null,
+    2,
+  );
+}
+
 export function scrollChatToBottom(): void {
   ui.chatLog.scrollTop = ui.chatLog.scrollHeight;
 }

@@ -34,6 +34,7 @@ from moomail_finance_ai.portfolio_evidence_planner import (
     PortfolioEvidencePlanningUnavailableError,
     PortfolioEvidencePlanValidationError,
     PortfolioEvidencePlanner,
+    _portfolio_planner_prompt,
     portfolio_evidence_plan_to_context_plan,
 )
 from moomail_finance_ai.sql_store import PortfolioSqlStore
@@ -111,6 +112,57 @@ def test_portfolio_planner_rejects_position_changes_without_history_query():
         planner.plan(request, mock_investment_policy(), [])
 
     assert "position_changes requires position_state_changes" in str(exc_info.value)
+
+
+def test_portfolio_planner_accepts_single_structured_output_envelope():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "effective_cash"],
+        source_query="How much effective cash do I have?",
+    )
+    planner = LLMPortfolioEvidencePlanner(
+        StaticPortfolioPlannerLLM(
+            {
+                "evidence_plan": {
+                    **_static_evidence_payload(metric_groups=["effective_cash"]),
+                    "subtasks": ["get_portfolio_state"],
+                    "freshness_dependency": "latest_required",
+                }
+            }
+        )
+    )
+
+    plan = planner.plan(request, mock_investment_policy(), [])
+
+    assert plan.metric_groups == ["effective_cash"]
+
+
+def test_portfolio_planner_prompt_exposes_deterministic_minimum_requirements():
+    request = PortfolioRequest(
+        task_intent="full_review",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "allocation_context", "risk_context"],
+        source_query="Review my portfolio.",
+    )
+
+    prompt = json.loads(
+        _portfolio_planner_prompt(
+            request=request,
+            ips=mock_investment_policy(),
+            resolutions=[],
+            validation_warnings=[],
+        )
+    )
+
+    assert prompt["deterministic_requirements"]["required_metric_groups"] == [
+        "allocation",
+        "concentration",
+        "effective_cash",
+        "risk",
+        "performance",
+    ]
+    assert prompt["deterministic_requirements"]["requires_history"] is True
 
 
 def test_portfolio_planner_rejects_latest_required_without_current_values():

@@ -11,6 +11,7 @@ from moomail_finance_ai.investment_planner import (
     InvestmentPlanningUnavailableError,
     LLMInvestmentPlanner,
     UnavailableInvestmentPlanner,
+    _investment_planner_prompt,
     investment_plan_to_query_plan,
     validate_investment_plan,
 )
@@ -78,6 +79,17 @@ def test_unavailable_planner_raises_graceful_failure_message():
         planner.plan("Review my portfolio.", mock_investment_policy())
 
     assert str(exc_info.value) == "LLM planner is not configured."
+
+
+def test_investment_planner_prompt_constrains_schema_time_windows():
+    prompt = _investment_planner_prompt(
+        query="Review my portfolio.",
+        ips=mock_investment_policy(),
+    )
+
+    assert "positive integer plus d, w, m, or y" in prompt
+    assert '"time_horizon": "30d"' in prompt
+    assert '"time_range": "30d"' in prompt
 
 
 def test_investment_plan_fixtures_validate():

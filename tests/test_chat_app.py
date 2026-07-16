@@ -222,7 +222,21 @@ def test_frontend_files_include_streaming_and_citation_controls():
     assert "source_quality_rank" in frontend_source
     assert "payload.type === \"error\"" in frontend_source
     assert "renderStreamError" in frontend_source
+    assert "renderAgentError" in frontend_source
+    assert 'onError: renderAgentError' in frontend_source
+    assert 'event.status === "investment_planner_unavailable"' in frontend_source
     assert "traceback" in frontend_source
+
+
+def test_agent_calls_preserve_the_current_dashboard_until_a_valid_report_arrives():
+    app_source = (WEB / "static" / "app.ts").read_text(encoding="utf-8")
+    clear_run_source = app_source.split("function clearRun", 1)[1].split(
+        "function setRunning", 1
+    )[0]
+
+    assert "resetReportView" not in clear_run_source
+    assert "guardrailBadge" not in clear_run_source
+    assert "renderAgentError" in app_source
 
 
 def _create_legacy_agent_runs_table(db_path):

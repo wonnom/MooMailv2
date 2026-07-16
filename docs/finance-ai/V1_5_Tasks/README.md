@@ -46,6 +46,39 @@ Deterministic code should remain first-class for:
 Deterministic keyword planning should not be silently used as the normal webapp
 planner.
 
+## Confirmed Product Decisions
+
+The following decisions are fixed for the V1.5 implementation:
+
+- Investment Agent is the only user-selectable and user-facing agent entrypoint.
+- Remove the Portfolio Agent selection from the webapp. Users should not choose
+  which analytical agent receives a request.
+- Route every chat request through Investment Agent. Investment Agent owns
+  mission planning and decides whether to call Portfolio Agent or Sentiment
+  Agent internally.
+- Keep Portfolio Agent as an internal bounded evidence subagent. It must not be
+  exposed as a parallel public chat mode.
+- Legacy backend agent-name aliases may remain temporarily for compatibility,
+  but they must resolve to Investment Agent and must not reintroduce a frontend
+  routing choice.
+- Keep the deterministic portfolio dashboard lane independent from analytical
+  agent execution and failures.
+
+## Review Follow-Ups For V1.5
+
+The 2026-07-16 planner/dashboard review identified two required follow-ups:
+
+1. Structured planner normalization must remain fail-closed. If envelope
+   unwrapping and schema-field filtering leave no planner-controlled fields, the
+   response must be rejected as unavailable rather than allowing Pydantic
+   defaults to create an executable Portfolio evidence plan. Envelope handling
+   should also define behavior when a recognized plan envelope is accompanied
+   by provider metadata.
+2. Dashboard preservation must cover failures below the Investment planner.
+   In particular, `portfolio_evidence_planner_unavailable` and other terminal
+   agent/subagent planning failures must remain in chat/trace and must not
+   replace the last valid dashboard with a degraded final report.
+
 ## Questions To Resolve
 
 1. Should missing/unavailable LLM planner fail closed instead of falling back?
@@ -70,3 +103,11 @@ planner.
   bypassed by planner output.
 - Tests continue to run without hosted LLM calls by using fakes, fixtures, or an
   explicitly named deterministic test planner.
+- The frontend exposes no Portfolio Agent selector; all chat submissions enter
+  through Investment Agent.
+- Portfolio Agent remains callable only as an Investment Agent-managed bounded
+  subagent in the normal webapp flow.
+- Invalid or unknown-only structured planner payloads fail closed and cannot
+  become executable plans through model defaults.
+- Investment planner, Portfolio evidence planner, and stream failures preserve
+  the last valid deterministic dashboard while surfacing errors in chat/trace.

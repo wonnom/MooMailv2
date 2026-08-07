@@ -148,6 +148,23 @@ DEFAULT_GATEWAY_PERMISSION_PROFILES: dict[str, GatewayPermissionProfile] = {
             PORTFOLIO_SQL_SERVER: ["portfolio-sql://schema", "portfolio-sql://status"],
         },
     ),
+    "portfolio_baseline": GatewayPermissionProfile(
+        consumer="portfolio_baseline",
+        allowed_tools={
+            FINANCE_METRICS_SERVER: ["calculate_cash_weight"],
+            PORTFOLIO_SQL_SERVER: [
+                "portfolio_sql_get_history_status",
+                "portfolio_sql_get_latest_portfolio_state",
+                "portfolio_sql_get_portfolio_growth",
+                "portfolio_sql_get_allocation_history",
+                "portfolio_sql_get_position_state_changes",
+            ],
+        },
+        allowed_resources={
+            FINANCE_METRICS_SERVER: ["finance-metrics://definitions"],
+            PORTFOLIO_SQL_SERVER: ["portfolio-sql://schema", "portfolio-sql://status"],
+        },
+    ),
     "portfolio_agent": GatewayPermissionProfile(
         consumer="portfolio_agent",
         allowed_tools={

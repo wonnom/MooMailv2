@@ -1,0 +1,12 @@
+{
+  "route": "direct_context",
+  "route_reasons": ["baseline_sufficient"],
+  "required_evidence": ["top_position_changes_7d"],
+  "cited_evidence_refs": ["invented.position.change"],
+  "missing_evidence": [],
+  "direct_answer": "The portfolio changed over the last week.",
+  "portfolio_request": null,
+  "fallback_portfolio_request": null,
+  "sentiment_task": null,
+  "warnings": []
+}

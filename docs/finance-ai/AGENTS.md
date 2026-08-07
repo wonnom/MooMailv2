@@ -48,13 +48,16 @@ The Investment Agent coordinates them through structured inputs and outputs.
 The Investment Agent is implemented as a thin LangGraph supervisor:
 
 - load the IPS
-- plan the user query as a typed `InvestmentPlan`
-- validate planner output before subagent calls
+- load the compact deterministic portfolio baseline
+- plan the user query as one typed `InvestmentTurnDecision`, including the
+  direct answer when baseline evidence appears sufficient
+- validate original-query safety, source integrity, planner output, and
+  baseline evidence coverage before subagent calls
 - decide whether portfolio context is required
 - decide whether sentiment/research context is required
 - call Portfolio Agent when needed
 - call Sentiment Agent stub when needed
-- synthesize the answer
+- convert covered direct output or delegated evidence into the final answer
 - run guardrails
 - emit structured terminal/frontend output and sanitized trace
 
@@ -64,15 +67,15 @@ not invoke the Sentiment Agent directly.
 
 Current limitations:
 
-- Investment planning is deterministic fallback planning, not an LLM-guided
-  structured-output planner yet.
+- Investment planning is LLM-backed structured output with no keyword/regex
+  fallback. Planner unavailability or invalid output fails closed.
 - Ticker/asset-scope selection is now explicit `AssetHint` planner output at the
   Investment Agent layer, and the Portfolio Agent has a bounded
   `PortfolioRequest` evidence-planning and evidence-packet execution path.
   Legacy `PortfolioTask` compatibility remains for older callers.
-- The final Investment Agent synthesis is deterministic/template-style. The
-  Portfolio Agent may use an LLM evaluator for portfolio-only analysis, but the
-  Investment Agent itself does not yet perform a rich LLM synthesis pass.
+- Baseline-covered answers are composed in the first Investment LLM turn.
+  Delegated final synthesis remains deterministic/template-style; detailed
+  Portfolio handoffs may use one portfolio-only evaluator call after evidence.
 - Pinecone memory is not connected.
 - The runtime does not place, prepare, or suggest executable trades.
 
@@ -83,10 +86,10 @@ Target planning ownership:
 - Investment Agent planner: user intent, mode, subagent needs, broad
   logical ticker/theme/time-horizon scope, bounded portfolio request, freshness
   requirement, and final synthesis constraints.
-- Portfolio Agent planner: portfolio evidence planning, deterministic asset
-  resolution, canonical portfolio ticker/asset scope, SQL history scope, metric
-  groups, current-value dependency, persistence mode, and portfolio-only pattern
-  detection.
+- Portfolio Agent compiler: deterministic asset resolution, canonical portfolio
+  ticker/asset scope, SQL history scope, metric groups, current-value dependency,
+  persistence mode, and portfolio-only pattern detection from the validated
+  bounded request.
 - Deterministic policy: freshness enforcement, OpenD connection checks, SQL
   freshness checks, permission validation, tool execution, finance math, and
   persistence.
@@ -107,6 +110,48 @@ Investment Agent `InvestmentPlan` planning/validation, Portfolio Agent
 `PortfolioEvidencePlan` planning, deterministic evidence-plan execution,
 separated `PortfolioEvidencePacket` output, and trace/evaluation closeout
 coverage.
+
+V1.5.0 adds the contracts for the next routing shape without changing the live
+graph yet. `PortfolioBaselinePacket` can represent bounded deterministic
+dashboard/SQL capabilities and evidence references. `InvestmentTurnDecision`
+can return a baseline-cited direct answer or an explicit bounded Portfolio
+delegation. Deterministic coverage policy checks capability presence,
+freshness, requested windows, and evidence refs before a direct answer can be
+accepted. Original-query safety and `PortfolioRequest.source_query` integrity
+are validated before subagent calls.
+
+The same task adds separate provider-neutral `LLMCallTrace` and concise
+`UserProgressEvent` contracts.
+
+V1.5.1 now implements baseline construction as deterministic application
+infrastructure. `PortfolioBaselineService` reads the latest stored portfolio,
+bounded 7-day/30-day SQL history, and deterministic cash metrics through a
+least-privilege no-OpenD gateway profile. It returns compact cited evidence and
+limitations without calling an agent or LLM. Live Investment route adoption,
+call-budget enforcement, LangSmith instrumentation, and frontend progress
+grouping were assigned to V1.5.2 through V1.5.5.
+
+V1.5.2 adopts the baseline and `InvestmentTurnDecision` in the live graph.
+Public web chat always enters Investment Agent. Covered breakdown, allocation,
+effective-cash, 7-day/30-day rough-trend, and recent-change requests can finish
+with the one Investment LLM call. Deterministic policy converts failed direct
+coverage to the planner-supplied bounded Portfolio fallback or returns an
+explicit limitation; it never invents a new mission.
+
+V1.5.3 compiles Portfolio evidence plans deterministically from the validated
+request and resolved asset scope. `analysis_requirement` distinguishes
+deterministic-only evidence retrieval from interpretation-required analysis.
+The former skips the Portfolio evaluator; the latter permits one Portfolio
+analysis call, keeping the normal delegated total at two calls including the
+Investment decision.
+
+V1.5.4 instruments those calls at the shared generation boundary. MooMail gets
+start/completed/failed lifecycle events even when LangSmith is off. During
+delegation, Portfolio compiler, planned/actual/skipped tool, evaluator,
+warning, and error statuses stream into the Investment trace with the Portfolio
+run retained as `child_run_id`; final result adaptation does not duplicate live
+events. Optional LangSmith spans and checkpoint summaries are observability
+consumers only and cannot change agent routing, evidence, or dashboard state.
 
 ### Supported Modes
 
@@ -161,9 +206,10 @@ Current implementation:
   passes `asset_id` scope into the position-state change read; legacy
   ticker-only plans pass tickers, and unscoped plans scan recent changes across
   the portfolio within the configured history window.
-- LLM evaluator: a provider-neutral LLM adapter produces a portfolio-only
-  structured evaluation after deterministic tools complete. Gemini and OpenAI
-  are supported, with Gemini as the current default. The evaluator now asks for
+- Conditional LLM evaluator: a provider-neutral LLM adapter produces a
+  portfolio-only structured evaluation after deterministic tools complete only
+  when the bounded request requires interpretation. Gemini and OpenAI are
+  supported, with Gemini as the current default. The evaluator asks for
   compact JSON, answers portfolio-only user queries directly before giving a
   broad overview, and recovers partial structured fields when a provider returns
   malformed or truncated fenced JSON.
@@ -190,10 +236,11 @@ the MCP gateway. The Portfolio Agent receives a permissioned `MCPToolGateway`,
 not direct `RegisteredMCPModule` objects. This does not change the agent's
 responsibility boundary.
 
-### Portfolio Agent Planning
+### Portfolio Agent Evidence Compilation
 
-The Portfolio Agent has a bounded-planning path. The planner decides
-which portfolio context is needed for the assigned task:
+The Portfolio Agent has a bounded compilation path. Exhaustive deterministic
+policy maps the already-validated request to the portfolio context needed for
+the assigned task:
 
 - deterministic resolution from logical asset hints to canonical portfolio
   symbols, SQL asset ids, and OpenD-compatible symbols
@@ -206,14 +253,13 @@ which portfolio context is needed for the assigned task:
 - required metric groups
 - persistence for review-style runs
 
-The V1.4 planner path accepts a bounded `PortfolioRequest`, validates and
-resolves asset hints against supplied candidates, produces a
+The active path accepts a bounded `PortfolioRequest`, validates and resolves
+asset hints against supplied candidates, produces a
 `PortfolioEvidencePlan`, then enforces deterministic freshness/tool policy and
-assembles a separated `PortfolioEvidencePacket`. Existing keyword/rule query
-behavior is preserved as an explicit fallback planner for legacy
-`PortfolioTask` callers. Compatibility `context_plan` and `portfolio_packet`
-fields remain available for current reports. Execution remains deterministic
-once the evidence plan is selected. This is
+assembles a separated `PortfolioEvidencePacket` before optional interpretation.
+The V1.4 LLM evidence-planner classes remain compatibility/test-only and are not
+constructed by the normal Portfolio runtime. Compatibility `context_plan` and
+`portfolio_packet` fields remain available for current reports. This is
 implemented inside the existing Python Portfolio Agent path, not as a separate
 compiled LangGraph subgraph. The Portfolio Agent returns structured portfolio
 evidence and candidate sentiment scope, not final investment advice.
@@ -235,8 +281,11 @@ Current behavior:
 - Bounded `PortfolioRequest` runs obey deterministic freshness policy:
   `latest_required` calls OpenD, `cached_ok` can use fresh SQL latest state
   without OpenD, and `history_only` reads SQL history without OpenD.
+- `deterministic_only` handoffs return facts, metrics, changes, patterns, and
+  limitations without a Portfolio model call. Detailed review/risk/pattern
+  requests require `interpretation_required` and receive at most one call.
 - Each run returns planned, actual, and skipped tool entries in
-  `PortfolioAgentResult.tool_calls`.
+  `PortfolioAgentResult.tool_calls`, plus expected/actual model-call counts.
 
 ### Portfolio Agent Output
 
@@ -388,6 +437,20 @@ the canonical IPS.
 - Investment Agent: synthesis, policy judgment, recommendations, memory, and final response.
 
 The subagents return structured objects, not final prose. The Investment Agent owns the final answer.
+
+## User Progress And Audit Ownership
+
+Investment Agent remains the only public chat owner. Internal Investment,
+Portfolio, graph-node, model, and tool events are preserved as sanitized
+`TraceEvent` records, but the normal chat timeline receives only the bounded
+plain-language `UserProgressEvent` stages. Repeated successful tool activity is
+grouped in the audit view; warnings and errors remain individually inspectable.
+
+Portfolio Agent remains an internal portfolio-only subagent. Its child run id,
+deterministic tools, and conditional analysis model call appear under the parent
+Investment run. A frontend report may replace the deterministic dashboard only
+after the Investment final guardrails pass and no terminal analytical failure
+was recorded.
 
 ## Guardrail Position
 

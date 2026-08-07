@@ -17,6 +17,7 @@ from moomail_finance_ai.mcp.gateway import (
 from moomail_finance_ai.mcp.opend_mcp import SERVER_NAME as OPEND_SERVER
 from moomail_finance_ai.mcp.portfolio_sql_mcp import SERVER_NAME as PORTFOLIO_SQL_SERVER
 from moomail_finance_ai.metrics import MetricResult
+from moomail_finance_ai.metrics import OPEND_FUND_ASSETS_CASH_SWEEP_ID
 from moomail_finance_ai.mocks import mock_investment_policy
 from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp_module
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
@@ -336,10 +337,14 @@ def snapshot_from_latest_state(
         quantity = float(row.get("quantity") or 0.0)
         market_value = float(row.get("market_value") or 0.0)
         weight = float(row.get("weight") or 0.0)
-        if asset_type in {"cash", "cash_sweep", "cash_equivalent"}:
+        if asset_type in {"cash", "cash_sweep"}:
             cash.append(
                 CashBalance(
-                    account_id=str(row.get("asset_id") or row.get("ticker") or "cash"),
+                    account_id=(
+                        OPEND_FUND_ASSETS_CASH_SWEEP_ID
+                        if asset_type == "cash_sweep"
+                        else str(row.get("asset_id") or row.get("ticker") or "cash")
+                    ),
                     amount=market_value,
                     currency=str(row.get("currency") or currency),
                     weight=weight,

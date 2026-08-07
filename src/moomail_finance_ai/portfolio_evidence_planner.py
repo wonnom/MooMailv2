@@ -3,15 +3,17 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Protocol
+from typing import Any, Iterable, Protocol, get_args
 
 from moomail_finance_ai.agent_schemas import (
     AssetResolution,
     HistoryQuery,
     PortfolioContextPlan,
     PortfolioEvidencePlan,
+    PortfolioOutputGoal,
     PortfolioRequest,
     PortfolioTask,
+    PortfolioTaskIntent,
     PositionChangeScopeEntry,
 )
 from moomail_finance_ai.asset_resolver import (
@@ -20,6 +22,7 @@ from moomail_finance_ai.asset_resolver import (
     validate_portfolio_request,
 )
 from moomail_finance_ai.llm import TextLLMClient, build_llm_client_from_env
+from moomail_finance_ai.observability import generate_text_with_observability
 from moomail_finance_ai.schemas import InvestmentPolicy
 
 
@@ -42,6 +45,104 @@ class PortfolioEvidencePlanningUnavailableError(RuntimeError):
 
 class PortfolioEvidencePlanValidationError(ValueError):
     """Raised when a portfolio evidence request is unsafe or inconsistent."""
+
+
+_TASK_HISTORY_QUERIES: dict[str, list[HistoryQuery]] = {
+    "full_review": ["portfolio_growth", "allocation_history"],
+    "portfolio_fact": [],
+    "risk_check": [],
+    "what_changed": [
+        "portfolio_growth",
+        "allocation_history",
+        "position_state_changes",
+    ],
+    "deep_dive": ["portfolio_growth", "allocation_history"],
+    "compare": ["portfolio_growth", "allocation_history"],
+}
+_OUTPUT_GOAL_HISTORY_QUERIES: dict[str, list[HistoryQuery]] = {
+    "snapshot": [],
+    "allocation_context": [],
+    "performance_context": ["portfolio_growth"],
+    "risk_context": [],
+    "effective_cash": [],
+    "position_changes": ["position_state_changes"],
+    "portfolio_patterns": [],
+    "derived_metrics": ["portfolio_growth"],
+    "sentiment_context_needs": [],
+}
+_OUTPUT_GOAL_METRIC_GROUPS: dict[str, list[str]] = {
+    "snapshot": [],
+    "allocation_context": ["allocation"],
+    "performance_context": ["performance"],
+    "risk_context": ["risk"],
+    "effective_cash": ["effective_cash"],
+    "position_changes": ["performance"],
+    "portfolio_patterns": [],
+    "derived_metrics": ["performance"],
+    "sentiment_context_needs": [],
+}
+_OUTPUT_GOAL_PATTERN_DETECTORS: dict[str, list[str]] = {
+    "snapshot": [],
+    "allocation_context": ["concentration", "allocation_drift"],
+    "performance_context": [],
+    "risk_context": ["concentration", "allocation_drift"],
+    "effective_cash": ["cash_effective_cash"],
+    "position_changes": [
+        "large_position_changes",
+        "average_cost_shifts",
+        "portfolio_outliers",
+    ],
+    "portfolio_patterns": ["concentration", "allocation_drift"],
+    "derived_metrics": [],
+    "sentiment_context_needs": ["sentiment_context_needed"],
+}
+
+
+@dataclass
+class DeterministicPortfolioEvidenceCompiler:
+    """Compile an already-bounded portfolio request into executable evidence policy."""
+
+    def plan(
+        self,
+        request: PortfolioRequest,
+        ips: InvestmentPolicy,
+        candidates: Iterable[PortfolioAssetCandidate | dict],
+    ) -> PortfolioEvidencePlan:
+        del ips
+        _assert_exhaustive_compiler_mappings()
+        resolutions = resolve_asset_hints(request.asset_hints, candidates)
+        validation = validate_portfolio_request(request, resolutions)
+        if not validation.is_valid:
+            messages = [issue.message for issue in validation.blocking_issues]
+            raise PortfolioEvidencePlanValidationError(
+                "; ".join(messages) or "Invalid portfolio evidence request."
+            )
+
+        goals = set(request.output_goals)
+        plan = PortfolioEvidencePlan(
+            task_intent=request.task_intent,
+            resolved_assets=resolutions,
+            history_queries=_compiled_history_queries(request, goals),
+            metric_groups=_compiled_metric_groups(request, goals),
+            needs_current_values=_compiled_current_value_requirement(request, goals),
+            history_window=request.time_range,
+            freshness_requirement=request.freshness_requirement,
+            position_change_scope=(
+                _expected_position_change_scope_from_resolutions(request, resolutions)
+                if "position_changes" in goals
+                else "none"
+            ),
+            persistence_mode=_compiled_persistence_mode(request),
+            pattern_detectors=_compiled_pattern_detectors(request, goals),
+            warnings=_dedupe(
+                [
+                    *request.warnings,
+                    *(issue.message for issue in validation.warnings),
+                ]
+            ),
+        )
+        validate_portfolio_evidence_plan(request, plan)
+        return plan
 
 
 @dataclass
@@ -94,7 +195,8 @@ class LLMPortfolioEvidencePlanner:
             )
 
         try:
-            text = self.llm.generate_text(
+            text = generate_text_with_observability(
+                self.llm,
                 _portfolio_planner_prompt(
                     request=request,
                     ips=ips,
@@ -103,6 +205,7 @@ class LLMPortfolioEvidencePlanner:
                         issue.message for issue in validation.warnings
                     ],
                 ),
+                purpose="portfolio_evidence_planning_compatibility",
                 system_instruction=PORTFOLIO_EVIDENCE_PLANNER_SYSTEM_PROMPT,
                 max_output_tokens=4096,
                 temperature=0.0,
@@ -287,18 +390,50 @@ def _portfolio_planner_prompt(
 
 
 def _unwrap_evidence_plan_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Accept a harmless single-key envelope around an otherwise structured plan."""
-    for key in ("evidence_plan", "plan", "result", "response", "data"):
-        wrapped = payload.get(key)
-        if len(payload) == 1 and isinstance(wrapped, dict):
-            return wrapped
+    """Accept one recognized plan envelope plus allowlisted provider metadata."""
+    envelope_keys = [
+        key
+        for key in _EVIDENCE_PLAN_ENVELOPES
+        if isinstance(payload.get(key), dict)
+    ]
+    if len(envelope_keys) > 1:
+        raise ValueError("Portfolio planner returned multiple recognized plan envelopes.")
+    if envelope_keys:
+        envelope_key = envelope_keys[0]
+        siblings = set(payload) - {envelope_key}
+        if not siblings <= _PROVIDER_METADATA_FIELDS:
+            raise ValueError(
+                "Portfolio planner envelope contains ambiguous non-metadata fields."
+            )
+        return payload[envelope_key]
     return payload
 
 
 def _select_evidence_plan_fields(payload: dict[str, Any]) -> dict[str, Any]:
     """Keep only schema fields; unknown LLM commentary cannot affect execution."""
     allowed = PortfolioEvidencePlan.model_fields.keys()
-    return {key: value for key, value in payload.items() if key in allowed}
+    selected = {key: value for key, value in payload.items() if key in allowed}
+    if not (_PORTFOLIO_PLANNER_CONTROLLED_FIELDS & selected.keys()):
+        raise ValueError("Portfolio planner returned no planner-controlled fields.")
+    return selected
+
+
+_EVIDENCE_PLAN_ENVELOPES = ("evidence_plan", "plan", "result", "response", "data")
+_PROVIDER_METADATA_FIELDS = {
+    "id",
+    "model",
+    "provider",
+    "request_id",
+    "usage",
+}
+_PORTFOLIO_PLANNER_CONTROLLED_FIELDS = {
+    "history_queries",
+    "metric_groups",
+    "needs_current_values",
+    "position_change_scope",
+    "persistence_mode",
+    "pattern_detectors",
+}
 
 
 def validate_portfolio_evidence_plan(
@@ -374,6 +509,98 @@ def validate_portfolio_evidence_plan(
 
     if problems:
         raise PortfolioEvidencePlanValidationError("; ".join(problems))
+
+
+def _compiled_history_queries(
+    request: PortfolioRequest,
+    goals: set[str],
+) -> list[HistoryQuery]:
+    selected = [
+        *_TASK_HISTORY_QUERIES[request.task_intent],
+        *(
+            query
+            for goal in goals
+            for query in _OUTPUT_GOAL_HISTORY_QUERIES[goal]
+        ),
+    ]
+    history_required = bool(selected) or request.freshness_requirement == "history_only"
+    if not history_required:
+        return ["none"]
+
+    queries: list[HistoryQuery] = ["history_status", "latest_state"]
+    return _dedupe([*queries, *selected])
+
+
+def _compiled_metric_groups(request: PortfolioRequest, goals: set[str]) -> list[str]:
+    required = [
+        *_required_metric_groups(request, set()),
+        *(metric for goal in goals for metric in _OUTPUT_GOAL_METRIC_GROUPS[goal]),
+    ]
+    return _dedupe(required) or ["allocation"]
+
+
+def _compiled_current_value_requirement(
+    request: PortfolioRequest,
+    goals: set[str],
+) -> bool:
+    if request.freshness_requirement == "history_only":
+        return False
+    if request.freshness_requirement == "latest_required":
+        return True
+    return _goals_require_snapshot_values(goals)
+
+
+def _compiled_persistence_mode(request: PortfolioRequest) -> str:
+    if request.freshness_requirement == "history_only":
+        return "skip"
+    if request.task_intent == "portfolio_fact":
+        return "skip"
+    if request.freshness_requirement == "latest_required" and request.task_intent in {
+        "full_review",
+        "what_changed",
+        "deep_dive",
+        "compare",
+    }:
+        return "persist"
+    return "auto"
+
+
+def _compiled_pattern_detectors(
+    request: PortfolioRequest,
+    goals: set[str],
+) -> list[str]:
+    detectors = [
+        "stale_data",
+        "unsupported_quote_warnings",
+        *(detector for goal in goals for detector in _OUTPUT_GOAL_PATTERN_DETECTORS[goal]),
+    ]
+    if request.task_intent in {"full_review", "risk_check", "deep_dive", "compare"}:
+        detectors.extend(["concentration", "allocation_drift"])
+    if request.task_intent == "full_review":
+        detectors.append("cash_effective_cash")
+    if request.task_intent == "what_changed":
+        detectors.extend(
+            ["large_position_changes", "average_cost_shifts", "portfolio_outliers"]
+        )
+    return _dedupe(detectors)
+
+
+def _assert_exhaustive_compiler_mappings() -> None:
+    task_intents = set(get_args(PortfolioTaskIntent))
+    output_goals = set(get_args(PortfolioOutputGoal))
+    if set(_TASK_HISTORY_QUERIES) != task_intents:
+        raise PortfolioEvidencePlanValidationError(
+            "Portfolio evidence compiler task-intent mapping is not exhaustive."
+        )
+    for mapping in (
+        _OUTPUT_GOAL_HISTORY_QUERIES,
+        _OUTPUT_GOAL_METRIC_GROUPS,
+        _OUTPUT_GOAL_PATTERN_DETECTORS,
+    ):
+        if set(mapping) != output_goals:
+            raise PortfolioEvidencePlanValidationError(
+                "Portfolio evidence compiler output-goal mapping is not exhaustive."
+            )
 
 
 def _required_outputs_from_goals(goals: list[str]) -> list[str]:

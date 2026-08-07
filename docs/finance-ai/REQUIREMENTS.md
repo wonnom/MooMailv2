@@ -179,6 +179,30 @@ and tool policy, and return a `PortfolioEvidencePacket` that separates facts,
 derived metrics, position changes, detected patterns, portfolio-only
 interpretation, limitations, sentiment-context needs, warnings, and tool refs.
 
+### FR-21: V1.5 Evidence-Gated Investment Routing
+
+Investment-first routing must use a bounded deterministic portfolio baseline
+and an explicit typed route decision. A direct answer is permitted only when
+deterministic validation proves complete capability coverage, compatible
+freshness and time windows, and valid cited evidence references. Otherwise the
+Investment Agent may delegate only through its bounded planner-supplied
+Portfolio request or return an explicit limitation.
+
+The original user query and `PortfolioRequest.source_query` must be checked
+before subagent calls so planner rewriting cannot remove trade/order intent or
+change the assigned mission.
+
+V1.5.1 satisfies bounded deterministic baseline construction. V1.5.2 satisfies
+Investment-only public web routing, baseline-before-planner graph consumption,
+one-call covered direct answers, deterministic evidence-gated direct versus
+delegated routing, bounded fallback, and pre-subagent original-query/source
+integrity enforcement. V1.5.3 satisfies deterministic Portfolio evidence-plan
+compilation, explicit deterministic-only versus interpretation-required
+handoffs, one-call Portfolio analysis, and the normal two-call delegated budget.
+V1.5.4 satisfies provider/token lifecycle instrumentation, live nested
+Portfolio trace propagation, sanitized opt-in LangSmith spans, stable
+run/thread correlation, and controlled diagnostic checkpoint summaries.
+
 ## Non-Functional Requirements
 
 ### NFR-1: Local-First
@@ -214,6 +238,20 @@ Every tool response should include `as_of`, `freshness_status`, and warnings whe
 ### NFR-8: Schema Validation
 
 Agent and tool outputs must be validated with Pydantic models or equivalent schema validation.
+
+### NFR-9: Separated Observability Surfaces
+
+Every outbound LLM call must be representable by sanitized provider-neutral
+telemetry covering purpose, model, timing, usage when available, status, retry,
+and safe error category. User progress must use a smaller plain-language event
+vocabulary than internal developer/audit traces. Neither surface may expose raw
+prompts, hidden reasoning, credentials, account identifiers, or raw broker
+payloads.
+
+LangSmith export is explicitly enabled and sampled independently from MooMail
+trace. External spans accept only allowlisted correlation, route, model, usage,
+timing, status, capability, tool, and error-category metadata. Export or
+checkpoint failures must not fail chat or mutate deterministic dashboard state.
 
 ## Security and Guardrail Requirements
 

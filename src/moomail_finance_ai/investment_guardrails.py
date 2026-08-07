@@ -160,7 +160,13 @@ def _check_unsupported_price_or_portfolio_facts(
 ) -> GuardrailCheck:
     report = state.final_report
     assert report is not None
-    portfolio_missing = state.portfolio_packet is None
+    baseline_direct_supported = bool(
+        state.portfolio_baseline is not None
+        and state.validated_turn_decision is not None
+        and state.validated_turn_decision.route == "direct_context"
+        and state.evidence_coverage.get("is_valid") is True
+    )
+    portfolio_missing = state.portfolio_packet is None and not baseline_direct_supported
     has_portfolio_payload = bool(report.portfolio_snapshot) or bool(report.portfolio_analysis)
     has_portfolio_claim = "portfolio value is" in _report_text(report).lower()
     passed = not (portfolio_missing and (has_portfolio_payload or has_portfolio_claim))
@@ -168,7 +174,8 @@ def _check_unsupported_price_or_portfolio_facts(
         check="unsupported_price_or_portfolio_facts",
         passed=passed,
         message=(
-            "Portfolio facts are backed by a Portfolio Agent packet or are absent."
+            "Portfolio facts are backed by validated baseline evidence, a Portfolio "
+            "Agent packet, or are absent."
             if passed
             else "Portfolio facts appear without a Portfolio Agent packet."
         ),

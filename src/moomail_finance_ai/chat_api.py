@@ -21,12 +21,22 @@ from moomail_finance_ai.portfolio_data_service import (
     PortfolioRefreshResult,
     build_default_portfolio_data_service,
 )
+from moomail_finance_ai.portfolio_baseline import PortfolioBaselineService
 from moomail_finance_ai.schemas import StatusEvent
 from moomail_finance_ai.investment_agent import InvestmentAgent
 from moomail_finance_ai.investment_agent import build_default_investment_agent
-from moomail_finance_ai.agent_schemas import InvestmentAgentState
+from moomail_finance_ai.agent_schemas import InvestmentAgentState, PortfolioBaselinePacket
 from moomail_finance_ai.agent_schemas import TraceEvent
-from moomail_finance_ai.agent_trace import sanitize_public_text, trace_event_to_public_dict
+from moomail_finance_ai.agent_trace import (
+    sanitize_public_text,
+    sanitize_trace_event,
+    trace_event_to_public_dict,
+)
+from moomail_finance_ai.user_trace import (
+    build_trace_summary,
+    build_user_progress,
+    progress_event_for_trace,
+)
 
 
 class ChatService:
@@ -40,6 +50,7 @@ class ChatService:
         portfolio_evaluator: PortfolioEvaluator | None = None,
         investment_agent: InvestmentAgent | None = None,
         portfolio_data_service: PortfolioDataService | None = None,
+        portfolio_baseline_service: PortfolioBaselineService | None = None,
         mcp_gateway: MCPToolGateway | None = None,
         default_agent: str = "investment",
     ):
@@ -50,6 +61,7 @@ class ChatService:
         self.portfolio_evaluator = portfolio_evaluator
         self.investment_agent = investment_agent
         self._portfolio_data_service = portfolio_data_service
+        self._portfolio_baseline_service = portfolio_baseline_service
         self._mcp_gateway = mcp_gateway
         self.default_agent = normalize_chat_agent(default_agent)
 
@@ -59,19 +71,43 @@ class ChatService:
         *,
         status_callback=None,
         agent: str | None = None,
+        thread_id: str | None = None,
     ) -> PortfolioAgentResult | InvestmentAgentState:
-        selected_agent = normalize_chat_agent(agent or self.default_agent)
-        if selected_agent in {"portfolio", "investment"}:
-            investment_agent = self.investment_agent or build_default_investment_agent(
-                env_file=self.env_file,
-                from_report=self.from_report,
-                db_path=self.db_path,
-                llm_provider=self.llm_provider,
-                portfolio_evaluator=self.portfolio_evaluator,
-                gateway=self.mcp_gateway(),
+        requested_agent = agent or self.default_agent
+        normalize_chat_agent(requested_agent)
+        investment_agent = self.investment_agent or build_default_investment_agent(
+            env_file=self.env_file,
+            from_report=self.from_report,
+            db_path=self.db_path,
+            llm_provider=self.llm_provider,
+            portfolio_evaluator=self.portfolio_evaluator,
+            gateway=self.mcp_gateway(),
+            portfolio_baseline_service=self.portfolio_baseline_service(),
+        )
+        state = investment_agent.run(
+            query,
+            status_callback=status_callback,
+            thread_id=thread_id,
+        )
+        if _is_legacy_portfolio_alias(requested_agent):
+            event = TraceEvent(
+                run_id=state.run_id,
+                status="legacy_portfolio_alias_deprecated",
+                message=(
+                    "The legacy Portfolio chat alias was routed to Investment Agent; "
+                    "direct Portfolio chat mode is not public."
+                ),
+                subagent="investment_agent",
+                metadata={
+                    "route": "investment",
+                    "route_reason": "legacy_portfolio_alias",
+                },
             )
-            return investment_agent.run(query, status_callback=status_callback)
-        raise ValueError(f"Unsupported chat agent: {selected_agent}")
+            event = sanitize_trace_event(event)
+            state.status_events.append(event)
+            if status_callback is not None:
+                status_callback(event)
+        return state
 
     def portfolio_connection_status(self) -> PortfolioConnectionStatus:
         return self.portfolio_data_service().connection_status()
@@ -81,6 +117,14 @@ class ChatService:
 
     def portfolio_refresh(self) -> PortfolioRefreshResult:
         return self.portfolio_data_service().refresh()
+
+    def portfolio_baseline(self) -> PortfolioBaselinePacket:
+        return self.portfolio_baseline_service().load()
+
+    def portfolio_baseline_service(self) -> PortfolioBaselineService:
+        if self._portfolio_baseline_service is None:
+            self._portfolio_baseline_service = PortfolioBaselineService(self.mcp_gateway())
+        return self._portfolio_baseline_service
 
     def portfolio_data_service(self) -> PortfolioDataService:
         if self._portfolio_data_service is None:
@@ -112,9 +156,9 @@ class ChatService:
 def normalize_chat_agent(agent: str) -> str:
     normalized = agent.strip().lower().replace("-", "_")
     aliases = {
-        "portfolio": "portfolio",
-        "portfolio_agent": "portfolio",
-        "portfolioagent": "portfolio",
+        "portfolio": "investment",
+        "portfolio_agent": "investment",
+        "portfolioagent": "investment",
         "investment": "investment",
         "investment_agent": "investment",
         "investmentagent": "investment",
@@ -123,6 +167,11 @@ def normalize_chat_agent(agent: str) -> str:
         return aliases[normalized]
     except KeyError as exc:
         raise ValueError(f"Unsupported chat agent: {agent}") from exc
+
+
+def _is_legacy_portfolio_alias(agent: str) -> bool:
+    normalized = agent.strip().lower().replace("-", "_")
+    return normalized in {"portfolio", "portfolio_agent", "portfolioagent"}
 
 
 def chat_response(
@@ -139,11 +188,32 @@ def investment_state_response(state: InvestmentAgentState) -> dict[str, Any]:
     return {
         "agent_type": "investment_agent",
         "run_id": state.run_id,
+        "thread_id": state.thread_id,
         "mode": state.mode,
         "status_events": [trace_event_to_public_dict(event) for event in state.status_events],
+        "progress_events": [
+            event.model_dump(mode="json") for event in build_user_progress(state.status_events)
+        ],
+        "trace_summary": build_trace_summary(state),
         "investment_plan": (
             state.investment_plan.model_dump(mode="json") if state.investment_plan else None
         ),
+        "portfolio_baseline": (
+            state.portfolio_baseline.model_dump(mode="json")
+            if state.portfolio_baseline
+            else None
+        ),
+        "turn_decision": (
+            state.turn_decision.model_dump(mode="json") if state.turn_decision else None
+        ),
+        "validated_turn_decision": (
+            state.validated_turn_decision.model_dump(mode="json")
+            if state.validated_turn_decision
+            else None
+        ),
+        "evidence_coverage": dict(state.evidence_coverage),
+        "llm_calls": [call.model_dump(mode="json") for call in state.llm_calls],
+        "total_llm_calls": state.total_llm_calls,
         "query_plan": state.query_plan.model_dump(mode="json") if state.query_plan else None,
         "portfolio_packet": (
             state.portfolio_packet.model_dump(mode="json") if state.portfolio_packet else None
@@ -215,7 +285,12 @@ def portfolio_agent_response(result: PortfolioAgentResult) -> dict[str, Any]:
 
 def status_event_payload(event: StatusEvent | Any) -> dict[str, Any]:
     if isinstance(event, TraceEvent):
-        return {"type": "status", "event": trace_event_to_public_dict(event)}
+        progress = progress_event_for_trace(event)
+        return {
+            "type": "status",
+            "event": trace_event_to_public_dict(event),
+            "progress": progress.model_dump(mode="json") if progress else None,
+        }
     return {"type": "status", "event": event.model_dump(mode="json")}
 
 

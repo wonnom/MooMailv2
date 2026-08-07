@@ -8,15 +8,14 @@ receives a user query and produces a structured final report.
 ```text
 1. receive_user_query
 2. load_investment_policy
-3. plan_investment as a typed InvestmentPlan
-4. validate_investment_plan before subagent calls
-5. run_portfolio_agent when the plan requests portfolio context
-6. route_sentiment from the InvestmentPlan
-7. run_sentiment_agent_stub when the plan requests research context
+3. load_portfolio_baseline from the deterministic stored-SQL lane
+4. plan one typed InvestmentTurnDecision/direct-answer LLM turn
+5. validate original-query safety, source integrity, and evidence coverage
+6. route direct_context to synthesis or call bounded subagents when delegated
+7. run_sentiment_agent_stub when the validated decision requests research
 8. synthesize_report
 9. run_guardrail_review
 10. emit_final_output
-11. write_audit_summary
 ```
 
 Memory retrieval and writes remain part of the long-term design. The current
@@ -110,9 +109,13 @@ local operational diagnostics; they must not include hidden model reasoning.
 
 ## Chat Agent Names
 
-The chat API accepts canonical agent values `portfolio` and `investment`.
-For frontend compatibility it also accepts `portfolio_agent` and
-`investment_agent`, normalizing those aliases before routing the request.
+The web chat API always selects Investment Agent and does not trust or consume
+an `agent` field from browser payloads. The frontend sends only `query`.
+
+Backend compatibility names `portfolio`, `portfolio_agent`,
+`portfolioagent`, `investment`, `investment_agent`, and `investmentagent` all
+normalize to Investment Agent. Explicit legacy Portfolio aliases add sanitized
+deprecation provenance; they cannot create a public direct Portfolio mode.
 
 ## Portfolio Data Lane Protocol
 
@@ -208,10 +211,17 @@ High-level state shape:
 ```json
 {
   "run_id": "run_123",
+  "thread_id": "conversation_456",
   "user_query": "Review my portfolio",
   "mode": "review",
   "portfolio_id": "portfolio_default",
   "ips": {},
+  "portfolio_baseline": {},
+  "turn_decision": {},
+  "validated_turn_decision": {},
+  "evidence_coverage": {},
+  "llm_calls": [],
+  "total_llm_calls": 1,
   "investment_plan": {},
   "query_plan": {},
   "memory_context": [],
@@ -246,6 +256,7 @@ The Investment Agent routes from a typed `InvestmentPlan` before subagent calls:
       "portfolio_patterns"
     ],
     "freshness_requirement": "latest_required",
+    "analysis_requirement": "interpretation_required",
     "source_query": "Review my portfolio"
   },
   "sentiment_task": {
@@ -258,16 +269,109 @@ The Investment Agent routes from a typed `InvestmentPlan` before subagent calls:
 }
 ```
 
-The Investment Agent owns this plan. The current runtime passes
-`portfolio_request` into the Portfolio Agent while still exposing the older
-`query_plan`/`PortfolioTask` compatibility fields for reports and tests.
+The Investment Agent owns this plan shape. In V1.5.2 the live planner's primary
+output is `InvestmentTurnDecision`; the graph projects `InvestmentPlan`,
+`query_plan`, and `PortfolioTask` compatibility fields after route validation,
+then passes the validated `portfolio_request` into Portfolio Agent when needed.
 Portfolio Agent may suggest sentiment candidates in its response, but it must
 not call Sentiment Agent directly.
 
+## V1.5 Routing And Observability Contracts
+
+V1.5.0 added the contracts and V1.5.2 now uses them in the live
+Investment-first routing path:
+
+- `PortfolioBaselinePacket` carries bounded deterministic dashboard/SQL
+  capabilities, compact summaries, freshness, and sanitized evidence refs.
+- `InvestmentTurnDecision` selects `direct_context`, `delegate_portfolio`,
+  `delegate_sentiment`, `delegate_both`, or `unsupported`, with allowlisted
+  reasons and bounded delegation requests.
+- Direct answers must pass deterministic capability, reference, freshness, and
+  requested-window coverage validation. Failed coverage may use only the
+  planner-supplied bounded Portfolio fallback request.
+- `LLMCallTrace` records provider-neutral purpose, model, timing, usage,
+  status, retry, and safe error metadata. It excludes prompts, credentials,
+  account identifiers, raw broker payloads, and hidden reasoning.
+- `UserProgressEvent` is a separate, small presentation vocabulary; internal
+  `TraceEvent` records retain detailed phases plus grouping and child-run ids.
+
+Investment plan validation now receives the original user query before any
+subagent call. A planner cannot remove original trade/order intent or rewrite a
+`PortfolioRequest.source_query`. Investment and Portfolio structured planners
+also reject empty, unknown-only, and ambiguous multi-plan payloads.
+
+V1.5.1 now constructs baseline packets through a deterministic read-only
+service. The packet contains current total/allocation/effective-cash summaries,
+stored-history freshness, valid 7-day/30-day total-value trends, and bounded
+7-day allocation/quantity changes when anchors exist. Every usable summary has
+a stable evidence ref; missing anchors, stale/shallow history, unsupported
+quotes, unavailable SQL, and the absence of a live OpenD refresh are explicit
+limitations. The `portfolio_baseline` gateway consumer cannot call OpenD or SQL
+writes.
+
+`ChatService.portfolio_baseline()` exposes this packet and the Investment graph
+loads it before the first model call. The baseline-aware planner receives the
+original query, IPS, capabilities, summaries, evidence refs, freshness, and
+limitations in one bounded prompt. Its `InvestmentTurnDecision` is then checked
+deterministically before routing.
+
+For `direct_context`, valid cited coverage becomes a guarded `FinalReport` with
+the baseline `as_of`, selected summaries/refs, and limitations; Portfolio and
+Sentiment are skipped. Failed direct coverage can use only the supplied bounded
+fallback request. Missing fallback fails closed. Route, reasons, coverage,
+fallback use, baseline version, and the Investment LLM call count are present in
+sanitized state/events.
+
+V1.5.3 adds `PortfolioRequest.analysis_requirement` with
+`deterministic_only` and `interpretation_required`. The Portfolio Agent compiles
+the evidence plan deterministically, assembles deterministic evidence before
+interpretation, skips the evaluator for deterministic-only handoffs, and permits
+one Portfolio analysis call otherwise. `PortfolioAgentResult` reports safe call
+records plus expected/actual counts. Investment state combines them with the
+first call and rejects unplanned purpose-level calls, retries, or totals above
+two.
+
+V1.5.4 now emits `llm_call_started`, `llm_call_completed`, and
+`llm_call_failed` for Investment planning and conditional Portfolio analysis.
+Each lifecycle carries purpose, provider, model, attempt, duration, safe error
+category, and provider usage only when supplied. Portfolio status/tool events
+are adapted live into Investment `TraceEvent` records with the Investment
+`run_id` as parent and the Portfolio `run_id` in `child_run_id`; final result
+adaptation does not replay events already streamed.
+
+Every graph invocation supplies a stable `run_name`, UUID-form run id,
+conversation `thread_id`, environment/app tags, and safe metadata. LangSmith
+root/node/custom-LLM spans are created only when explicitly enabled and accept
+allowlisted metadata rather than raw graph state or prompts. MooMail lifecycle
+events remain complete when LangSmith is disabled or unavailable.
+
+Diagnostic checkpointing is separate from tracing and disabled by default.
+When enabled, raw LangGraph in-memory checkpoints exist only during the active
+run; completion purges them and retains bounded summaries keyed by `thread_id`
+for local inspection.
+
+V1.5.5 makes the presentation boundary concrete. Every streamed `TraceEvent`
+may carry a mapped `progress` event, and the final Investment response carries
+canonical ordered `progress_events` plus a sanitized `trace_summary`. Progress
+uses only the bounded stages in `UserProgressStage`; detailed source statuses
+never become chat prefixes. `trace_summary` groups planned/actual/skipped tools
+but also retains all sanitized `source_events`, so grouping is lossless.
+
+The browser treats planner, validation, Portfolio compilation/execution/
+analysis, LLM failure, and call-budget statuses as terminal analytical failures.
+A final report replaces the deterministic dashboard only when no terminal
+failure exists and guardrails passed with a non-blocked output. External trace
+export and checkpoint-finalization failures emit a safe nonfatal
+`observability_degraded` warning and do not change analytical output.
+The frontend still treats that warning as a dashboard-replacement blocker, so
+the completed answer remains in chat/audit detail while the last deterministic
+dashboard stays visible.
+
 ## Portfolio Evidence Plan
 
-Portfolio Agent plans bounded portfolio evidence from `PortfolioRequest` into
-`PortfolioEvidencePlan` before selecting tool scope:
+Portfolio Agent deterministically compiles bounded portfolio evidence from the
+validated `PortfolioRequest` into `PortfolioEvidencePlan` before selecting tool
+scope:
 
 ```json
 {
@@ -307,8 +411,8 @@ Portfolio Agent plans bounded portfolio evidence from `PortfolioRequest` into
 }
 ```
 
-The Portfolio Agent planner must not emit sentiment routing or final-thesis
-fields. Bounded runs execute this evidence plan through deterministic freshness
+The compiler must not emit sentiment routing or final-thesis fields. Bounded
+runs execute this evidence plan through deterministic freshness
 and allowlisted-tool policy, then assemble a separated
 `PortfolioEvidencePacket`.
 

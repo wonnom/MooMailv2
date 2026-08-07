@@ -46,15 +46,16 @@ Implemented and useful today:
 - `PortfolioDataService`: deterministic backend service for OpenD status,
   latest SQL-backed dashboard snapshots, manual refresh, metrics, and canonical
   SQL history updates without invoking agents or LLMs.
-- `PortfolioAgent`: bounded-planning Python Portfolio Agent that can accept a
-  bounded `PortfolioRequest`, produce a `PortfolioEvidencePlan`, enforce
-  deterministic freshness/tool policy, execute selected MCP tools
-  deterministically, assemble a separated `PortfolioEvidencePacket`, then ask
-  an LLM evaluator to answer portfolio-only questions from collected evidence.
-  Legacy `PortfolioTask` callers use an explicit fallback planner and
-  compatibility result fields remain available.
-- `InvestmentAgent`: thin LangGraph supervisor that routes portfolio-only
-  and portfolio-plus-sentiment queries through structured agent packets.
+- `PortfolioAgent`: bounded Python Portfolio Agent that accepts a validated
+  `PortfolioRequest`, compiles a `PortfolioEvidencePlan` deterministically, enforces
+  deterministic freshness/tool policy, executes selected MCP tools
+  deterministically, assembles a separated `PortfolioEvidencePacket`, and calls
+  one portfolio-only evaluator only when `analysis_requirement` requires
+  interpretation. Compatibility result fields remain available.
+- `InvestmentAgent`: Investment-only public chat supervisor that loads a
+  deterministic baseline, asks one structured Investment LLM turn for a typed
+  direct/delegate decision, validates safety and evidence coverage, and calls
+  subagents only when the validated route requires them.
 - `SentimentAgentStub`: deterministic missing-research Sentiment Agent stub
   that cements the future Neo4j GraphRAG contract without requiring Neo4j.
 - `investment_guardrails`: deterministic investment output guardrails for no-trading,
@@ -67,16 +68,16 @@ Implemented and useful today:
   `AssetHint`, `AssetResolution`, `PortfolioEvidencePlan`,
   `PortfolioEvidencePacket`, and planner/policy trace phases in
   `agent_schemas.py`.
-- `investment_planner`: deterministic V1.4 Investment Agent fallback planner
-  that emits typed `InvestmentPlan` output, validates it before subagent calls,
-  and adapts it to the current Portfolio Agent runtime.
+- `investment_planner`: LLM-backed baseline-aware `InvestmentTurnDecision`
+  planner for the live graph, plus deterministic pre-subagent validation and a
+  V1.4 `InvestmentPlan` compatibility entrypoint with no keyword fallback.
 - `asset_resolver`: deterministic V1.4 resolver/validator primitives for
   supplied SQL/current-snapshot/fixture candidates, explicit resolution
   statuses, unsafe request blocking, and sanitized asset-resolution trace.
-- `portfolio_evidence_planner`: deterministic V1.4 Portfolio Agent evidence
-  planner that accepts bounded `PortfolioRequest` input, resolves assets before
-  tool scope selection, emits `PortfolioEvidencePlan`, and preserves current
-  keyword behavior as an explicit fallback planner.
+- `portfolio_evidence_planner`: exhaustive deterministic Portfolio evidence
+  compiler for bounded `PortfolioRequest` input. It resolves assets before tool
+  scope selection and emits a validated `PortfolioEvidencePlan`; the former LLM
+  planner is isolated to compatibility/tests and is not constructed normally.
 - `PortfolioEvidencePacket` runtime output: bounded Portfolio Agent runs now
   separate deterministic facts, metrics, position changes, detected patterns,
   portfolio-only interpretation, limitations, sentiment-context needs,
@@ -91,19 +92,20 @@ Implemented and useful today:
 
 Important limitations:
 
-- The Portfolio Agent is MCP-backed with a deterministic bounded planner. It
+- The Portfolio Agent is MCP-backed with a deterministic bounded compiler. It
   does not let the LLM decide which OpenD, SQL, or metrics tools to call.
-- The Investment Agent is intentionally thin; richer LLM planning,
-  checkpointing, and memory are still future work.
+- Detailed delegated Portfolio runs use at most one Portfolio analysis call and
+  two model calls total including Investment planning. Deterministic-only
+  escalations skip the Portfolio evaluator.
 - Investment synthesis is deterministic/template-style. It does not yet perform a rich
   LLM synthesis pass over portfolio, sentiment, memory, and market context.
 - The Sentiment Agent is a stub only. Neo4j GraphRAG is not implemented, and
   the stub must not invent research claims, citations, or sentiment.
 - The Portfolio Agent bounded planner is implemented inside the existing Python
   Portfolio Agent path, not as a separate compiled LangGraph subgraph.
-- The live Investment Agent emits and validates `InvestmentPlan`, passes the
-  typed `PortfolioRequest` into the Portfolio Agent at runtime, and carries the
-  returned evidence packet forward for synthesis and chat payloads.
+- The live Investment graph emits and validates `InvestmentTurnDecision`, uses
+  baseline-cited direct answers when coverage passes, and projects a
+  compatibility `InvestmentPlan` only for existing report/subagent contracts.
 - Pinecone memory is not connected.
 - The deterministic dashboard lane, Portfolio Agent, and Investment Agent
   path use the gateway. `RegisteredMCPModule` remains underneath FastMCP and
@@ -525,3 +527,27 @@ Agent:
 Sentiment Agent implementation is not part of V1.4. The Investment Agent may
 continue to emit future-compatible sentiment tasks, but real Neo4j GraphRAG
 retrieval remains a later track.
+
+## V1.5 Planning Track
+
+V1.5 notes live under [`docs/finance-ai/V1_5_Tasks/`](V1_5_Tasks/).
+
+| Task | Status | Purpose |
+| --- | --- | --- |
+| V1.5.0 | complete as of 2026-08-03 | Define bounded baseline, route-decision, direct-coverage, LLM-call, and user-progress contracts plus fail-closed planner safety. |
+| V1.5.1 | complete as of 2026-08-03 | Build one bounded deterministic baseline packet from stored SQL and deterministic cash metrics without OpenD, agents, LLMs, or writes. |
+| V1.5.2 | complete as of 2026-08-03 | Make Investment the default route and delegate Portfolio only when deterministic coverage is insufficient. |
+| V1.5.3 | complete as of 2026-08-05 | Execute bounded Portfolio escalation with explicit LLM-call budgets. |
+| V1.5.4 | complete as of 2026-08-05 | Add correlated opt-in LangSmith tracing and complete MooMail runtime trace propagation. |
+| V1.5.5 | complete as of 2026-08-05 | Evaluate routing/trace UX, finish frontend trace presentation, and close V1.5. |
+
+V1.5.0 through V1.5.5 are implemented. Public web chat now enters Investment
+Agent only, loads the baseline before its structured LLM turn, and uses
+deterministic coverage to select a guarded one-call direct answer or a bounded
+delegation. Portfolio delegation now compiles evidence deterministically and
+enforces conditional one-call analysis. Every runtime model call now emits a
+sanitized MooMail lifecycle, Portfolio activity streams as a nested child run,
+and LangSmith/checkpoint diagnostics are explicit opt-ins. The browser now
+shows ordered plain-language progress, keeps grouped sanitized run detail in an
+expandable audit surface, and replaces the dashboard only for guarded successful
+reports. The V1.5 full non-live release gate passes.

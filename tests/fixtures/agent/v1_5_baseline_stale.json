@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "portfolio_default",
+  "generated_at": "2026-08-03T14:00:00Z",
+  "as_of": "2026-07-30T13:55:00Z",
+  "capabilities": ["latest_snapshot"],
+  "summaries": [
+    {
+      "summary_id": "snapshot.stale",
+      "capability": "latest_snapshot",
+      "label": "Stale stored portfolio total",
+      "facts": {"total_value": 99000.0, "currency": "USD"},
+      "evidence_refs": ["dashboard.stale.total"]
+    }
+  ],
+  "evidence_refs": [
+    {
+      "ref_id": "dashboard.stale.total",
+      "source": "portfolio_dashboard",
+      "field_path": "portfolio_snapshot.total_value",
+      "as_of": "2026-07-30T13:55:00Z",
+      "quality": "stale",
+      "limitations": ["Stored snapshot is older than the direct-answer freshness budget."]
+    }
+  ],
+  "warnings": ["Stored portfolio snapshot is stale."],
+  "limitations": ["Latest values require Portfolio escalation or manual refresh."]
+}

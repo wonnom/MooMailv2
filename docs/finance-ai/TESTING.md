@@ -53,18 +53,20 @@ test when that backend exists.
 | --- | --- |
 | `tests/test_metrics.py` | Deterministic finance calculations underneath `moomail-finance-metrics-mcp`, including effective cash weight |
 | `tests/test_llm.py` | Provider-neutral LLM config/client selection for Gemini and OpenAI |
+| `tests/test_llm_observability.py` | LLM lifecycle/usage instrumentation, safe LangSmith span hierarchy, run/thread correlation, external allowlisting, opt-in checkpoint summaries, no-network sink, and observability failure isolation |
 | `tests/test_research.py` | Local research store and Sentiment Agent contracts |
-| `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, separated evidence packet assembly, pattern thresholds, daily SQL idempotency, LLM input boundaries, and evaluator JSON parsing/recovery |
+| `tests/test_portfolio_agent.py` | MCP-backed Portfolio Agent pipeline, evidence-before-analysis assembly, conditional evaluator, call/retry budgets, failure isolation, pattern thresholds, daily SQL idempotency, LLM input boundaries, and evaluator JSON recovery |
 | `tests/test_agent_schemas.py` | Agent Pydantic contracts, V1.4 planner/evidence fixtures, guardrail schema, and trace schema |
 | `tests/test_asset_resolver.py` | V1.4 deterministic asset resolver behavior, candidate precedence, explicit failure statuses, non-blocking warnings, and sanitized trace |
-| `tests/test_investment_planner.py` | V1.4 LLM-backed Investment Agent planner parsing, graceful unavailable-planner failure, bounded PortfolioRequest output, logical asset hints, and plan fixtures |
-| `tests/test_investment_agent.py` | Thin LangGraph Investment Agent planning/validation, bounded PortfolioRequest runtime handoff, fake subagent call counts, sentiment routing, missing-research synthesis, and status events |
-| `tests/test_portfolio_planner.py` | V1.4 LLM-backed PortfolioEvidencePlan parsing, direct-query graceful failure, cached/history-only freshness policy, asset-resolution scope, history/persistence minimization, and tool trace entries |
+| `tests/test_investment_planner.py` | V1.4 compatibility planning plus V1.5 baseline-aware InvestmentTurnDecision prompt/parsing, prompt privacy, graceful failure, bounded requests, evidence coverage, source integrity, and fixtures |
+| `tests/test_investment_agent.py` | Baseline-before-planner LangGraph flow, one-call direct/deterministic-delegate routes, strict delegation, two-call detailed budgets, Portfolio failure isolation, sentiment ownership, guarded reports, and route trace |
+| `tests/test_portfolio_planner.py` | V1.5 deterministic PortfolioEvidencePlan compilation/exhaustiveness plus isolated V1.4 LLM compatibility parsing, direct-query graceful failure, freshness, asset scope, history/persistence, and tool trace entries |
 | `tests/test_sentiment_agent_stub.py` | Sentiment Agent stub validation, missing-research packets, no fake citations, and future success fixture shape |
-| `tests/test_investment_guardrails.py` | Deterministic investment no-trading, no exact share-count, unsupported research, IPS, and missing-sentiment guardrails |
-| `tests/test_agent_trace.py` | Agent trace sanitizer, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |
-| `tests/test_chat_app.py` | Local HTTP/chat API, evidence-plan/evidence-packet trace payloads, and static frontend expectations |
+| `tests/test_investment_guardrails.py` | Deterministic investment no-trading, no exact share-count, validated baseline/Portfolio fact support, unsupported research, IPS, and missing-sentiment guardrails |
+| `tests/test_agent_trace.py` | Agent trace sanitizer, route/coverage/LLM metadata, graph/tool/sentiment/guardrail trace, error trace, and terminal summary rendering |
+| `tests/test_chat_app.py` | Investment-only local HTTP/chat API, legacy alias provenance, baseline/route/call state payloads, evidence trace, and static frontend expectations |
 | `tests/test_portfolio_data_service.py` | Deterministic backend portfolio data lane: status, SQL-backed dashboard reads, OpenD refresh, metrics, SQL persistence, stale fallback, no-agent/no-LLM independence, and API route delegation |
+| `tests/test_portfolio_baseline.py` | V1.5 deterministic baseline packet: no-OpenD/no-agent boundary, bounded history, 7-day/30-day trends and changes, cash semantics, evidence refs, limitations, privacy, sorting, and caps |
 
 Historical prototype/full-agent tests were removed after the canonical
 Investment Agent became the supported chat/CLI path. Historical design context
@@ -241,6 +243,160 @@ git diff --check: passed
 The warnings are the existing LangGraph dependency deprecation warning. Live
 connector tests remain opt-in and were not required for deterministic V1.4.4 or
 V1.4.5 completion.
+
+V1.5.0 routing and observability contract closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_agent_schemas.py tests/test_agent_trace.py -q
+.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_portfolio_planner.py -q
+.venv/bin/python -m pytest tests/test_opend_config.py -q
+.venv/bin/python -m pytest tests/test_investment_agent.py tests/test_chat_app.py tests/test_asset_resolver.py -q
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+git diff --check
+```
+
+Latest V1.5.0 result on 2026-08-03:
+
+```text
+tests/test_agent_schemas.py tests/test_agent_trace.py: 74 passed, 1 warning
+tests/test_investment_planner.py tests/test_portfolio_planner.py: 63 passed
+tests/test_opend_config.py: 6 passed
+tests/test_investment_agent.py tests/test_chat_app.py tests/test_asset_resolver.py: 36 passed, 1 warning
+tests --ignore=tests/live: 281 passed, 1 warning
+git diff --check: passed
+```
+
+The warning is the existing LangGraph dependency deprecation warning. Live
+connector tests were not required because V1.5.0 adds deterministic contracts
+and validation without hosted LLM, LangSmith, or OpenD calls. Ruff was not run
+because the repository virtual environment does not contain it.
+
+V1.5.1 deterministic baseline closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_portfolio_baseline.py -q
+.venv/bin/python -m pytest tests/test_portfolio_data_service.py -q
+.venv/bin/python -m pytest tests/test_chat_app.py -q
+.venv/bin/python -m pytest tests/test_mcp_gateway.py tests/test_metrics.py -q
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+git diff --check
+```
+
+Latest V1.5.1 result on 2026-08-03:
+
+```text
+tests/test_portfolio_baseline.py: 18 passed
+tests/test_portfolio_data_service.py: 9 passed, 1 warning
+tests/test_chat_app.py: 13 passed, 1 warning
+tests/test_mcp_gateway.py tests/test_metrics.py: 11 passed
+tests --ignore=tests/live: 303 passed, 1 warning
+git diff --check: passed
+```
+
+The warning is the existing LangGraph dependency deprecation warning. Live
+tests are not part of this gate because the baseline must use stored SQL and
+must not call live OpenD or a hosted model. Ruff remains unavailable in the
+project virtual environment.
+
+V1.5.2 Investment-default strict-routing closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_investment_planner.py tests/test_investment_agent.py -q
+.venv/bin/python -m pytest tests/test_chat_app.py tests/test_agent_trace.py -q
+.venv/bin/python -m pytest tests/test_investment_guardrails.py -q
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+git diff --check
+```
+
+Latest V1.5.2 result on 2026-08-03:
+
+```text
+tests/test_investment_planner.py tests/test_investment_agent.py: 54 passed, 1 warning
+tests/test_chat_app.py tests/test_agent_trace.py: 22 passed, 1 warning
+tests/test_investment_guardrails.py: 6 passed
+tests --ignore=tests/live: 331 passed, 1 warning
+git diff --check: passed
+```
+
+The warning is the existing LangGraph dependency deprecation warning. Live
+connector/model tests are not part of this deterministic routing gate. Ruff
+remains unavailable in the project virtual environment.
+
+V1.5.3 deterministic Portfolio escalation and call-budget closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_portfolio_planner.py tests/test_portfolio_agent.py -q
+.venv/bin/python -m pytest tests/test_investment_agent.py tests/test_agent_trace.py -q
+.venv/bin/python -m pytest tests/test_chat_app.py tests/test_portfolio_data_service.py -q
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+git diff --check
+```
+
+Latest V1.5.3 result on 2026-08-05:
+
+```text
+tests/test_portfolio_planner.py tests/test_portfolio_agent.py: 77 passed
+tests/test_investment_agent.py tests/test_agent_trace.py: 46 passed, 1 warning
+tests/test_chat_app.py tests/test_portfolio_data_service.py: 24 passed, 1 warning
+tests --ignore=tests/live: 357 passed, 1 warning
+py_compile (V1.5.3 touched runtime modules): passed
+git diff --check: passed
+```
+
+The warning is the existing LangGraph dependency deprecation warning. Live
+connector/model tests are not part of this deterministic compiler/fake-provider
+budget gate. Ruff remains unavailable in the project virtual environment.
+
+V1.5.4 LangSmith and MooMail trace instrumentation closeout uses:
+
+```bash
+.venv/bin/python -m pytest tests/test_llm.py tests/test_llm_observability.py -q
+.venv/bin/python -m pytest tests/test_agent_trace.py tests/test_investment_agent.py tests/test_portfolio_agent.py -q
+.venv/bin/python -m pytest tests/test_chat_app.py -q
+.venv/bin/python -m pytest tests --ignore=tests/live -q
+git diff --check
+```
+
+Latest V1.5.4 result on 2026-08-05:
+
+```text
+tests/test_llm.py tests/test_llm_observability.py: 15 passed, 1 warning
+tests/test_agent_trace.py tests/test_investment_agent.py tests/test_portfolio_agent.py: 61 passed, 1 warning
+tests/test_chat_app.py: 15 passed, 1 warning
+tests --ignore=tests/live: 369 passed, 1 warning
+py_compile (V1.5.4 touched runtime modules): passed
+git diff --check: passed
+```
+
+The warning is the existing LangGraph serializer deprecation warning. Hosted
+LangSmith/model and live OpenD tests are not required for this fake-provider,
+no-network observability gate. Ruff remains unavailable in the project virtual
+environment.
+
+## V1.5.5 Frontend Trace, Evaluation, And Closeout Gate
+
+V1.5.5 uses the task-file commands exactly. Latest result on 2026-08-05:
+
+```text
+tests/test_agent_schemas.py tests/test_agent_trace.py: 77 passed, 1 warning
+tests/test_portfolio_baseline.py tests/test_portfolio_data_service.py: 27 passed, 1 warning
+tests/test_investment_planner.py tests/test_investment_agent.py: 60 passed, 1 warning
+tests/test_portfolio_planner.py tests/test_portfolio_agent.py: 77 passed, 1 warning
+tests/test_llm.py tests/test_llm_observability.py: 16 passed, 1 warning
+tests/test_chat_app.py tests/test_investment_guardrails.py: 23 passed, 1 warning
+tests --ignore=tests/live: 375 passed, 1 warning
+node --check for changed browser JavaScript: passed
+interactive local browser progress/trace/accessibility check: passed
+git diff --check: passed
+```
+
+The golden route matrix covers one-call baseline answers, strict evidence
+escalation, two-call interpretation budgets, and one-call deterministic-only
+delegation. Failure fixtures cover planner integrity, Portfolio compilation/
+execution/analysis and call budgets, stream errors, LangSmith exporter failure,
+checkpoint finalization, privacy, ownership, and deterministic dashboard
+independence. The warning remains the existing LangGraph serializer deprecation
+warning. Hosted model/LangSmith and live OpenD tests were intentionally not run.
 
 ## When To Delete A Test
 

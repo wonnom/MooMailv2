@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "portfolio_default",
+  "generated_at": "2026-08-03T14:00:00Z",
+  "as_of": "2026-08-03T13:55:00Z",
+  "capabilities": [
+    "latest_snapshot",
+    "portfolio_value_trend_7d",
+    "history_freshness"
+  ],
+  "summaries": [
+    {
+      "summary_id": "snapshot.total",
+      "capability": "latest_snapshot",
+      "label": "Latest stored portfolio total",
+      "facts": {"total_value": 100000.0, "currency": "USD"},
+      "evidence_refs": ["dashboard.total"]
+    },
+    {
+      "summary_id": "trend.7d",
+      "capability": "portfolio_value_trend_7d",
+      "label": "Seven-day portfolio value trend",
+      "facts": {"change_pct": 1.5, "direction": "up"},
+      "evidence_refs": ["sql.trend.7d"]
+    },
+    {
+      "summary_id": "history.freshness",
+      "capability": "history_freshness",
+      "label": "Portfolio history freshness",
+      "facts": {"status": "fresh"},
+      "evidence_refs": ["sql.history.status"]
+    }
+  ],
+  "evidence_refs": [
+    {
+      "ref_id": "dashboard.total",
+      "source": "portfolio_dashboard",
+      "field_path": "portfolio_snapshot.total_value",
+      "as_of": "2026-08-03T13:55:00Z",
+      "quality": "complete",
+      "limitations": []
+    },
+    {
+      "ref_id": "sql.trend.7d",
+      "source": "portfolio_sql",
+      "field_path": "portfolio_value_trend",
+      "as_of": "2026-08-03T13:55:00Z",
+      "window": "7d",
+      "quality": "complete",
+      "limitations": []
+    },
+    {
+      "ref_id": "sql.history.status",
+      "source": "portfolio_sql",
+      "field_path": "history_status",
+      "as_of": "2026-08-03T13:55:00Z",
+      "window": "30d",
+      "quality": "complete",
+      "limitations": []
+    }
+  ],
+  "warnings": [],
+  "limitations": []
+}

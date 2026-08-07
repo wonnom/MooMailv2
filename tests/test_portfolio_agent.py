@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from moomail_finance_ai.config import OpenDConfig
 from moomail_finance_ai.agent_schemas import AssetHint, PortfolioEvidencePlan, PortfolioRequest
 from moomail_finance_ai.asset_resolver import PortfolioAssetCandidate, resolve_asset_hints
@@ -21,9 +23,15 @@ from moomail_finance_ai.opend import (
 from moomail_finance_ai.portfolio_agent import (
     LLMPortfolioEvaluator,
     PORTFOLIO_PATTERN_THRESHOLDS,
+    PortfolioAnalysisUnavailableError,
     PortfolioAgent,
     PortfolioEvaluation,
+    PortfolioLLMCallBudget,
+    PortfolioLLMCallBudgetExceededError,
     _evaluation_from_text,
+)
+from moomail_finance_ai.portfolio_evidence_planner import (
+    DeterministicPortfolioEvidenceCompiler,
 )
 from moomail_finance_ai.sql_store import PortfolioSqlStore
 from scripts.portfolio_agent_review import portfolio_agent_terminal_summary_lines
@@ -213,6 +221,165 @@ def test_pattern_detector_thresholds_are_stable():
         "large_quantity_delta_abs": 1.0,
         "average_cost_delta_pct": 0.05,
     }
+
+
+def test_portfolio_agent_executes_compiled_plan_without_planner_llm(
+    tmp_path,
+    recorded_opend_client,
+):
+    evaluator = CapturingEvaluator()
+    agent = PortfolioAgent(
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(
+                    client=recorded_opend_client,
+                    config=OpenDConfig(),
+                ),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(
+                    store=PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+                ),
+            ]
+        ),
+        evaluator=evaluator,
+    )
+    request = PortfolioRequest(
+        task_intent="risk_check",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "risk_context", "portfolio_patterns"],
+        analysis_requirement="interpretation_required",
+        source_query="Explain my current portfolio risks.",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
+
+    assert isinstance(agent.evidence_planner, DeterministicPortfolioEvidenceCompiler)
+    assert result.evidence_plan is not None
+    assert evaluator.calls == 1
+    assert result.expected_llm_calls == {"portfolio_analysis": 1}
+    assert result.actual_llm_calls == {"portfolio_analysis": 1}
+    assert result.total_llm_calls == 1
+    assert [call.purpose for call in result.llm_calls] == ["portfolio_analysis"]
+
+
+def test_deterministic_only_escalation_skips_portfolio_evaluator(
+    tmp_path,
+    recorded_opend_client,
+):
+    evaluator = CapturingEvaluator()
+    agent = PortfolioAgent(
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(
+                    client=recorded_opend_client,
+                    config=OpenDConfig(),
+                ),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(
+                    store=PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+                ),
+            ]
+        ),
+        evaluator=evaluator,
+    )
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "effective_cash"],
+        analysis_requirement="deterministic_only",
+        source_query="Retrieve my current effective cash.",
+    )
+
+    result = agent.run(
+        request.source_query,
+        mock_investment_policy(),
+        portfolio_request=request,
+    )
+
+    assert evaluator.calls == 0
+    assert result.expected_llm_calls == {"portfolio_analysis": 0}
+    assert result.actual_llm_calls == {"portfolio_analysis": 0}
+    assert result.total_llm_calls == 0
+    assert result.evidence_packet.portfolio_only_interpretation == []
+    statuses = [event.status for event in result.status_events]
+    assert statuses.index("portfolio_evidence_packet_ready") < statuses.index(
+        "portfolio_analysis_skipped"
+    )
+
+
+def test_unplanned_llm_retry_is_blocked_and_traced():
+    budget = PortfolioLLMCallBudget()
+
+    assert budget.reserve("portfolio_analysis") == 1
+    with pytest.raises(PortfolioLLMCallBudgetExceededError) as exc_info:
+        budget.reserve("portfolio_analysis")
+
+    assert exc_info.value.limit == 1
+    assert exc_info.value.attempted == 2
+    assert budget.attempts == {"portfolio_analysis": 1}
+
+
+def test_configured_retry_records_attempt_and_reason():
+    budget = PortfolioLLMCallBudget(limits={"portfolio_analysis": 2})
+
+    assert budget.reserve("portfolio_analysis") == 1
+    assert budget.reserve(
+        "portfolio_analysis",
+        retry_reason="provider_returned_retryable_transport_error",
+    ) == 2
+
+    assert budget.attempts == {"portfolio_analysis": 2}
+    assert budget.retry_reasons == {
+        "portfolio_analysis": ["provider_returned_retryable_transport_error"]
+    }
+
+
+def test_portfolio_analysis_failure_is_explicit_and_preserves_history(
+    tmp_path,
+    recorded_opend_client,
+):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    emitted = []
+    agent = PortfolioAgent(
+        gateway=DirectToolGateway(
+            [
+                build_opend_mcp_module(
+                    client=recorded_opend_client,
+                    config=OpenDConfig(),
+                ),
+                build_finance_metrics_mcp_module(),
+                build_portfolio_sql_mcp_module(store=store),
+            ]
+        ),
+        evaluator=FailingEvaluator(),
+    )
+    request = PortfolioRequest(
+        task_intent="full_review",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "risk_context", "portfolio_patterns"],
+        analysis_requirement="interpretation_required",
+        source_query="Explain my portfolio risks.",
+    )
+
+    with pytest.raises(PortfolioAnalysisUnavailableError) as exc_info:
+        agent.run(
+            request.source_query,
+            mock_investment_policy(),
+            portfolio_request=request,
+            status_callback=emitted.append,
+        )
+
+    assert len(exc_info.value.llm_calls) == 1
+    assert exc_info.value.llm_calls[0].status == "failed"
+    statuses = [event.status for event in emitted]
+    assert statuses.index("portfolio_evidence_packet_ready") < statuses.index(
+        "portfolio_analysis_failed"
+    )
+    assert store.table_count("portfolio_value_snapshots") == 0
 
 
 def test_portfolio_agent_contract_includes_otc_warning_and_effective_cash_sweep(tmp_path):
@@ -504,6 +671,14 @@ class CapturingEvaluator:
             risks=["Historical depth is still limited."],
             history_observations=["Daily snapshot policy was applied."],
         )
+
+
+class FailingEvaluator:
+    outbound_llm = True
+
+    def evaluate(self, **kwargs) -> PortfolioEvaluation:
+        del kwargs
+        raise RuntimeError("provider request failed")
 
 
 class TestPortfolioEvidencePlanner:

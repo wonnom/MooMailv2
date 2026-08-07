@@ -68,18 +68,18 @@ class ChatHandler(SimpleHTTPRequestHandler):
             return
         payload = self._read_json()
         query = str(payload.get("query") or "Review my portfolio")
-        agent = str(payload.get("agent") or self.service.default_agent)
         if parsed.path == "/api/chat":
             try:
-                state = self.service.run(query, agent=agent)
+                state = self.service.run(query)
             except Exception as exc:
                 self._json(error_event_payload(exc), status=500)
                 return
             self._json(chat_response(state))
             return
-        self._stream_chat(query, agent=agent)
+        self._stream_chat(query)
 
-    def _stream_chat(self, query: str, *, agent: str) -> None:
+    def _stream_chat(self, query: str, *, agent: str | None = None) -> None:
+        del agent
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
         self.send_header("Cache-Control", "no-cache")
@@ -90,7 +90,7 @@ class ChatHandler(SimpleHTTPRequestHandler):
             self._write_line(status_event_payload(event))
 
         try:
-            state = self.service.run(query, agent=agent, status_callback=emit)
+            state = self.service.run(query, status_callback=emit)
         except _ClientDisconnected:
             return
         except Exception as exc:

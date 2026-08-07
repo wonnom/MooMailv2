@@ -7,7 +7,9 @@ from moomail_finance_ai.mcp.finance_metrics_mcp import build_finance_metrics_mcp
 from moomail_finance_ai.mcp.gateway import DirectToolGateway
 from moomail_finance_ai.mcp.opend_mcp import build_opend_mcp_module
 from moomail_finance_ai.mcp.portfolio_sql_mcp import build_portfolio_sql_mcp_module
+from moomail_finance_ai.portfolio_baseline import PortfolioBaselineService
 from moomail_finance_ai.portfolio_data_service import PortfolioDataService
+from moomail_finance_ai.sql_store import PortfolioSqlStore
 from scripts.serve_chat import ChatHandler
 
 
@@ -153,6 +155,56 @@ def test_dashboard_refresh_does_not_call_agents_or_llm():
     assert "SentimentAgent" not in source
     assert "LLMPortfolioEvaluator" not in source
     assert "build_llm_client" not in source
+
+
+def test_baseline_load_does_not_mutate_dashboard(tmp_path, recorded_opend_client):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    gateway = DirectToolGateway(
+        [
+            build_opend_mcp_module(client=recorded_opend_client),
+            build_finance_metrics_mcp_module(),
+            build_portfolio_sql_mcp_module(store=store),
+        ]
+    )
+    dashboard_service = PortfolioDataService(gateway)
+    dashboard_service.refresh()
+    before = dashboard_service.latest_snapshot()
+    counts_before = {
+        table: store.table_count(table)
+        for table in ("portfolio_value_snapshots", "portfolio_weight_snapshots", "position_states")
+    }
+
+    PortfolioBaselineService(gateway).load(now=before.as_of)
+
+    after = dashboard_service.latest_snapshot()
+    counts_after = {
+        table: store.table_count(table)
+        for table in ("portfolio_value_snapshots", "portfolio_weight_snapshots", "position_states")
+    }
+    assert after.portfolio_snapshot == before.portfolio_snapshot
+    assert after.latest_state == before.latest_state
+    assert counts_after == counts_before
+
+
+def test_dashboard_refresh_remains_independent_from_baseline(tmp_path, recorded_opend_client):
+    store = PortfolioSqlStore(tmp_path / "portfolio.sqlite")
+    gateway = DirectToolGateway(
+        [
+            build_opend_mcp_module(client=recorded_opend_client),
+            build_finance_metrics_mcp_module(),
+            build_portfolio_sql_mcp_module(store=store),
+        ]
+    )
+
+    limited = PortfolioBaselineService(gateway).load(
+        now=datetime(2026, 5, 24, tzinfo=UTC)
+    )
+    refreshed = PortfolioDataService(gateway).refresh()
+
+    assert limited.capabilities == []
+    assert refreshed.status == "refreshed"
+    assert refreshed.dashboard.portfolio_snapshot is not None
+    assert store.table_count("portfolio_value_snapshots") == 1
 
 
 class StaticPortfolioDataService:

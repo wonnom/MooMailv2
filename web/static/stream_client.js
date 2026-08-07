@@ -1,9 +1,9 @@
-export async function runChatStream(query, agent, callbacks) {
+export async function runChatStream(query, callbacks) {
   try {
     const response = await fetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, agent }),
+      body: JSON.stringify({ query }),
     });
     if (!response.ok) {
       const body = await response.text();
@@ -36,7 +36,7 @@ function handleStreamLine(line, callbacks) {
   if (!line.trim()) return true;
   const payload = JSON.parse(line);
   if (payload.type === "status") {
-    callbacks.onStatus(payload.event);
+    callbacks.onStatus(payload.event, payload.progress ?? null);
   }
   if (payload.type === "final") {
     callbacks.onFinal(payload.state);

@@ -87,6 +87,12 @@ Pydantic should resolve inside:
 
 OpenD must be manually opened and logged in before live checks can succeed.
 
+`load_opend_config()` uses documented defaults when no env-file argument is
+provided. If a caller explicitly supplies an env-file path, that file must
+exist; a missing explicit path raises an actionable `FileNotFoundError` instead
+of silently falling back to defaults. This distinguishes optional local setup
+from a mistyped or stale configured path.
+
 The venv includes `moomoo-api`, but the SDK connects through the local OpenD gateway. It does not use a normal REST API key.
 
 Create local config:
@@ -208,6 +214,54 @@ CLI override:
 ```bash
 .venv/bin/python scripts/portfolio_agent_review.py --llm-provider openai
 ```
+
+## LangSmith And Diagnostic Checkpoints
+
+MooMail trace is always local and does not require LangSmith. External tracing
+must be enabled explicitly; `LANGSMITH_TRACING=true` by itself does not enable
+MooMail's exporter.
+
+Development/staging example:
+
+```env
+MOOMAIL_LANGSMITH_ENABLED=true
+MOOMAIL_LANGSMITH_PROJECT=moomail-finance-ai-dev
+MOOMAIL_LANGSMITH_SAMPLING_RATE=1.0
+MOOMAIL_ENVIRONMENT=development
+LANGSMITH_API_KEY=...
+```
+
+Production defaults remain off. If production tracing is approved, set an
+explicit sampling rate after reviewing LangSmith workspace region, access,
+retention, and deletion policy. The incident disable switch is
+`MOOMAIL_LANGSMITH_ENABLED=false`; disabling it does not remove MooMail trace.
+Only allowlisted correlation, route, provider/model, timing/usage, tool/status,
+and error-category metadata may leave the process. Prompts, IPS content,
+portfolio values/holdings, credentials, account ids, and raw broker payloads
+are never exporter inputs.
+
+Diagnostic state summaries are a separate opt-in:
+
+```env
+MOOMAIL_DIAGNOSTIC_CHECKPOINT_ENABLED=true
+MOOMAIL_DIAGNOSTIC_CHECKPOINT_RETENTION_THREADS=20
+```
+
+The current store is process-local memory, not durable storage. Raw LangGraph
+checkpoint data is kept only while a run executes and purged at completion;
+the retained inspection records are bounded redacted summaries keyed by
+`thread_id`. `SafeDiagnosticCheckpointer.cleanup()` removes one thread or all
+summaries. Any future durable checkpointer requires encryption at rest, an
+explicit path/store, access control, retention duration, and scheduled cleanup
+before production enablement.
+
+## Frontend Progress And Trace
+
+V1.5.5 adds no environment variables. Plain-language MooMail progress and the
+sanitized frontend run-detail projection are always available. LangSmith and
+diagnostic checkpoints remain optional developer surfaces; if either fails,
+the chat reports degraded developer tracing without replacing the deterministic
+dashboard or failing an otherwise valid answer.
 
 ## Updating Packages
 

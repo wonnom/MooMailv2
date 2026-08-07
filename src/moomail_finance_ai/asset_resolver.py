@@ -212,6 +212,22 @@ def validate_portfolio_request(
     if trade_warning is not None:
         blocking_issues.append(trade_warning)
 
+    analytical_goals = {"risk_context", "portfolio_patterns"}
+    if request.analysis_requirement == "deterministic_only" and (
+        request.task_intent in {"full_review", "risk_check", "deep_dive", "compare"}
+        or bool(set(request.output_goals) & analytical_goals)
+    ):
+        blocking_issues.append(
+            PortfolioPlanValidationIssue(
+                code="portfolio_analysis_required",
+                message=(
+                    "Detailed review, risk, comparison, or pattern requests require "
+                    "analysis_requirement=interpretation_required."
+                ),
+                severity="blocking",
+            )
+        )
+
     required_assets = _request_requires_resolved_assets(request)
     for resolution in resolution_list:
         if resolution.resolution_status == "resolved":
@@ -517,7 +533,7 @@ def _request_requires_resolved_assets(request: PortfolioRequest) -> bool:
 
 
 def _trade_execution_issue(source_query: str) -> PortfolioPlanValidationIssue | None:
-    if not _contains_trade_execution_intent(source_query):
+    if not contains_trade_execution_intent(source_query):
         return None
     return PortfolioPlanValidationIssue(
         code="trade_execution_intent_blocked",
@@ -526,7 +542,7 @@ def _trade_execution_issue(source_query: str) -> PortfolioPlanValidationIssue | 
     )
 
 
-def _contains_trade_execution_intent(value: str) -> bool:
+def contains_trade_execution_intent(value: str) -> bool:
     lowered = value.casefold()
     patterns = (
         r"\b(place|submit|execute)\s+(?:an?\s+)?(?:trade|order)\b",

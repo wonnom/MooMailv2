@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from moomail_finance_ai.config import load_env_file, load_opend_config
 
 
@@ -20,8 +22,18 @@ def test_load_opend_config_defaults():
     assert config.treat_fund_assets_as_cash_sweep is False
 
 
-def test_load_opend_config_ignores_missing_optional_env_file(tmp_path):
-    config = load_opend_config(env={}, env_file=tmp_path / "missing.env")
+def test_explicit_missing_opend_env_file_raises_actionable_error(tmp_path):
+    missing = tmp_path / "missing.env"
+
+    with pytest.raises(FileNotFoundError, match="Explicit OpenD environment file") as exc_info:
+        load_opend_config(env={}, env_file=missing)
+
+    assert str(missing) in str(exc_info.value)
+    assert "Omit env_file" in str(exc_info.value)
+
+
+def test_omitted_opend_env_file_uses_documented_defaults():
+    config = load_opend_config(env={}, env_file=None)
 
     assert config.host == "127.0.0.1"
     assert config.port == 11111

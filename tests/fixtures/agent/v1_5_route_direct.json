@@ -1,0 +1,21 @@
+{
+  "route": "direct_context",
+  "route_reasons": ["baseline_sufficient"],
+  "required_evidence": ["portfolio_value_trend_7d", "history_freshness"],
+  "cited_evidence_refs": ["sql.trend.7d", "sql.history.status"],
+  "missing_evidence": [],
+  "direct_answer": "The stored portfolio value is up roughly 1.5% over seven days.",
+  "portfolio_request": null,
+  "fallback_portfolio_request": {
+    "task_intent": "what_changed",
+    "asset_hints": [],
+    "time_range": "7d",
+    "freshness_requirement": "cached_ok",
+    "output_goals": ["position_changes"],
+    "analysis_requirement": "deterministic_only",
+    "source_query": "How has my portfolio changed since last week?",
+    "warnings": []
+  },
+  "sentiment_task": null,
+  "warnings": []
+}

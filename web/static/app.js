@@ -1,8 +1,10 @@
 import {
   addStatus,
   addUserMessage,
+  mergeProgress,
   renderAgentError,
   renderStreamError,
+  resetProgress,
 } from "./chat_panel.js";
 import { ui } from "./dom.js";
 import { resizeChatTo, restoreChatLayout, setChatHidden, setChatWidth } from "./layout.js";
@@ -16,9 +18,27 @@ import {
 import {
   renderCurrentAllocation,
   renderState,
+  renderTrace,
   setAllocationView,
 } from "./report_components.js";
 import { runChatStream } from "./stream_client.js";
+
+const TERMINAL_ANALYTICAL_FAILURE_STATUSES = new Set([
+  "investment_agent_error",
+  "investment_planner_unavailable",
+  "investment_route_rejected",
+  "complete_with_planning_failure",
+  "portfolio_evidence_planner_unavailable",
+  "portfolio_evidence_compilation_failed",
+  "portfolio_execution_failed",
+  "portfolio_analysis_failed",
+  "portfolio_llm_call_failed",
+  "portfolio_llm_budget_exceeded",
+  "delegated_llm_budget_exceeded",
+  "llm_call_failed",
+  "stream_error",
+  "observability_degraded",
+]);
 
 restoreChatLayout();
 void loadStoredDashboard();
@@ -30,7 +50,7 @@ ui.form.addEventListener("submit", (event) => {
   if (!query) return;
   clearRun();
   addUserMessage(query);
-  void runChat(query, ui.agentSelect.value);
+  void runChat(query);
 });
 
 ui.input.addEventListener("keydown", (event) => {
@@ -73,11 +93,11 @@ ui.chatResizeHandle.addEventListener("keydown", (event) => {
   setChatWidth(currentWidth + delta);
 });
 
-async function runChat(query, agent) {
+async function runChat(query) {
   setRunning(true);
   try {
-    await runChatStream(query, agent, {
-      onStatus: addStatus,
+    await runChatStream(query, {
+      onStatus: handleStatus,
       onFinal: renderFinalState,
       onError: renderAgentError,
     });
@@ -86,7 +106,12 @@ async function runChat(query, agent) {
   }
 }
 
+function handleStatus(event, progress) {
+  addStatus(event, event.event_type === "error" ? "error" : "normal", progress);
+}
+
 function renderFinalState(state) {
+  mergeProgress(state.progress_events ?? []);
   if (!state.final_report) {
     renderAgentError({
       error_type: "MissingFinalReport",
@@ -96,16 +121,20 @@ function renderFinalState(state) {
     });
     return;
   }
-  const planningFailure = state.status_events.find(
-    (event) =>
-      event.status === "investment_planner_unavailable" ||
-      event.status === "complete_with_planning_failure",
+  renderTrace(state, state.final_report);
+  const terminalFailure = state.status_events.find(
+    (event) => event.event_type === "error" || TERMINAL_ANALYTICAL_FAILURE_STATUSES.has(event.status),
   );
-  if (planningFailure) {
+  const guardedSuccess =
+    state.guardrail_result?.passed === true &&
+    state.guardrail_result.output_status !== "blocked" &&
+    !terminalFailure;
+  if (!guardedSuccess) {
+    if (terminalFailure?.status === "observability_degraded") return;
     renderAgentError({
-      error_type: "InvestmentPlanningUnavailable",
-      message: state.final_report.summary || planningFailure.message,
-      timestamp: planningFailure.timestamp,
+      error_type: terminalFailure?.error_type || "AnalyticalRunUnavailable",
+      message: "The final analytical report was not eligible to replace the saved dashboard.",
+      timestamp: terminalFailure?.timestamp ?? new Date().toISOString(),
       traceback: [],
     });
     return;
@@ -116,6 +145,8 @@ function renderFinalState(state) {
 
 function clearRun() {
   ui.statusList.replaceChildren();
+  ui.traceOutput.replaceChildren();
+  resetProgress();
 }
 
 function setRunning(running) {

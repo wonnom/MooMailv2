@@ -1,7 +1,6 @@
 export const ui = {
   appShell: document.querySelector<HTMLElement>("#appShell")!,
   form: document.querySelector<HTMLFormElement>("#chatForm")!,
-  agentSelect: document.querySelector<HTMLSelectElement>("#agentSelect")!,
   input: document.querySelector<HTMLTextAreaElement>("#queryInput")!,
   sendButton: document.querySelector<HTMLButtonElement>("#sendButton")!,
   hideChatButton: document.querySelector<HTMLButtonElement>("#hideChatButton")!,
@@ -29,5 +28,5 @@ export const ui = {
   missingDataList: document.querySelector<HTMLUListElement>("#missingDataList")!,
   sentimentList: document.querySelector<HTMLDivElement>("#sentimentList")!,
   citationList: document.querySelector<HTMLDivElement>("#citationList")!,
-  traceOutput: document.querySelector<HTMLPreElement>("#traceOutput")!,
+  traceOutput: document.querySelector<HTMLDivElement>("#traceOutput")!,
 };

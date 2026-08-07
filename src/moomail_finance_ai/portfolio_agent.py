@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from moomail_finance_ai.config import load_opend_config
 from moomail_finance_ai.llm import TextLLMClient, build_llm_client_from_env
+from moomail_finance_ai.observability import (
+    current_llm_observation_context,
+    generate_text_with_observability,
+    llm_observation_scope,
+)
 from moomail_finance_ai.mcp.finance_metrics_mcp import (
     SERVER_NAME as FINANCE_METRICS_SERVER,
     build_finance_metrics_mcp_module,
@@ -46,6 +52,7 @@ from moomail_finance_ai.schemas import (
 )
 from moomail_finance_ai.agent_schemas import PortfolioContextPlan, PortfolioTask
 from moomail_finance_ai.agent_schemas import (
+    LLMCallTrace,
     PortfolioEvidencePacket,
     PortfolioEvidencePlan,
     PortfolioRequest,
@@ -56,10 +63,9 @@ from moomail_finance_ai.asset_resolver import (
 )
 from moomail_finance_ai.portfolio_data_service import snapshot_from_latest_state
 from moomail_finance_ai.portfolio_evidence_planner import (
-    LLMPortfolioEvidencePlanner,
+    DeterministicPortfolioEvidenceCompiler,
     PortfolioEvidencePlanningUnavailableError,
     PortfolioEvidencePlanner,
-    UnavailablePortfolioEvidencePlanner,
     portfolio_evidence_plan_to_context_plan,
     portfolio_request_to_task,
 )
@@ -121,8 +127,24 @@ class PortfolioAgentResult(StrictModel):
     history_context: PortfolioHistoryContext
     evaluation: PortfolioEvaluation
     tool_calls: list[str]
+    llm_calls: list[LLMCallTrace] = Field(default_factory=list)
+    expected_llm_calls: dict[str, int] = Field(default_factory=dict)
+    actual_llm_calls: dict[str, int] = Field(default_factory=dict)
+    total_llm_calls: int = Field(default=0, ge=0)
     status_events: list[StatusEvent] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_llm_call_counts(self) -> PortfolioAgentResult:
+        if self.total_llm_calls != len(self.llm_calls):
+            raise ValueError("PortfolioAgentResult total_llm_calls must match llm_calls.")
+        if any(value < 0 for value in self.expected_llm_calls.values()):
+            raise ValueError("PortfolioAgentResult expected LLM call counts cannot be negative.")
+        if any(value < 0 for value in self.actual_llm_calls.values()):
+            raise ValueError("PortfolioAgentResult actual LLM call counts cannot be negative.")
+        if sum(self.actual_llm_calls.values()) != self.total_llm_calls:
+            raise ValueError("PortfolioAgentResult actual LLM call counts must match total.")
+        return self
 
 
 class PortfolioEvaluator(Protocol):
@@ -140,6 +162,63 @@ class PortfolioEvaluator(Protocol):
     ) -> PortfolioEvaluation: ...
 
 
+class PortfolioAnalysisUnavailableError(RuntimeError):
+    """Raised when requested Portfolio interpretation cannot be produced."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        run_id: str | None = None,
+        llm_calls: list[LLMCallTrace] | None = None,
+    ):
+        super().__init__(message)
+        self.run_id = run_id
+        self.llm_calls = list(llm_calls or [])
+
+
+class PortfolioLLMCallBudgetExceededError(RuntimeError):
+    """Raised before an unplanned Portfolio model invocation can reach a provider."""
+
+    def __init__(self, *, purpose: str, limit: int, attempted: int):
+        super().__init__(
+            f"Portfolio LLM call budget exceeded for {purpose}: "
+            f"limit={limit}, attempted={attempted}."
+        )
+        self.purpose = purpose
+        self.limit = limit
+        self.attempted = attempted
+
+
+@dataclass
+class PortfolioLLMCallBudget:
+    """Purpose-scoped guard that makes retries explicit and bounded."""
+
+    limits: dict[str, int] = field(default_factory=lambda: {"portfolio_analysis": 1})
+    attempts: dict[str, int] = field(default_factory=dict)
+    retry_reasons: dict[str, list[str]] = field(default_factory=dict)
+
+    def reserve(self, purpose: str, *, retry_reason: str | None = None) -> int:
+        attempt = self.attempts.get(purpose, 0) + 1
+        limit = self.limits.get(purpose, 0)
+        if attempt > limit:
+            raise PortfolioLLMCallBudgetExceededError(
+                purpose=purpose,
+                limit=limit,
+                attempted=attempt,
+            )
+        if attempt > 1 and not retry_reason:
+            raise PortfolioLLMCallBudgetExceededError(
+                purpose=purpose,
+                limit=limit,
+                attempted=attempt,
+            )
+        self.attempts[purpose] = attempt
+        if retry_reason:
+            self.retry_reasons.setdefault(purpose, []).append(retry_reason)
+        return attempt
+
+
 PORTFOLIO_PATTERN_THRESHOLDS: dict[str, float] = {
     "single_position_concentration_weight": 0.25,
     "effective_cash_target_gap": 0.02,
@@ -152,6 +231,7 @@ PORTFOLIO_PATTERN_THRESHOLDS: dict[str, float] = {
 @dataclass
 class LLMPortfolioEvaluator:
     llm: TextLLMClient
+    outbound_llm = True
 
     @classmethod
     def from_env(
@@ -174,7 +254,8 @@ class LLMPortfolioEvaluator:
         history_status: dict[str, Any],
         history_context: PortfolioHistoryContext | None = None,
     ) -> PortfolioEvaluation:
-        text = self.llm.generate_text(
+        text = generate_text_with_observability(
+            self.llm,
             _evaluation_prompt(
                 query=query,
                 ips=ips,
@@ -185,6 +266,7 @@ class LLMPortfolioEvaluator:
                 history_status=history_status,
                 history_context=history_context,
             ),
+            purpose="portfolio_analysis",
             system_instruction=PORTFOLIO_EVALUATOR_SYSTEM_PROMPT,
             max_output_tokens=8192,
             temperature=0.1,
@@ -196,13 +278,13 @@ class LLMPortfolioEvaluator:
 @dataclass
 class UnavailablePortfolioEvaluator:
     reason: str
+    outbound_llm = False
 
     def evaluate(self, **kwargs) -> PortfolioEvaluation:
         del kwargs
-        return PortfolioEvaluation(
-            summary="Portfolio evaluator is unavailable because no LLM evaluator is configured.",
-            open_questions=["Configure the Portfolio Agent evaluator LLM and retry."],
-            warnings=[self.reason],
+        raise PortfolioAnalysisUnavailableError(
+            "Portfolio analysis is unavailable because no LLM evaluator is configured. "
+            + self.reason
         )
 
 
@@ -211,15 +293,13 @@ class PortfolioAgent:
     gateway: MCPToolGateway
     evaluator: PortfolioEvaluator
     evidence_planner: PortfolioEvidencePlanner = field(
-        default_factory=lambda: UnavailablePortfolioEvidencePlanner(
-            "Portfolio evidence planning requires a bounded PortfolioRequest and a "
-            "configured LLM planner. No deterministic keyword or regex fallback planner "
-            "is available."
-        )
+        default_factory=DeterministicPortfolioEvidenceCompiler
     )
     base_currency: str = "USD"
     min_snapshots_for_history: int = 2
     tool_calls: list[str] = field(default_factory=list)
+    portfolio_analysis_call_limit: int = 1
+    _active_emit: Any = field(default=None, init=False, repr=False)
 
     def run(
         self,
@@ -234,15 +314,18 @@ class PortfolioAgent:
         run_id = f"portfolio_run_{uuid4().hex[:12]}"
         self.tool_calls = []
         status_events: list[StatusEvent] = []
+        llm_calls: list[LLMCallTrace] = []
 
         def emit(status: str, message: str) -> None:
             _emit(status_events, run_id, status, message, status_callback)
+
+        self._active_emit = emit
 
         evidence_plan = None
         if portfolio_request is not None:
             emit(
                 "planning_portfolio_evidence",
-                "Planning bounded portfolio evidence from PortfolioRequest.",
+                "Compiling bounded portfolio evidence deterministically from PortfolioRequest.",
             )
             planner_candidates = self._asset_candidates_for_request(
                 portfolio_request,
@@ -262,7 +345,7 @@ class PortfolioAgent:
                 )
             emit(
                 "portfolio_evidence_plan_validated",
-                "Portfolio evidence planner produced a validated bounded plan.",
+                "Portfolio evidence compiler produced a validated bounded plan.",
             )
             task = portfolio_task or portfolio_request_to_task(
                 portfolio_request,
@@ -322,25 +405,138 @@ class PortfolioAgent:
             )
         )
 
-        emit("evaluating_portfolio", "Running the LLM portfolio-only evaluator.")
-        evaluation = self.evaluator.evaluate(
-            query=query,
-            ips=ips,
+        evaluation = PortfolioEvaluation(
+            summary=(
+                "Deterministic portfolio evidence assembled; no Portfolio analysis "
+                "model call was required."
+            )
+        )
+        preliminary_warnings = _result_warnings(
+            portfolio_packet,
+            history_status,
+            evaluation,
+            plan,
+            current_context_warnings=current_context.warnings,
+        )
+        _build_evidence_packet(
+            portfolio_id=snapshot.portfolio_id,
+            task_intent=evidence_plan.task_intent if evidence_plan else task.task_type,
+            evidence_plan=evidence_plan,
             snapshot=snapshot,
             portfolio_packet=portfolio_packet,
             metrics=metrics,
-            storage_result=pending_storage_result,
-            history_status=history_status,
+            effective_cash=effective_cash,
             history_context=history_context,
+            evaluation=evaluation,
+            warnings=preliminary_warnings,
+            tool_calls=list(self.tool_calls),
+            ips=ips,
+            include_interpretation=False,
         )
         emit(
-            "portfolio_evaluation_ready",
-            (
-                "Portfolio evaluation complete; storing the current OpenD observation next."
-                if plan.persist_observation
-                else "Portfolio evaluation complete; SQL persistence is skipped by plan."
-            ),
+            "portfolio_evidence_packet_ready",
+            "Deterministic portfolio evidence is assembled before interpretation.",
         )
+
+        analysis_required = portfolio_request.analysis_requirement == "interpretation_required"
+        expected_llm_calls = {"portfolio_analysis": int(analysis_required)}
+        if analysis_required:
+            budget = PortfolioLLMCallBudget(
+                limits={"portfolio_analysis": self.portfolio_analysis_call_limit}
+            )
+            attempt = budget.reserve("portfolio_analysis")
+            started_at = datetime.now(UTC)
+            started_clock = time.perf_counter()
+            provider, model = _portfolio_evaluator_identity(self.evaluator)
+            emit("evaluating_portfolio", "Running the bounded portfolio-only evaluator.")
+            parent_observation = current_llm_observation_context()
+
+            def record_portfolio_call(call: LLMCallTrace) -> None:
+                if call.status in {"completed", "failed"} and call not in llm_calls:
+                    llm_calls.append(call)
+                if parent_observation is not None and parent_observation.callback is not None:
+                    parent_observation.callback(call)
+
+            uses_instrumented_client = hasattr(self.evaluator, "llm")
+            if _evaluator_attempts_outbound_llm(self.evaluator) and not uses_instrumented_client:
+                record_portfolio_call(
+                    _portfolio_llm_started_trace(
+                        run_id=run_id,
+                        provider=provider,
+                        model=model,
+                        started_at=started_at,
+                        attempt=attempt,
+                        budget_limit=self.portfolio_analysis_call_limit,
+                    )
+                )
+            try:
+                with llm_observation_scope(
+                    run_id=run_id,
+                    subagent="portfolio_agent",
+                    callback=record_portfolio_call,
+                    route=parent_observation.route if parent_observation else None,
+                    attempt=attempt,
+                    budget_limit=self.portfolio_analysis_call_limit,
+                    expected_call_count=1,
+                ):
+                    evaluation = self.evaluator.evaluate(
+                        query=query,
+                        ips=ips,
+                        snapshot=snapshot,
+                        portfolio_packet=portfolio_packet,
+                        metrics=metrics,
+                        storage_result=pending_storage_result,
+                        history_status=history_status,
+                        history_context=history_context,
+                    )
+            except Exception as exc:
+                if (
+                    _evaluator_attempts_outbound_llm(self.evaluator)
+                    and not uses_instrumented_client
+                ):
+                    record_portfolio_call(
+                        _portfolio_llm_call_trace(
+                            run_id=run_id,
+                            provider=provider,
+                            model=model,
+                            started_at=started_at,
+                            started_clock=started_clock,
+                            attempt=attempt,
+                            budget_limit=self.portfolio_analysis_call_limit,
+                            error=exc,
+                        )
+                    )
+                emit("portfolio_analysis_failed", "Portfolio analysis failed explicitly.")
+                raise PortfolioAnalysisUnavailableError(
+                    str(exc) or exc.__class__.__name__,
+                    run_id=run_id,
+                    llm_calls=llm_calls,
+                ) from exc
+            if _evaluator_attempts_outbound_llm(self.evaluator) and not uses_instrumented_client:
+                record_portfolio_call(
+                    _portfolio_llm_call_trace(
+                        run_id=run_id,
+                        provider=provider,
+                        model=model,
+                        started_at=started_at,
+                        started_clock=started_clock,
+                        attempt=attempt,
+                        budget_limit=self.portfolio_analysis_call_limit,
+                    )
+                )
+            emit(
+                "portfolio_evaluation_ready",
+                (
+                    "Portfolio evaluation complete; storing the current OpenD observation next."
+                    if plan.persist_observation
+                    else "Portfolio evaluation complete; SQL persistence is skipped by plan."
+                ),
+            )
+        else:
+            emit(
+                "portfolio_analysis_skipped",
+                "The bounded request requires deterministic evidence only; analysis was skipped.",
+            )
 
         storage_result = (
             self._write_portfolio_history(
@@ -379,6 +575,7 @@ class PortfolioAgent:
             warnings=result_warnings,
             tool_calls=list(self.tool_calls),
             ips=ips,
+            include_interpretation=analysis_required,
         )
 
         emit("complete", "Portfolio Agent run complete.")
@@ -398,6 +595,10 @@ class PortfolioAgent:
             history_context=history_context,
             evaluation=evaluation,
             tool_calls=list(self.tool_calls),
+            llm_calls=llm_calls,
+            expected_llm_calls=expected_llm_calls,
+            actual_llm_calls={"portfolio_analysis": len(llm_calls)},
+            total_llm_calls=len(llm_calls),
             status_events=status_events,
             warnings=_dedupe([*result_warnings, *evidence_packet.warnings]),
         )
@@ -541,7 +742,7 @@ class PortfolioAgent:
                 {"portfolio_id": ips.portfolio_id},
             )
             if latest_state:
-                self.tool_calls.append(
+                self._record_tool_call(
                     "actual_detail:"
                     f"{PORTFOLIO_SQL_SERVER}:portfolio_sql_get_latest_portfolio_state "
                     "policy_probe=true"
@@ -592,7 +793,7 @@ class PortfolioAgent:
             "calculate_snapshot_metrics",
             {"snapshot": snapshot_json, "ips": ips_json},
         )
-        self.tool_calls.append(
+        self._record_tool_call(
             "actual_detail:"
             f"{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
             f"requested_metric_groups={','.join(plan.metric_groups)} "
@@ -705,7 +906,7 @@ class PortfolioAgent:
                 "portfolio_sql_get_position_state_changes",
                 arguments,
             )
-            self.tool_calls.append(
+            self._record_tool_call(
                 "actual_detail:"
                 f"{PORTFOLIO_SQL_SERVER}:portfolio_sql_get_position_state_changes "
                 f"asset_id={scope['asset_id'] or '*'} "
@@ -824,32 +1025,32 @@ class PortfolioAgent:
             or needs_policy_sql
             or needs_history_only_sql
         ):
-            self.tool_calls.append(f"planned:{PORTFOLIO_SQL_SERVER}:portfolio_sql_initialize")
+            self._record_tool_call(f"planned:{PORTFOLIO_SQL_SERVER}:portfolio_sql_initialize")
         else:
-            self.tool_calls.append(
+            self._record_tool_call(
                 f"skipped:{PORTFOLIO_SQL_SERVER}:portfolio_sql_initialize "
                 "reason=no_sql_history_or_persistence"
             )
         if plan.needs_current_snapshot and (
             evidence_plan is None or evidence_plan.freshness_requirement == "latest_required"
         ):
-            self.tool_calls.append(f"planned:{OPEND_SERVER}:opend_get_portfolio_context")
+            self._record_tool_call(f"planned:{OPEND_SERVER}:opend_get_portfolio_context")
         elif evidence_plan is not None and evidence_plan.freshness_requirement == "history_only":
-            self.tool_calls.append(
+            self._record_tool_call(
                 f"skipped:{OPEND_SERVER}:opend_get_portfolio_context reason=history_only"
             )
         elif evidence_plan is not None and evidence_plan.freshness_requirement == "cached_ok":
-            self.tool_calls.append(
+            self._record_tool_call(
                 f"skipped:{OPEND_SERVER}:opend_get_portfolio_context "
                 "reason=cached_ok_until_sql_cache_insufficient"
             )
         if plan.metric_groups:
-            self.tool_calls.append(
+            self._record_tool_call(
                 f"planned:{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
                 f"metric_groups={','.join(plan.metric_groups)}"
             )
         else:
-            self.tool_calls.append(
+            self._record_tool_call(
                 f"skipped:{FINANCE_METRICS_SERVER}:calculate_snapshot_metrics "
                 "reason=no_metric_groups_requested"
             )
@@ -876,11 +1077,11 @@ class PortfolioAgent:
             reason = _history_skip_reason(plan)
             for query_name, tool_name in history_tools.items():
                 if query_name in policy_queries:
-                    self.tool_calls.append(
+                    self._record_tool_call(
                         f"planned:{PORTFOLIO_SQL_SERVER}:{tool_name} reason=freshness_policy"
                     )
                     continue
-                self.tool_calls.append(
+                self._record_tool_call(
                     f"skipped:{PORTFOLIO_SQL_SERVER}:{tool_name} reason={reason}"
                 )
             return
@@ -888,7 +1089,7 @@ class PortfolioAgent:
         for query_name, tool_name in history_tools.items():
             prefix = "planned" if query_name in requested else "skipped"
             suffix = "" if query_name in requested else " reason=not_requested_by_context_plan"
-            self.tool_calls.append(f"{prefix}:{PORTFOLIO_SQL_SERVER}:{tool_name}{suffix}")
+            self._record_tool_call(f"{prefix}:{PORTFOLIO_SQL_SERVER}:{tool_name}{suffix}")
 
     def _record_planned_persistence_tools(self, plan: PortfolioContextPlan) -> None:
         persistence_tools = [
@@ -902,9 +1103,9 @@ class PortfolioAgent:
         ]
         for tool_name in persistence_tools:
             if plan.persist_observation:
-                self.tool_calls.append(f"planned:{PORTFOLIO_SQL_SERVER}:{tool_name}")
+                self._record_tool_call(f"planned:{PORTFOLIO_SQL_SERVER}:{tool_name}")
             else:
-                self.tool_calls.append(
+                self._record_tool_call(
                     f"skipped:{PORTFOLIO_SQL_SERVER}:{tool_name} reason=persist_observation_false"
                 )
 
@@ -914,13 +1115,28 @@ class PortfolioAgent:
         tool_name: str,
         arguments: dict[str, Any],
     ) -> Any:
-        self.tool_calls.append(f"{server_name}:{tool_name}")
+        self._record_tool_call(f"{server_name}:{tool_name}")
         return self.gateway.call_tool(
             server_name,
             tool_name,
             arguments,
             consumer="portfolio_agent",
         ).structured_content
+
+    def _record_tool_call(self, tool_call: str) -> None:
+        self.tool_calls.append(tool_call)
+        if self._active_emit is None:
+            return
+        status = (
+            "planned_portfolio_tool"
+            if tool_call.startswith("planned:")
+            else "skipped_portfolio_tool"
+            if tool_call.startswith("skipped:")
+            else "portfolio_tool_detail"
+            if tool_call.startswith("actual_detail:")
+            else "called_portfolio_tool"
+        )
+        self._active_emit(status, tool_call)
 
 
 def build_default_portfolio_agent(
@@ -950,17 +1166,13 @@ def build_default_portfolio_agent(
                 db_path=db_path,
             )
         )
-    evidence_planner = _build_default_portfolio_evidence_planner(
-        provider=llm_provider,
-        env_file=env_file,
-    )
     return PortfolioAgent(
         gateway=gateway,
         evaluator=evaluator or _build_default_portfolio_evaluator(
             provider=llm_provider,
             env_file=env_file,
         ),
-        evidence_planner=evidence_planner,
+        evidence_planner=DeterministicPortfolioEvidenceCompiler(),
         base_currency=config.base_currency,
     )
 
@@ -975,20 +1187,6 @@ def _build_default_portfolio_evaluator(
     except Exception:
         return UnavailablePortfolioEvaluator(
             "Portfolio evaluation requires a configured LLM provider, API key, and model."
-        )
-
-
-def _build_default_portfolio_evidence_planner(
-    *,
-    provider: str | None,
-    env_file: str | Path | None,
-) -> PortfolioEvidencePlanner:
-    try:
-        return LLMPortfolioEvidencePlanner.from_env(provider=provider, env_file=env_file)
-    except Exception:
-        return UnavailablePortfolioEvidencePlanner(
-            "Portfolio evidence planning requires a configured LLM provider, API key, "
-            "and model. No deterministic keyword or regex fallback planner is available."
         )
 
 
@@ -1364,6 +1562,7 @@ def _build_evidence_packet(
     warnings: list[str],
     tool_calls: list[str],
     ips: InvestmentPolicy,
+    include_interpretation: bool = True,
 ) -> PortfolioEvidencePacket:
     valid_task_intents = {
         "full_review",
@@ -1401,7 +1600,9 @@ def _build_evidence_packet(
         },
         position_changes=_sanitize_position_changes(history_context.position_state_changes),
         detected_patterns=detected_patterns,
-        portfolio_only_interpretation=_portfolio_interpretation(evaluation),
+        portfolio_only_interpretation=(
+            _portfolio_interpretation(evaluation) if include_interpretation else []
+        ),
         limitations=limitations,
         needs_sentiment_context=_sentiment_context_needs(evidence_plan, detected_patterns),
         warnings=_dedupe(warnings),
@@ -1701,6 +1902,88 @@ def _result_warnings(
     warnings.extend(evaluation.warnings)
     warnings.extend(current_context_warnings or [])
     return _dedupe(warnings)
+
+
+def _portfolio_evaluator_identity(evaluator: PortfolioEvaluator) -> tuple[str, str]:
+    llm = getattr(evaluator, "llm", None)
+    config = getattr(llm, "config", None)
+    provider = str(
+        getattr(config, "provider", None)
+        or getattr(evaluator, "provider", None)
+        or evaluator.__class__.__name__
+    )
+    model = str(
+        getattr(config, "model", None)
+        or getattr(evaluator, "model", None)
+        or evaluator.__class__.__name__
+    )
+    return provider[:80], model[:160]
+
+
+def _evaluator_attempts_outbound_llm(evaluator: PortfolioEvaluator) -> bool:
+    return bool(getattr(evaluator, "outbound_llm", True))
+
+
+def _portfolio_llm_call_trace(
+    *,
+    run_id: str,
+    provider: str,
+    model: str,
+    started_at: datetime,
+    started_clock: float,
+    attempt: int,
+    budget_limit: int,
+    retry_reason: str | None = None,
+    error: BaseException | None = None,
+) -> LLMCallTrace:
+    ended_at = datetime.now(UTC)
+    return LLMCallTrace(
+        run_id=run_id,
+        purpose="portfolio_analysis",
+        provider=provider,
+        model=model,
+        subagent="portfolio_agent",
+        status="failed" if error is not None else "completed",
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_ms=max(0.0, (time.perf_counter() - started_clock) * 1000),
+        attempt=attempt,
+        retry_reason=retry_reason,
+        error_category=error.__class__.__name__ if error is not None else None,
+        metadata={
+            "budget_limit": budget_limit,
+            "actual_call_count": attempt,
+            "expected_call_count": 1,
+        },
+    )
+
+
+def _portfolio_llm_started_trace(
+    *,
+    run_id: str,
+    provider: str,
+    model: str,
+    started_at: datetime,
+    attempt: int,
+    budget_limit: int,
+    retry_reason: str | None = None,
+) -> LLMCallTrace:
+    return LLMCallTrace(
+        run_id=run_id,
+        purpose="portfolio_analysis",
+        provider=provider,
+        model=model,
+        subagent="portfolio_agent",
+        status="started",
+        started_at=started_at,
+        attempt=attempt,
+        retry_reason=retry_reason,
+        metadata={
+            "budget_limit": budget_limit,
+            "actual_call_count": attempt,
+            "expected_call_count": 1,
+        },
+    )
 
 
 def _dedupe(values: list[str]) -> list[str]:

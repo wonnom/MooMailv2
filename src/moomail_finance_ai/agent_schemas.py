@@ -68,6 +68,10 @@ PortfolioOutputGoal = Literal[
     "derived_metrics",
     "sentiment_context_needs",
 ]
+PortfolioAnalysisRequirement = Literal[
+    "deterministic_only",
+    "interpretation_required",
+]
 FreshnessRequirement = Literal["latest_required", "cached_ok", "history_only"]
 AssetResolutionStatus = Literal[
     "resolved",
@@ -137,16 +141,22 @@ TraceEventType = Literal[
     "graph_node",
     "subagent_call",
     "tool_call",
+    "llm_call",
+    "progress",
     "warning",
     "error",
 ]
 TracePhase = Literal[
+    "baseline_context",
     "investment_planner",
+    "evidence_coverage",
     "portfolio_request_validator",
     "asset_resolver",
     "portfolio_evidence_planner",
     "portfolio_policy",
     "deterministic_tool_execution",
+    "llm_call",
+    "user_progress",
     "synthesis",
     "guardrail",
 ]
@@ -157,6 +167,326 @@ SubagentName = Literal[
     "guardrails",
     "memory",
 ]
+BaselineCapability = Literal[
+    "latest_snapshot",
+    "allocation_breakdown",
+    "effective_cash",
+    "portfolio_value_trend_7d",
+    "portfolio_value_trend_30d",
+    "top_allocation_changes_7d",
+    "top_position_changes_7d",
+    "history_freshness",
+]
+EvidenceSource = Literal[
+    "portfolio_dashboard",
+    "portfolio_sql",
+    "finance_metrics",
+]
+EvidenceQuality = Literal["complete", "partial", "stale"]
+InvestmentRouteDecision = Literal[
+    "direct_context",
+    "delegate_portfolio",
+    "delegate_sentiment",
+    "delegate_both",
+    "unsupported",
+]
+InvestmentRouteReason = Literal[
+    "baseline_sufficient",
+    "portfolio_not_required",
+    "missing_baseline_capability",
+    "stale_baseline",
+    "unsupported_time_window",
+    "asset_detail_required",
+    "cost_basis_required",
+    "deeper_risk_required",
+    "anomaly_investigation_required",
+    "latest_opend_required",
+    "sentiment_requested",
+    "combined_evidence_required",
+    "unsupported_request",
+    "safety_blocked",
+]
+LLMCallPurpose = Literal[
+    "investment_planning",
+    "portfolio_evidence_planning_compatibility",
+    "portfolio_analysis",
+    "investment_synthesis",
+]
+LLMCallStatus = Literal["started", "completed", "failed"]
+UserProgressStage = Literal[
+    "reviewing_request",
+    "loading_saved_portfolio",
+    "checking_evidence_coverage",
+    "retrieving_portfolio_details",
+    "analyzing_evidence",
+    "checking_safety",
+    "complete",
+    "failed",
+]
+UserProgressStatus = Literal["started", "completed", "failed"]
+BaselineFactValue = str | int | float | bool | None
+
+BASELINE_MAX_SUMMARIES = 32
+BASELINE_MAX_EVIDENCE_REFS = 64
+BASELINE_MAX_SERIALIZED_BYTES = 65_536
+BASELINE_MAX_ALLOCATION_ROWS = 20
+BASELINE_MAX_CHANGE_ROWS = 10
+
+_SENSITIVE_SCHEMA_KEYS = {
+    "account_id",
+    "api_key",
+    "authorization",
+    "broker_account_id",
+    "chain_of_thought",
+    "developer_prompt",
+    "hidden_reasoning",
+    "password",
+    "prompt",
+    "raw_broker_payload",
+    "raw_prompt",
+    "reasoning",
+    "secret",
+    "system_prompt",
+    "token",
+}
+_LLM_SAFE_METADATA_KEYS = {
+    "actual_call_count",
+    "baseline_version",
+    "budget_limit",
+    "capability_count",
+    "environment",
+    "expected_call_count",
+    "route",
+    "route_reason",
+}
+
+
+class EvidenceRef(StrictModel):
+    ref_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.:-]+$")
+    source: EvidenceSource
+    field_path: str = Field(min_length=1, max_length=160)
+    as_of: datetime
+    window: str | None = None
+    quality: EvidenceQuality = "complete"
+    limitations: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("field_path")
+    @classmethod
+    def _validate_safe_field_path(cls, field_path: str) -> str:
+        normalized = field_path.strip()
+        segments = {segment.casefold() for segment in re.split(r"[.\[\]/]+", normalized)}
+        if not normalized or segments & _SENSITIVE_SCHEMA_KEYS:
+            raise ValueError("EvidenceRef field_path contains a denied sensitive field.")
+        return normalized
+
+    @field_validator("window")
+    @classmethod
+    def _validate_window(cls, window: str | None) -> str | None:
+        return _validate_optional_window(window)
+
+
+class BaselineSummary(StrictModel):
+    summary_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.:-]+$")
+    capability: BaselineCapability
+    label: str = Field(min_length=1, max_length=160)
+    facts: dict[str, BaselineFactValue] = Field(default_factory=dict, max_length=12)
+    evidence_refs: list[str] = Field(min_length=1, max_length=12)
+
+    @field_validator("facts")
+    @classmethod
+    def _validate_safe_fact_keys(
+        cls,
+        facts: dict[str, BaselineFactValue],
+    ) -> dict[str, BaselineFactValue]:
+        denied = {key.casefold() for key in facts} & _SENSITIVE_SCHEMA_KEYS
+        if denied:
+            raise ValueError("BaselineSummary facts contain denied sensitive fields.")
+        return facts
+
+
+class PortfolioBaselinePacket(StrictModel):
+    schema_version: str = "1.0"
+    portfolio_id: str = Field(min_length=1)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    as_of: datetime | None = None
+    capabilities: list[BaselineCapability] = Field(default_factory=list, max_length=16)
+    summaries: list[BaselineSummary] = Field(
+        default_factory=list,
+        max_length=BASELINE_MAX_SUMMARIES,
+    )
+    evidence_refs: list[EvidenceRef] = Field(
+        default_factory=list,
+        max_length=BASELINE_MAX_EVIDENCE_REFS,
+    )
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    limitations: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("capabilities")
+    @classmethod
+    def _dedupe_capabilities(
+        cls,
+        capabilities: list[BaselineCapability],
+    ) -> list[BaselineCapability]:
+        return _dedupe_strings(capabilities)
+
+    @model_validator(mode="after")
+    def _validate_bounded_evidence(self) -> PortfolioBaselinePacket:
+        ref_ids = [ref.ref_id for ref in self.evidence_refs]
+        if len(ref_ids) != len(set(ref_ids)):
+            raise ValueError("PortfolioBaselinePacket evidence ref ids must be unique.")
+        summary_ids = [summary.summary_id for summary in self.summaries]
+        if len(summary_ids) != len(set(summary_ids)):
+            raise ValueError("PortfolioBaselinePacket summary ids must be unique.")
+        unknown_refs = sorted(
+            {
+                ref_id
+                for summary in self.summaries
+                for ref_id in summary.evidence_refs
+                if ref_id not in set(ref_ids)
+            }
+        )
+        if unknown_refs:
+            raise ValueError(
+                "PortfolioBaselinePacket summaries reference unknown evidence refs: "
+                + ", ".join(unknown_refs)
+            )
+        summary_capabilities = {summary.capability for summary in self.summaries}
+        uncovered = [
+            capability
+            for capability in self.capabilities
+            if capability not in summary_capabilities
+        ]
+        if uncovered:
+            raise ValueError(
+                "PortfolioBaselinePacket capabilities require summary evidence: "
+                + ", ".join(uncovered)
+            )
+        allocation_rows = sum(
+            summary.capability == "allocation_breakdown" for summary in self.summaries
+        )
+        if allocation_rows > BASELINE_MAX_ALLOCATION_ROWS:
+            raise ValueError("PortfolioBaselinePacket exceeds allocation row cap.")
+        for capability in ("top_allocation_changes_7d", "top_position_changes_7d"):
+            rows = sum(summary.capability == capability for summary in self.summaries)
+            if rows > BASELINE_MAX_CHANGE_ROWS:
+                raise ValueError(f"PortfolioBaselinePacket exceeds {capability} row cap.")
+        if len(self.model_dump_json().encode("utf-8")) > BASELINE_MAX_SERIALIZED_BYTES:
+            raise ValueError("PortfolioBaselinePacket exceeds serialized size cap.")
+        return self
+
+
+class InvestmentTurnDecision(StrictModel):
+    route: InvestmentRouteDecision
+    route_reasons: list[InvestmentRouteReason] = Field(min_length=1, max_length=8)
+    required_evidence: list[BaselineCapability] = Field(default_factory=list, max_length=16)
+    cited_evidence_refs: list[str] = Field(default_factory=list, max_length=32)
+    missing_evidence: list[BaselineCapability] = Field(default_factory=list, max_length=16)
+    direct_answer: str | None = Field(default=None, min_length=1, max_length=8_000)
+    portfolio_request: PortfolioRequest | None = None
+    fallback_portfolio_request: PortfolioRequest | None = None
+    sentiment_task: SentimentTask | None = None
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator(
+        "route_reasons",
+        "required_evidence",
+        "cited_evidence_refs",
+        "missing_evidence",
+    )
+    @classmethod
+    def _dedupe_route_lists(cls, values: list) -> list:
+        return _dedupe_strings(values)
+
+    @model_validator(mode="after")
+    def _validate_route_shape(self) -> InvestmentTurnDecision:
+        if self.route == "direct_context":
+            if not self.direct_answer or not self.cited_evidence_refs:
+                raise ValueError(
+                    "direct_context requires a direct answer and cited evidence refs."
+                )
+            if self.missing_evidence:
+                raise ValueError("direct_context cannot declare missing evidence.")
+            if self.portfolio_request is not None or self.sentiment_task is not None:
+                raise ValueError("direct_context cannot schedule subagent calls.")
+        elif self.route == "delegate_portfolio":
+            if self.portfolio_request is None:
+                raise ValueError("delegate_portfolio requires portfolio_request.")
+            if self.direct_answer is not None or self.sentiment_task is not None:
+                raise ValueError("delegate_portfolio cannot include direct or sentiment output.")
+        elif self.route == "delegate_sentiment":
+            if self.sentiment_task is None:
+                raise ValueError("delegate_sentiment requires sentiment_task.")
+            if self.direct_answer is not None or self.portfolio_request is not None:
+                raise ValueError("delegate_sentiment cannot include direct or portfolio output.")
+        elif self.route == "delegate_both":
+            if self.portfolio_request is None or self.sentiment_task is None:
+                raise ValueError("delegate_both requires portfolio_request and sentiment_task.")
+            if self.direct_answer is not None:
+                raise ValueError("delegate_both cannot include a direct answer.")
+        elif self.route == "unsupported":
+            if self.portfolio_request is not None or self.sentiment_task is not None:
+                raise ValueError("unsupported routes cannot schedule subagent calls.")
+        return self
+
+
+class LLMCallTrace(StrictModel):
+    run_id: str = Field(min_length=1)
+    purpose: LLMCallPurpose
+    provider: str = Field(min_length=1, max_length=80)
+    model: str = Field(min_length=1, max_length=160)
+    subagent: SubagentName
+    status: LLMCallStatus
+    started_at: datetime
+    ended_at: datetime | None = None
+    duration_ms: float | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+    attempt: int = Field(default=1, ge=1)
+    retry_reason: str | None = Field(default=None, min_length=1, max_length=160)
+    error_category: str | None = Field(default=None, max_length=120)
+    metadata: dict[str, BaselineFactValue] = Field(default_factory=dict)
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_safe_metadata(
+        cls,
+        metadata: dict[str, BaselineFactValue],
+    ) -> dict[str, BaselineFactValue]:
+        denied = {key.casefold() for key in metadata} & _SENSITIVE_SCHEMA_KEYS
+        unknown = set(metadata) - _LLM_SAFE_METADATA_KEYS
+        if denied or unknown:
+            raise ValueError("LLMCallTrace metadata contains denied or unknown fields.")
+        return metadata
+
+    @model_validator(mode="after")
+    def _validate_lifecycle(self) -> LLMCallTrace:
+        if self.attempt > 1 and not self.retry_reason:
+            raise ValueError("retry LLM calls require retry_reason.")
+        if self.attempt == 1 and self.retry_reason is not None:
+            raise ValueError("first-attempt LLM calls cannot include retry_reason.")
+        if self.status == "started" and (
+            self.ended_at is not None or self.duration_ms is not None or self.error_category
+        ):
+            raise ValueError("started LLM calls cannot include completion fields.")
+        if self.status in {"completed", "failed"} and (
+            self.ended_at is None or self.duration_ms is None
+        ):
+            raise ValueError("completed or failed LLM calls require end time and duration.")
+        if self.status == "failed" and not self.error_category:
+            raise ValueError("failed LLM calls require error_category.")
+        if self.status != "failed" and self.error_category is not None:
+            raise ValueError("only failed LLM calls may include error_category.")
+        return self
+
+
+class UserProgressEvent(StrictModel):
+    run_id: str = Field(min_length=1)
+    stage: UserProgressStage
+    status: UserProgressStatus
+    message: str = Field(min_length=1, max_length=300)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    group_key: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class AssetHint(StrictModel):
@@ -211,6 +541,7 @@ class PortfolioRequest(StrictModel):
     time_range: str | None = "30d"
     freshness_requirement: FreshnessRequirement = "cached_ok"
     output_goals: list[PortfolioOutputGoal] = Field(default_factory=lambda: ["snapshot"])
+    analysis_requirement: PortfolioAnalysisRequirement = "interpretation_required"
     source_query: str
     warnings: list[str] = Field(default_factory=list)
 
@@ -634,6 +965,8 @@ class TraceEvent(StrictModel):
     tool_name: str | None = None
     input_summary: str | None = None
     output_summary: str | None = None
+    group_key: str | None = Field(default=None, min_length=1, max_length=100)
+    child_run_id: str | None = Field(default=None, min_length=1, max_length=160)
     metadata: dict[str, Any] = Field(default_factory=dict)
     error_type: str | None = None
     error_message: str | None = None
@@ -653,10 +986,17 @@ class TraceEvent(StrictModel):
 
 class InvestmentAgentState(StrictModel):
     run_id: str
+    thread_id: str = "thread_unknown"
     user_query: str
     mode: InvestmentMode | None = None
     portfolio_id: str = "portfolio_default"
     ips: InvestmentPolicy | None = None
+    portfolio_baseline: PortfolioBaselinePacket | None = None
+    turn_decision: InvestmentTurnDecision | None = None
+    validated_turn_decision: InvestmentTurnDecision | None = None
+    evidence_coverage: dict[str, Any] = Field(default_factory=dict)
+    llm_calls: list[LLMCallTrace] = Field(default_factory=list)
+    total_llm_calls: int = Field(default=0, ge=0)
     investment_plan: InvestmentPlan | None = None
     query_plan: InvestmentQueryPlan | None = None
     memory_context: list[MemoryRecord] = Field(default_factory=list)
@@ -749,3 +1089,4 @@ def _contains_trade_execution_language(value: str) -> bool:
 
 
 InvestmentPlan.model_rebuild()
+InvestmentTurnDecision.model_rebuild()

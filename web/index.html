@@ -23,17 +23,13 @@
         </div>
 
         <details class="trace-panel">
-          <summary>Trace</summary>
-          <pre id="traceOutput"></pre>
+          <summary>Run details</summary>
+          <div id="traceOutput" class="trace-output" aria-live="polite"></div>
         </details>
 
         <form id="chatForm" class="chat-form">
           <textarea id="queryInput" name="query" rows="4" autocomplete="off" placeholder="Ask about your portfolio">Review my portfolio</textarea>
           <div class="chat-controls">
-            <select id="agentSelect" name="agent" aria-label="Agent">
-              <option value="investment_agent" selected>Investment</option>
-              <option value="portfolio_agent">Portfolio</option>
-            </select>
             <button id="sendButton" type="submit">Send</button>
           </div>
         </form>

@@ -1,7 +1,35 @@
 export type StatusEvent = {
+  event_type?: string;
   status: string;
   message: string;
   timestamp: string;
+  phase?: string | null;
+  node?: string | null;
+  subagent?: string | null;
+  server_name?: string | null;
+  tool_name?: string | null;
+  group_key?: string | null;
+  child_run_id?: string | null;
+  metadata?: Record<string, unknown>;
+  error_type?: string | null;
+  error_message?: string | null;
+};
+
+export type UserProgressEvent = {
+  run_id: string;
+  stage:
+    | "reviewing_request"
+    | "loading_saved_portfolio"
+    | "checking_evidence_coverage"
+    | "retrieving_portfolio_details"
+    | "analyzing_evidence"
+    | "checking_safety"
+    | "complete"
+    | "failed";
+  status: "started" | "completed" | "failed";
+  message: string;
+  timestamp: string;
+  group_key?: string | null;
 };
 
 export type Citation = {
@@ -26,6 +54,7 @@ export type GuardrailCheck = {
 
 export type GuardrailResult = {
   passed: boolean;
+  output_status?: "approved" | "revised" | "blocked";
   checks?: GuardrailCheck[];
   blocked_reason?: string | null;
   required_revisions?: string[];
@@ -125,6 +154,23 @@ export type InvestmentPlanTrace = {
   warnings?: string[];
 };
 
+export type InvestmentTurnDecisionTrace = {
+  route: string;
+  route_reasons: string[];
+  required_evidence?: string[];
+  cited_evidence_refs?: string[];
+  missing_evidence?: string[];
+  direct_answer?: string | null;
+};
+
+export type LLMCallTrace = {
+  purpose: string;
+  provider: string;
+  model: string;
+  status: string;
+  duration_ms?: number | null;
+};
+
 export type SentimentTrace = {
   retrieval_status?: string;
   warnings?: string[];
@@ -142,11 +188,45 @@ export type ChatState = {
   final_report?: FinalReport | null;
   guardrail_result?: GuardrailResult | null;
   status_events: StatusEvent[];
+  progress_events?: UserProgressEvent[];
+  trace_summary?: TraceSummary | null;
   investment_plan?: InvestmentPlanTrace | null;
+  portfolio_baseline?: Record<string, unknown> | null;
+  turn_decision?: InvestmentTurnDecisionTrace | null;
+  validated_turn_decision?: InvestmentTurnDecisionTrace | null;
+  evidence_coverage?: Record<string, unknown>;
+  llm_calls?: LLMCallTrace[];
+  total_llm_calls?: number;
   query_plan?: QueryPlanTrace | null;
   portfolio_packet?: Record<string, unknown> | null;
   sentiment_packet?: SentimentTrace | null;
   synthesis?: SynthesisTrace | null;
+};
+
+export type TraceToolGroup = {
+  count: number;
+  items: Record<string, unknown>[];
+};
+
+export type TraceSummary = {
+  run_id: string;
+  thread_id?: string;
+  route?: Record<string, unknown>;
+  data_context?: Record<string, unknown>;
+  graph?: {
+    nodes?: Record<string, unknown>[];
+    subagents?: Record<string, unknown>[];
+  };
+  llm?: {
+    total_calls?: number;
+    calls_by_purpose?: Record<string, number>;
+    calls?: Record<string, unknown>[];
+  };
+  tools?: Record<string, TraceToolGroup>;
+  warnings?: Record<string, unknown>[];
+  errors?: Record<string, unknown>[];
+  guardrails?: Record<string, unknown> | null;
+  source_events?: StatusEvent[];
 };
 
 export type StreamError = {

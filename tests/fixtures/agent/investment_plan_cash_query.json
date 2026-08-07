@@ -8,6 +8,7 @@
     "time_range": "30d",
     "freshness_requirement": "latest_required",
     "output_goals": ["snapshot", "effective_cash"],
+    "analysis_requirement": "deterministic_only",
     "source_query": "How much effective cash do I have?",
     "warnings": []
   },

@@ -1,0 +1,21 @@
+{
+  "route": "direct_context",
+  "route_reasons": ["baseline_sufficient"],
+  "required_evidence": ["latest_snapshot"],
+  "cited_evidence_refs": ["dashboard.total"],
+  "missing_evidence": [],
+  "direct_answer": "As of 2026-08-03 13:55 UTC, the stored portfolio total is USD 100,000.",
+  "portfolio_request": null,
+  "fallback_portfolio_request": {
+    "task_intent": "portfolio_fact",
+    "asset_hints": [],
+    "time_range": null,
+    "freshness_requirement": "cached_ok",
+    "output_goals": ["snapshot"],
+    "analysis_requirement": "deterministic_only",
+    "source_query": "Give me a general portfolio breakdown.",
+    "warnings": []
+  },
+  "sentiment_task": null,
+  "warnings": []
+}

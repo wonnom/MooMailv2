@@ -61,6 +61,39 @@ def test_gateway_denies_investment_agent_direct_opend(recorded_opend_client):
         )
 
 
+def test_portfolio_baseline_gateway_profile_is_sql_read_only(recorded_opend_client, tmp_path):
+    gateway = DirectToolGateway(
+        [
+            build_opend_mcp_module(client=recorded_opend_client),
+            build_finance_metrics_mcp_module(),
+            build_portfolio_sql_mcp_module(db_path=tmp_path / "portfolio.sqlite"),
+        ]
+    )
+
+    history = gateway.call_tool(
+        PORTFOLIO_SQL_SERVER,
+        "portfolio_sql_get_history_status",
+        {"portfolio_id": "portfolio_default"},
+        consumer="portfolio_baseline",
+    )
+
+    assert history.structured_content["snapshot_count"] == 0
+    with pytest.raises(MCPPermissionError):
+        gateway.call_tool(
+            OPEND_SERVER,
+            "opend_get_portfolio_context",
+            {},
+            consumer="portfolio_baseline",
+        )
+    with pytest.raises(MCPPermissionError):
+        gateway.call_tool(
+            PORTFOLIO_SQL_SERVER,
+            "portfolio_sql_store_daily_value_snapshot",
+            {},
+            consumer="portfolio_baseline",
+        )
+
+
 def test_gateway_globally_denies_trade_order_tool_names():
     module = RegisteredMCPModule(server_name="fake-trading-mcp", version="0.0")
     module.add_tool(

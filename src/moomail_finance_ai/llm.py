@@ -42,6 +42,13 @@ class TextLLMClient(Protocol):
     ) -> str: ...
 
 
+class TextGenerationResult(StrictModel):
+    text: str
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+
+
 class GeminiLLMError(RuntimeError):
     """Raised when Gemini cannot complete a text generation call."""
 
@@ -121,6 +128,23 @@ class GeminiLLMClient:
         temperature: float = 0.1,
         timeout: int = 60,
     ) -> str:
+        return self.generate_text_result(
+            prompt,
+            system_instruction=system_instruction,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            timeout=timeout,
+        ).text
+
+    def generate_text_result(
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        max_output_tokens: int = 2048,
+        temperature: float = 0.1,
+        timeout: int = 60,
+    ) -> TextGenerationResult:
         model_path = self.config.model
         if not model_path.startswith("models/"):
             model_path = f"models/{model_path}"
@@ -143,7 +167,8 @@ class GeminiLLMClient:
         text = _gemini_response_text(response)
         if not text.strip():
             raise GeminiLLMError("Gemini call succeeded, but no text output could be extracted.")
-        return text
+        usage = _gemini_response_usage(response)
+        return TextGenerationResult(text=text, **usage)
 
     def _request_json(self, url: str, *, payload: dict[str, Any], timeout: int) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -183,6 +208,23 @@ class OpenAILLMClient:
         temperature: float = 0.1,
         timeout: int = 60,
     ) -> str:
+        return self.generate_text_result(
+            prompt,
+            system_instruction=system_instruction,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            timeout=timeout,
+        ).text
+
+    def generate_text_result(
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        max_output_tokens: int = 2048,
+        temperature: float = 0.1,
+        timeout: int = 60,
+    ) -> TextGenerationResult:
         input_payload: list[dict[str, str]] | str
         if system_instruction:
             input_payload = [
@@ -205,7 +247,8 @@ class OpenAILLMClient:
         text = _openai_response_text(response)
         if not text.strip():
             raise OpenAILLMError("OpenAI call succeeded, but no text output could be extracted.")
-        return text
+        usage = _openai_response_usage(response)
+        return TextGenerationResult(text=text, **usage)
 
     def _request_json(self, url: str, *, payload: dict[str, Any], timeout: int) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -249,6 +292,34 @@ def _openai_response_text(response: dict[str, Any]) -> str:
             if isinstance(text, str):
                 parts.append(text)
     return "\n".join(parts)
+
+
+def _gemini_response_usage(response: dict[str, Any]) -> dict[str, int | None]:
+    usage = response.get("usageMetadata")
+    if not isinstance(usage, dict):
+        return {"input_tokens": None, "output_tokens": None, "total_tokens": None}
+    return {
+        "input_tokens": _optional_nonnegative_int(usage.get("promptTokenCount")),
+        "output_tokens": _optional_nonnegative_int(usage.get("candidatesTokenCount")),
+        "total_tokens": _optional_nonnegative_int(usage.get("totalTokenCount")),
+    }
+
+
+def _openai_response_usage(response: dict[str, Any]) -> dict[str, int | None]:
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return {"input_tokens": None, "output_tokens": None, "total_tokens": None}
+    return {
+        "input_tokens": _optional_nonnegative_int(usage.get("input_tokens")),
+        "output_tokens": _optional_nonnegative_int(usage.get("output_tokens")),
+        "total_tokens": _optional_nonnegative_int(usage.get("total_tokens")),
+    }
+
+
+def _optional_nonnegative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
 
 
 def _merged_env(

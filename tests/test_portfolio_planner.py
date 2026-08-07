@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -30,6 +31,7 @@ from moomail_finance_ai.portfolio_agent import (
     plan_portfolio_context,
 )
 from moomail_finance_ai.portfolio_evidence_planner import (
+    DeterministicPortfolioEvidenceCompiler,
     LLMPortfolioEvidencePlanner,
     PortfolioEvidencePlanningUnavailableError,
     PortfolioEvidencePlanValidationError,
@@ -39,6 +41,144 @@ from moomail_finance_ai.portfolio_evidence_planner import (
 )
 from moomail_finance_ai.sql_store import PortfolioSqlStore
 from moomail_finance_ai.agent_schemas import PortfolioTask
+
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "agent"
+
+
+def test_portfolio_evidence_compiler_returns_valid_plan():
+    compiler = DeterministicPortfolioEvidenceCompiler()
+    request = PortfolioRequest(
+        task_intent="what_changed",
+        asset_hints=[AssetHint(raw_input="AMZN")],
+        time_range="90d",
+        freshness_requirement="history_only",
+        output_goals=["position_changes", "performance_context", "portfolio_patterns"],
+        analysis_requirement="interpretation_required",
+        source_query="Explain what changed in my AMZN position.",
+    )
+
+    plan = compiler.plan(request, mock_investment_policy(), _asset_candidates())
+
+    assert plan.task_intent == request.task_intent
+    assert plan.resolved_assets[0].sql_asset_id == "asset_amzn"
+    assert plan.history_queries == [
+        "history_status",
+        "latest_state",
+        "portfolio_growth",
+        "allocation_history",
+        "position_state_changes",
+    ]
+    assert plan.metric_groups == ["performance"]
+    assert plan.needs_current_values is False
+    assert plan.position_change_scope == "asset_scoped"
+    assert plan.persistence_mode == "skip"
+    assert "large_position_changes" in plan.pattern_detectors
+
+
+@pytest.mark.parametrize(
+    ("goal", "expected_history", "expected_metric", "expected_detector"),
+    [
+        ("snapshot", "none", "allocation", "stale_data"),
+        ("allocation_context", "none", "allocation", "allocation_drift"),
+        ("performance_context", "portfolio_growth", "performance", "stale_data"),
+        ("risk_context", "none", "risk", "concentration"),
+        ("effective_cash", "none", "effective_cash", "cash_effective_cash"),
+        ("position_changes", "position_state_changes", "performance", "large_position_changes"),
+        ("portfolio_patterns", "none", "allocation", "concentration"),
+        ("derived_metrics", "portfolio_growth", "performance", "stale_data"),
+        ("sentiment_context_needs", "none", "allocation", "sentiment_context_needed"),
+    ],
+)
+def test_evidence_compiler_maps_all_output_goals(
+    goal,
+    expected_history,
+    expected_metric,
+    expected_detector,
+):
+    compiler = DeterministicPortfolioEvidenceCompiler()
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=[goal],
+        analysis_requirement=(
+            "interpretation_required"
+            if goal in {"risk_context", "portfolio_patterns"}
+            else "deterministic_only"
+        ),
+        source_query=f"Retrieve bounded {goal} evidence.",
+    )
+
+    plan = compiler.plan(request, mock_investment_policy(), [])
+
+    assert expected_history in plan.history_queries
+    assert expected_metric in plan.metric_groups
+    assert expected_detector in plan.pattern_detectors
+
+
+@pytest.mark.parametrize(
+    ("freshness", "intent", "expected_current", "expected_persistence"),
+    [
+        ("latest_required", "full_review", True, "persist"),
+        ("cached_ok", "portfolio_fact", True, "skip"),
+        ("history_only", "what_changed", False, "skip"),
+    ],
+)
+def test_evidence_compiler_applies_freshness_and_persistence_policy(
+    freshness,
+    intent,
+    expected_current,
+    expected_persistence,
+):
+    request = PortfolioRequest(
+        task_intent=intent,
+        freshness_requirement=freshness,
+        output_goals=["snapshot"],
+        analysis_requirement=(
+            "interpretation_required"
+            if intent in {"full_review", "risk_check", "deep_dive", "compare"}
+            else "deterministic_only"
+        ),
+        source_query="Retrieve the bounded portfolio evidence.",
+    )
+
+    plan = DeterministicPortfolioEvidenceCompiler().plan(
+        request,
+        mock_investment_policy(),
+        [],
+    )
+
+    assert plan.needs_current_values is expected_current
+    assert plan.persistence_mode == expected_persistence
+
+
+def test_portfolio_analysis_requirement_is_explicit():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        output_goals=["snapshot"],
+        analysis_requirement="deterministic_only",
+        source_query="Retrieve my stored snapshot.",
+    )
+
+    assert request.model_dump()["analysis_requirement"] == "deterministic_only"
+    assert "tool" not in " ".join(request.model_dump().keys()).casefold()
+
+
+def test_detailed_portfolio_request_cannot_skip_interpretation():
+    request = PortfolioRequest(
+        task_intent="risk_check",
+        output_goals=["risk_context"],
+        analysis_requirement="deterministic_only",
+        source_query="Explain my concentration risk.",
+    )
+
+    with pytest.raises(PortfolioEvidencePlanValidationError) as exc_info:
+        DeterministicPortfolioEvidenceCompiler().plan(
+            request,
+            mock_investment_policy(),
+            [],
+        )
+
+    assert "analysis_requirement=interpretation_required" in str(exc_info.value)
 
 
 def test_portfolio_task_interpreter_requires_llm_request():
@@ -136,6 +276,75 @@ def test_portfolio_planner_accepts_single_structured_output_envelope():
     plan = planner.plan(request, mock_investment_policy(), [])
 
     assert plan.metric_groups == ["effective_cash"]
+
+
+def test_unknown_only_planner_payload_fails_closed():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot"],
+        source_query="Show my latest portfolio snapshot.",
+    )
+    planner = LLMPortfolioEvidencePlanner(
+        StaticPortfolioPlannerLLM(
+            json.loads(
+                (FIXTURE_DIR / "v1_5_unknown_only_planner.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        )
+    )
+
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError) as exc_info:
+        planner.plan(request, mock_investment_policy(), [])
+
+    assert isinstance(exc_info.value.__cause__, ValueError)
+    assert "no planner-controlled fields" in str(exc_info.value.__cause__)
+
+
+def test_planner_envelope_with_provider_metadata_is_unambiguous():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot", "effective_cash"],
+        source_query="How much effective cash do I have?",
+    )
+    planner = LLMPortfolioEvidencePlanner(
+        StaticPortfolioPlannerLLM(
+            {
+                "evidence_plan": _static_evidence_payload(
+                    metric_groups=["effective_cash"]
+                ),
+                "provider": "test-provider",
+                "model": "test-model",
+                "usage": {"input_tokens": 12, "output_tokens": 8},
+            }
+        )
+    )
+
+    plan = planner.plan(request, mock_investment_policy(), [])
+
+    assert plan.metric_groups == ["effective_cash"]
+
+
+def test_planner_rejects_ambiguous_multiple_envelopes():
+    request = PortfolioRequest(
+        task_intent="portfolio_fact",
+        freshness_requirement="latest_required",
+        output_goals=["snapshot"],
+        source_query="Show my latest portfolio snapshot.",
+    )
+    evidence_plan = _static_evidence_payload()
+    planner = LLMPortfolioEvidencePlanner(
+        StaticPortfolioPlannerLLM(
+            {"evidence_plan": evidence_plan, "result": evidence_plan}
+        )
+    )
+
+    with pytest.raises(PortfolioEvidencePlanningUnavailableError) as exc_info:
+        planner.plan(request, mock_investment_policy(), [])
+
+    assert "multiple recognized plan envelopes" in str(exc_info.value.__cause__)
 
 
 def test_portfolio_planner_prompt_exposes_deterministic_minimum_requirements():

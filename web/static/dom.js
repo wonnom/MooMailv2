@@ -1,7 +1,6 @@
 export const ui = {
   appShell: document.querySelector("#appShell"),
   form: document.querySelector("#chatForm"),
-  agentSelect: document.querySelector("#agentSelect"),
   input: document.querySelector("#queryInput"),
   sendButton: document.querySelector("#sendButton"),
   hideChatButton: document.querySelector("#hideChatButton"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,10 +12,15 @@ from moomail_finance_ai.schemas import GuardrailCheck
 from moomail_finance_ai.agent_schemas import (
     AssetHint,
     AssetResolution,
+    BaselineSummary,
+    EvidenceRef,
     GuardrailReview,
     InvestmentAgentState,
     InvestmentPlan,
     InvestmentQueryPlan,
+    InvestmentTurnDecision,
+    LLMCallTrace,
+    PortfolioBaselinePacket,
     PortfolioEvidencePacket,
     PortfolioEvidencePlan,
     PortfolioRequest,
@@ -25,6 +31,7 @@ from moomail_finance_ai.agent_schemas import (
     SentimentTask,
     SynthesisInput,
     TraceEvent,
+    UserProgressEvent,
     PortfolioAgentEvidencePacket,
 )
 
@@ -144,6 +151,193 @@ def test_v1_4_literals_accept_expected_values():
     assert request.freshness_requirement == "latest_required"
     assert plan.position_change_scope == "ticker_scoped"
     assert plan.persistence_mode == "auto"
+
+
+def test_baseline_capability_accepts_expected_values():
+    baseline = PortfolioBaselinePacket.model_validate(
+        _fixture("v1_5_baseline_covered.json")
+    )
+
+    assert baseline.capabilities == [
+        "latest_snapshot",
+        "portfolio_value_trend_7d",
+        "history_freshness",
+    ]
+
+
+def test_baseline_evidence_ref_is_bounded_and_sanitized():
+    with pytest.raises(ValidationError, match="denied sensitive field"):
+        EvidenceRef(
+            ref_id="unsafe.ref",
+            source="portfolio_dashboard",
+            field_path="raw_broker_payload.account_id",
+            as_of=datetime.now(UTC),
+        )
+
+    with pytest.raises(ValidationError):
+        BaselineSummary(
+            summary_id="unsafe.summary",
+            capability="latest_snapshot",
+            label="Unsafe summary",
+            facts={"api_key": "secret"},
+            evidence_refs=["safe.ref"],
+        )
+
+
+def test_portfolio_baseline_packet_round_trips():
+    baseline = PortfolioBaselinePacket.model_validate(
+        _fixture("v1_5_baseline_covered.json")
+    )
+
+    round_tripped = PortfolioBaselinePacket.model_validate(
+        baseline.model_dump(mode="json")
+    )
+
+    assert round_tripped.schema_version == "1.0"
+    assert round_tripped.summaries[1].facts["change_pct"] == 1.5
+    assert {ref.ref_id for ref in round_tripped.evidence_refs} == {
+        "dashboard.total",
+        "sql.trend.7d",
+        "sql.history.status",
+    }
+
+
+def test_baseline_packet_enforces_size_and_row_caps():
+    now = datetime.now(UTC)
+    refs = [
+        EvidenceRef(
+            ref_id=f"allocation.{index}",
+            source="portfolio_sql",
+            field_path=f"allocation.row.{index}",
+            as_of=now,
+        )
+        for index in range(21)
+    ]
+    summaries = [
+        BaselineSummary(
+            summary_id=f"allocation.{index}",
+            capability="allocation_breakdown",
+            label=f"Allocation row {index}",
+            facts={"weight": index / 100},
+            evidence_refs=[f"allocation.{index}"],
+        )
+        for index in range(21)
+    ]
+
+    with pytest.raises(ValidationError, match="allocation row cap"):
+        PortfolioBaselinePacket(
+            portfolio_id="portfolio_default",
+            capabilities=["allocation_breakdown"],
+            summaries=summaries,
+            evidence_refs=refs,
+        )
+
+    with pytest.raises(ValidationError, match="serialized size cap"):
+        PortfolioBaselinePacket(
+            portfolio_id="portfolio_default",
+            warnings=["x" * 4_000 for _ in range(20)],
+        )
+
+
+def test_investment_turn_decision_requires_route_reason():
+    with pytest.raises(ValidationError):
+        InvestmentTurnDecision(
+            route="direct_context",
+            route_reasons=[],
+            cited_evidence_refs=["dashboard.total"],
+            direct_answer="Portfolio total is available.",
+        )
+
+
+def test_direct_route_carries_evidence_refs_and_fallback_request():
+    decision = InvestmentTurnDecision.model_validate(
+        _fixture("v1_5_route_direct.json")
+    )
+
+    assert decision.route == "direct_context"
+    assert decision.cited_evidence_refs == ["sql.trend.7d", "sql.history.status"]
+    assert decision.fallback_portfolio_request is not None
+
+
+def test_route_contract_keeps_direct_and_delegate_fields_consistent():
+    delegated = InvestmentTurnDecision.model_validate(
+        _fixture("v1_5_route_delegate.json")
+    )
+    assert delegated.portfolio_request is not None
+
+    with pytest.raises(ValidationError, match="cannot schedule subagent"):
+        InvestmentTurnDecision(
+            route="direct_context",
+            route_reasons=["baseline_sufficient"],
+            cited_evidence_refs=["dashboard.total"],
+            direct_answer="Portfolio total is available.",
+            portfolio_request=delegated.portfolio_request,
+        )
+
+
+def test_llm_call_trace_captures_safe_call_metadata():
+    started = datetime.now(UTC)
+    trace = LLMCallTrace(
+        run_id="run_llm_trace",
+        purpose="investment_planning",
+        provider="openai",
+        model="test-model",
+        subagent="investment_agent",
+        status="completed",
+        started_at=started,
+        ended_at=started + timedelta(milliseconds=25),
+        duration_ms=25,
+        input_tokens=100,
+        output_tokens=20,
+        total_tokens=120,
+        metadata={"route": "direct_context", "expected_call_count": 1},
+    )
+
+    assert trace.total_tokens == 120
+    assert trace.metadata["route"] == "direct_context"
+
+
+def test_llm_call_trace_rejects_sensitive_metadata():
+    with pytest.raises(ValidationError, match="denied or unknown"):
+        LLMCallTrace(
+            run_id="run_llm_trace",
+            purpose="investment_planning",
+            provider="openai",
+            model="test-model",
+            subagent="investment_agent",
+            status="started",
+            started_at=datetime.now(UTC),
+            metadata={"prompt": "raw user prompt"},
+        )
+
+
+def test_user_progress_event_accepts_plain_language_stages():
+    event = UserProgressEvent(
+        run_id="run_progress",
+        stage="checking_evidence_coverage",
+        status="started",
+        message="Checking whether saved portfolio data covers your request.",
+        group_key="evidence.coverage",
+    )
+
+    assert event.stage == "checking_evidence_coverage"
+    assert "saved portfolio data" in event.message
+
+
+def test_trace_event_supports_grouping_without_losing_detail():
+    event = TraceEvent(
+        event_type="tool_call",
+        run_id="run_trace_group",
+        status="planned_portfolio_tool",
+        message="Planned a bounded history read.",
+        tool_name="portfolio_sql_get_history_status",
+        group_key="portfolio.history",
+        child_run_id="portfolio_run_child",
+    )
+
+    payload = event.model_dump(mode="json")
+    assert payload["group_key"] == "portfolio.history"
+    assert payload["child_run_id"] == "portfolio_run_child"
 
 
 def test_asset_hint_keeps_raw_logical_input():
@@ -591,6 +785,23 @@ def test_all_agent_fixtures_validate_and_serialize():
         instance = model.model_validate(_fixture(fixture_name))
         payload = instance.model_dump(mode="json")
         assert json.loads(json.dumps(payload)) == payload
+
+
+def test_v1_5_contract_fixtures_validate():
+    model_by_fixture = {
+        "v1_5_baseline_covered.json": PortfolioBaselinePacket,
+        "v1_5_baseline_stale.json": PortfolioBaselinePacket,
+        "v1_5_route_direct.json": InvestmentTurnDecision,
+        "v1_5_route_delegate.json": InvestmentTurnDecision,
+        "v1_5_rewritten_source_query.json": InvestmentPlan,
+    }
+
+    for fixture_name, model in model_by_fixture.items():
+        instance = model.model_validate(_fixture(fixture_name))
+        assert instance.model_dump(mode="json")
+
+    unknown_only = _fixture("v1_5_unknown_only_planner.json")
+    assert set(unknown_only) == {"commentary", "confidence"}
 
 
 def test_investment_agent_state_rejects_plan_mode_mismatch():

@@ -1,21 +1,20 @@
-import type { ChatState, StatusEvent, StreamError } from "./types.js";
+import type { ChatState, StatusEvent, StreamError, UserProgressEvent } from "./types.js";
 
 type StreamCallbacks = {
-  onStatus: (event: StatusEvent) => void;
+  onStatus: (event: StatusEvent, progress?: UserProgressEvent | null) => void;
   onFinal: (state: ChatState) => void;
   onError: (error: StreamError) => void;
 };
 
 export async function runChatStream(
   query: string,
-  agent: string,
   callbacks: StreamCallbacks,
 ): Promise<void> {
   try {
     const response = await fetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, agent }),
+      body: JSON.stringify({ query }),
     });
     if (!response.ok) {
       const body = await response.text();
@@ -48,7 +47,7 @@ function handleStreamLine(line: string, callbacks: StreamCallbacks): boolean {
   if (!line.trim()) return true;
   const payload = JSON.parse(line);
   if (payload.type === "status") {
-    callbacks.onStatus(payload.event);
+    callbacks.onStatus(payload.event, payload.progress ?? null);
   }
   if (payload.type === "final") {
     callbacks.onFinal(payload.state);

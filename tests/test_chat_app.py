@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+from moomail_finance_ai.agent_schemas import PortfolioBaselinePacket
 from moomail_finance_ai.chat_api import ChatService, stream_payloads
 from moomail_finance_ai.opend import OpenDConnectionStatus, OpenDFieldReport, OpenDTableResult
 from moomail_finance_ai.portfolio_agent import PortfolioEvaluation
@@ -11,6 +12,7 @@ from scripts.serve_chat import WEB, ChatHandler
 def test_chat_service_portfolio_selection_routes_to_investment_agent(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
+        env_file=None,
         from_report=report_path,
         db_path=tmp_path / "chat.sqlite",
         portfolio_evaluator=FakePortfolioEvaluator(),
@@ -28,6 +30,7 @@ def test_chat_service_portfolio_selection_routes_to_investment_agent(tmp_path):
 def test_stream_endpoint_routes_portfolio_selection_to_investment_agent(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
+        env_file=None,
         from_report=report_path,
         db_path=tmp_path / "chat.sqlite",
         portfolio_evaluator=FakePortfolioEvaluator(),
@@ -39,6 +42,8 @@ def test_stream_endpoint_routes_portfolio_selection_to_investment_agent(tmp_path
     assert lines[-1]["type"] == "final"
     assert lines[-1]["state"]["agent_type"] == "investment_agent"
     assert lines[-1]["state"]["guardrail_result"]["passed"] is True
+    assert "progress_events" in lines[-1]["state"]
+    assert "trace_summary" in lines[-1]["state"]
 
 
 def test_stream_endpoint_emits_error_event_when_agent_fails():
@@ -48,6 +53,26 @@ def test_stream_endpoint_emits_error_event_when_agent_fails():
     assert lines[-1]["error"]["error_type"] == "RuntimeError"
     assert lines[-1]["error"]["message"] == "synthetic stream failure"
     assert "RuntimeError" in "".join(lines[-1]["error"]["traceback"])
+
+
+def test_status_stream_adds_plain_progress_without_losing_source_event(tmp_path):
+    report_path = _write_recorded_report(tmp_path)
+    service = ChatService(
+        env_file=None,
+        from_report=report_path,
+        db_path=tmp_path / "progress-chat.sqlite",
+        portfolio_evaluator=FakePortfolioEvaluator(),
+    )
+
+    status_line = next(
+        line
+        for line in stream_payloads(service, "Review my portfolio.")
+        if line["type"] == "status" and line.get("progress")
+    )
+
+    assert status_line["event"]["status"] == "loading_policy"
+    assert status_line["progress"]["stage"] == "reviewing_request"
+    assert "loading_policy" not in status_line["progress"]["message"]
 
 
 def test_stream_handler_stops_quietly_when_client_disconnects():
@@ -67,6 +92,7 @@ def test_stream_handler_stops_quietly_when_client_disconnects():
 def test_chat_service_streams_portfolio_selection_through_investment_agent(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
+        env_file=None,
         from_report=report_path,
         db_path=tmp_path / "portfolio-chat.sqlite",
         portfolio_evaluator=FakePortfolioEvaluator(),
@@ -84,6 +110,7 @@ def test_chat_service_portfolio_selection_ignores_legacy_chat_db(tmp_path):
     db_path = tmp_path / "legacy-chat.sqlite"
     _create_legacy_agent_runs_table(db_path)
     service = ChatService(
+        env_file=None,
         from_report=report_path,
         db_path=db_path,
         portfolio_evaluator=FakePortfolioEvaluator(),
@@ -98,6 +125,7 @@ def test_chat_service_portfolio_selection_ignores_legacy_chat_db(tmp_path):
 def test_chat_service_returns_graceful_investment_planner_failure(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
+        env_file=None,
         from_report=report_path,
         db_path=tmp_path / "investment-chat.sqlite",
         portfolio_evaluator=FakePortfolioEvaluator(),
@@ -109,6 +137,11 @@ def test_chat_service_returns_graceful_investment_planner_failure(tmp_path):
 
     assert any(line["type"] == "status" for line in lines)
     assert final["agent_type"] == "investment_agent"
+    assert final["portfolio_baseline"] is not None
+    assert final["turn_decision"]["route"] == "unsupported"
+    assert final["validated_turn_decision"]["route"] == "unsupported"
+    assert final["total_llm_calls"] in {0, 1}
+    assert len(final["llm_calls"]) == final["total_llm_calls"]
     assert final["investment_plan"]["mode"] == "unsupported"
     assert final["query_plan"]["needs_portfolio_agent"] is False
     assert final["final_report"]["title"] == "Investment Planning Unavailable"
@@ -118,6 +151,7 @@ def test_chat_service_returns_graceful_investment_planner_failure(tmp_path):
 
 def test_default_investment_chat_does_not_require_portfolio_evaluator_llm(tmp_path):
     service = ChatService(
+        env_file=None,
         from_report=None,
         db_path=tmp_path / "default-investment-chat.sqlite",
         default_agent="investment",
@@ -132,9 +166,21 @@ def test_default_investment_chat_does_not_require_portfolio_evaluator_llm(tmp_pa
     assert final["guardrail_result"]["passed"] is True
 
 
+def test_chat_service_can_load_baseline_context():
+    expected = PortfolioBaselinePacket(portfolio_id="portfolio_default")
+    baseline_service = StaticBaselineService(expected)
+    service = ChatService(portfolio_baseline_service=baseline_service)
+
+    packet = service.portfolio_baseline()
+
+    assert packet == expected
+    assert baseline_service.calls == 1
+
+
 def test_chat_service_accepts_frontend_agent_name_aliases(tmp_path):
     report_path = _write_recorded_report(tmp_path)
     service = ChatService(
+        env_file=None,
         from_report=report_path,
         db_path=tmp_path / "alias-chat.sqlite",
         portfolio_evaluator=FakePortfolioEvaluator(),
@@ -146,6 +192,26 @@ def test_chat_service_accepts_frontend_agent_name_aliases(tmp_path):
 
     assert investment_lines[-1]["state"]["agent_type"] == "investment_agent"
     assert portfolio_lines[-1]["state"]["agent_type"] == "investment_agent"
+    assert any(
+        line.get("event", {}).get("status") == "legacy_portfolio_alias_deprecated"
+        for line in portfolio_lines
+        if line["type"] == "status"
+    )
+
+
+def test_chat_api_always_uses_investment_agent():
+    source = (WEB.parent / "scripts" / "serve_chat.py").read_text(encoding="utf-8")
+
+    assert 'payload.get("agent")' not in source
+    assert "self.service.run(query)" in source
+    assert "self.service.run(query, status_callback=emit)" in source
+
+
+def test_direct_portfolio_chat_mode_is_not_exposed():
+    service = ChatService(default_agent="portfolio_agent")
+
+    assert service.default_agent == "investment"
+    assert service.default_agent != "portfolio"
 
 
 def test_chat_defaults_use_canonical_portfolio_history_db():
@@ -159,7 +225,7 @@ def test_chat_defaults_use_canonical_portfolio_history_db():
     assert "data/chat-portfolio-history.sqlite" not in serve_chat_source
 
 
-def test_frontend_files_include_streaming_and_citation_controls():
+def test_frontend_has_no_agent_selector_and_keeps_report_controls():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     static_dir = WEB / "static"
     frontend_source = "\n".join(
@@ -178,10 +244,12 @@ def test_frontend_files_include_streaming_and_citation_controls():
     )
 
     assert "/static/app.js" in html
-    assert "agentSelect" in html
-    assert 'value="investment_agent" selected>Investment<' in html
-    assert 'value="portfolio_agent">Portfolio<' in html
-    assert 'value="investment">Investment<' not in html
+    assert "agentSelect" not in html
+    assert 'name="agent"' not in html
+    assert 'value="portfolio_agent"' not in html
+    assert "ui.agentSelect" not in frontend_source
+    assert "JSON.stringify({ query, agent })" not in frontend_source
+    assert "JSON.stringify({ query })" in frontend_source
     assert "Investment Legacy" not in html
     assert "chat-controls" in html
     assert 'rows="4"' in html
@@ -224,12 +292,19 @@ def test_frontend_files_include_streaming_and_citation_controls():
     assert "renderStreamError" in frontend_source
     assert "renderAgentError" in frontend_source
     assert 'onError: renderAgentError' in frontend_source
-    assert 'event.status === "investment_planner_unavailable"' in frontend_source
+    assert "TERMINAL_ANALYTICAL_FAILURE_STATUSES" in frontend_source
+    assert "progress_events" in frontend_source
+    assert "trace_summary" in frontend_source
+    assert "Full sanitized source events" in frontend_source
+    assert "Portfolio tool activity" in frontend_source
     assert "traceback" in frontend_source
+    assert "Run details" in html
+    assert 'aria-live="polite"' in html
 
 
 def test_agent_calls_preserve_the_current_dashboard_until_a_valid_report_arrives():
     app_source = (WEB / "static" / "app.ts").read_text(encoding="utf-8")
+    panel_source = (WEB / "static" / "chat_panel.ts").read_text(encoding="utf-8")
     clear_run_source = app_source.split("function clearRun", 1)[1].split(
         "function setRunning", 1
     )[0]
@@ -237,6 +312,20 @@ def test_agent_calls_preserve_the_current_dashboard_until_a_valid_report_arrives
     assert "resetReportView" not in clear_run_source
     assert "guardrailBadge" not in clear_run_source
     assert "renderAgentError" in app_source
+    assert "guardedSuccess" in app_source
+    assert "TERMINAL_ANALYTICAL_FAILURE_STATUSES" in app_source
+    assert '"observability_degraded"' in app_source
+    assert 'ui.reportTitle.textContent = "Run failed"' not in panel_source
+    assert "ui.reportSummary.textContent = message" not in panel_source
+    assert "your saved dashboard is unchanged" in panel_source.lower()
+
+
+def test_frontend_progress_never_concatenates_raw_status_codes():
+    panel_source = (WEB / "static" / "chat_panel.ts").read_text(encoding="utf-8")
+
+    assert "PROGRESS_LABELS" in panel_source
+    assert "progressItems" in panel_source
+    assert "`${event.status}: ${event.message}`" not in panel_source
 
 
 def _create_legacy_agent_runs_table(db_path):
@@ -340,6 +429,16 @@ class FakePortfolioEvaluator:
             risks=["Concentration requires review."],
             history_observations=["Daily snapshot policy was applied."],
         )
+
+
+class StaticBaselineService:
+    def __init__(self, packet):
+        self.packet = packet
+        self.calls = 0
+
+    def load(self):
+        self.calls += 1
+        return self.packet
 
 
 class ExplodingChatService:

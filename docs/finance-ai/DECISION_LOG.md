@@ -31,9 +31,9 @@ failure signal.
 
 ## Current Snapshot
 
-Date: 2026-06-29
+Date: 2026-08-05
 
-Current status:
+Current status as of 2026-08-05:
 
 - V1.1 is complete as a Portfolio Agent proof of concept with OpenD and local SQL
   portfolio history.
@@ -55,6 +55,10 @@ Current status:
   Portfolio Agent `PortfolioEvidencePlan` planning, deterministic evidence-plan
   execution, separated `PortfolioEvidencePacket` output, and trace/evaluation
   closeout are implemented.
+- V1.5 is complete. V1.5.0 through V1.5.5 implement contracts/safety,
+  deterministic baseline construction, Investment-only evidence-gated routing,
+  deterministic Portfolio escalation/call budgets, LangSmith/MooMail
+  instrumentation, and frontend trace/evaluation closeout.
 - The root `README.md` is used for GitHub visibility.
 - Detailed design docs live under `docs/finance-ai/`.
 - Historical V1.1 task tracking lives under `docs/finance-ai/V1_1_Tasks/`.
@@ -77,6 +81,7 @@ Current status:
 | V1.3.3 | Complete | Deterministic portfolio data lane for backend APIs and frontend dashboard refresh independent from agent runs. |
 | V1.3.4 | Complete | Portfolio Agent and Investment Agent migrated to the gateway runtime; legacy custom stdio removed from runtime code. |
 | V1.4 | Complete | Structured Investment/Portfolio planning, deterministic asset resolution, policy-aware evidence execution, separated evidence packets, trace/evaluation closeout, and docs/tests. |
+| V1.5 | Complete | Investment-first one-call routing, strict Portfolio escalation, complete call tracing, LangSmith observability, grouped frontend progress/audit detail, and dashboard-safe failure handling. |
 
 ## Timeline
 
@@ -1467,6 +1472,300 @@ Verification:
   issues; the fix commit `no-mistakes(review): Validate planner contracts and
   chat routing` addressed them, but the no-mistakes run itself could not
   continue because the review worker ran out of workspace credits.
+
+## V1.5.0 Closeout: Routing And Observability Contracts
+
+Date: 2026-08-03
+
+Decision:
+
+- Make future direct Investment answers evidence-gated rather than classifying
+  requests as “simple” through hidden deterministic keyword policy.
+- Represent baseline capabilities, summaries, freshness, and evidence refs in
+  a bounded `PortfolioBaselinePacket`.
+- Require an explicit `InvestmentTurnDecision` for direct, Portfolio,
+  Sentiment, combined, or unsupported routing.
+- Keep developer LLM-call telemetry separate from concise user progress, with
+  a provider-neutral schema that can feed MooMail trace and optional LangSmith
+  instrumentation later.
+- Validate the original user request and source-query integrity before any
+  subagent call, and fail closed on empty, unknown-only, or ambiguous planner
+  payloads.
+
+Actual implementation:
+
+- Added baseline, route-decision, LLM-call, user-progress, and trace-grouping
+  contracts plus deterministic direct-answer coverage validation.
+- Hardened Investment and Portfolio structured-output envelope normalization.
+- Promoted trade-intent detection for original-query validation and wired the
+  live Investment validation node to supply the original query.
+- Made explicitly supplied missing OpenD env-file paths fail clearly while
+  preserving defaults when the path is omitted.
+- Added covered/stale/direct/delegated/safety fixtures and regression tests.
+
+Tradeoffs accepted:
+
+- V1.5.0 does not construct the baseline packet, replace the V1.4 graph route,
+  enforce runtime LLM call budgets, connect LangSmith, or change frontend
+  selection/progress. Those remain explicit dependencies in V1.5.1 through
+  V1.5.5.
+- The domain telemetry contract is LangSmith-neutral so MooMail remains the
+  product audit surface and tracing still works when LangSmith is disabled.
+
+Verification:
+
+- Contract/trace tests passed with `74 passed, 1 warning`.
+- Investment/Portfolio planner tests passed with `63 passed`.
+- OpenD configuration tests passed with `6 passed`.
+- Investment/chat/asset regression tests passed with `36 passed, 1 warning`.
+- The full non-live suite passed with `281 passed, 1 warning`.
+- `git diff --check` passed. Live connector tests were not required; Ruff was
+  unavailable in the project virtual environment.
+
+## V1.5.1 Closeout: Deterministic Baseline Portfolio Context
+
+Date: 2026-08-03
+
+Decision:
+
+- Treat baseline context as deterministic application infrastructure, not an
+  agent or semantic query path.
+- Give it a dedicated least-privilege gateway identity with stored SQL reads
+  and deterministic cash calculation, but no OpenD access or SQL writes.
+- Advertise trend/change capabilities only when valid 7-day/30-day anchors are
+  present, with every usable summary tied to a stable evidence ref.
+- Preserve current breakdown eligibility when the latest snapshot is fresh but
+  historical depth is insufficient; shallow history blocks trend capabilities,
+  not unrelated current facts.
+
+Actual implementation:
+
+- Added `PortfolioBaselineService` with capped current allocation,
+  effective-cash, freshness, value-trend, allocation-change, and
+  quantity-change summaries.
+- Added explicit limitations for stale/shallow history, missing anchors,
+  unsupported quotes, unavailable SQL, and the absence of live OpenD refresh.
+- Corrected SQL latest-state reconstruction so configured cash sweep and
+  cash-equivalent holdings retain their distinct deterministic semantics.
+- Added lazy ChatService access for V1.5.2 without changing the current
+  Investment graph or frontend.
+
+Tradeoffs accepted:
+
+- History reads use fixed row caps and top-N output rather than arbitrary user
+  windows or complete holdings history.
+- Seven-day and 30-day anchors allow small calendar tolerances for sparse
+  on-demand snapshots; the actual start/end timestamps remain in the facts.
+- V1.5.1 does not activate one-call direct answers. That remains V1.5.2 work.
+
+Verification:
+
+- Baseline tests passed with `18 passed`.
+- Portfolio data-service tests passed with `9 passed, 1 warning`.
+- Chat tests passed with `13 passed, 1 warning`.
+- Gateway/metric support tests passed with `11 passed`.
+- The full non-live suite passed with `303 passed, 1 warning`.
+- `git diff --check` passed. Live tests were intentionally not run; Ruff was
+  unavailable in the project virtual environment.
+
+## V1.5.2 Closeout: Investment Default And Strict Evidence Routing
+
+Date: 2026-08-03
+
+Decision:
+
+- Make Investment Agent the only public web-chat entrypoint. Browser requests
+  carry only the query; legacy Portfolio names remain backend compatibility
+  aliases that resolve to Investment with deprecation provenance.
+- Load the deterministic baseline before the first model call and use one
+  structured Investment turn for both route selection and the direct answer.
+- Permit direct output only after deterministic original-query safety,
+  `source_query` integrity, planner normalization, evidence-ref, freshness, and
+  requested-window validation.
+- Convert failed direct coverage only to the planner-supplied bounded fallback;
+  otherwise return an explicit limitation. Deterministic policy does not infer
+  a replacement mission from keywords.
+
+Actual implementation:
+
+- Added a baseline node and conditional direct/Portfolio/Sentiment branches to
+  the live LangGraph Investment runtime.
+- Added the baseline-aware `plan_turn()` prompt/output path while retaining the
+  V1.4 plan method only for injected compatibility callers.
+- Added guarded direct `FinalReport` construction with actual baseline `as_of`,
+  cited refs, selected summaries, and visible stored-data limitations.
+- Added sanitized planned/validated decisions, evidence coverage, LLM-call
+  records/count, route reasons, and fallback provenance to state and chat
+  responses.
+- Removed the frontend selector and agent payload; both chat HTTP routes ignore
+  any client-supplied agent field.
+
+Tradeoffs accepted:
+
+- This task counts and proves the one Investment LLM request on direct routes.
+  V1.5.3 still owns deterministic Portfolio evidence compilation and the full
+  delegated two-call budget; V1.5.4 owns complete cross-agent/provider telemetry
+  and LangSmith spans.
+- V1.4 `InvestmentPlan`/`InvestmentQueryPlan` projections remain temporarily for
+  downstream report and injected-test compatibility, but they do not control
+  public routing or enable direct answers.
+
+Verification:
+
+- Investment planner/agent tests passed with `54 passed, 1 warning`.
+- Chat/trace tests passed with `22 passed, 1 warning`.
+- Investment guardrail tests passed with `6 passed`.
+- The full non-live suite passed with `331 passed, 1 warning`.
+- `git diff --check` passed. Live connector/model tests were intentionally not
+  run; Ruff was unavailable in the project virtual environment.
+
+## V1.5.3 Closeout: Portfolio Escalation And LLM Call Budget
+
+Date: 2026-08-05
+
+Decision:
+
+- Treat the Investment Agent's validated `PortfolioRequest` as the semantic
+  mission. Portfolio evidence planning is now exhaustive deterministic
+  compilation, not another model interpretation of the user query.
+- Require `analysis_requirement` on the validated request. Mechanical facts,
+  metrics, and scoped changes may skip Portfolio analysis; detailed review,
+  risk, comparison, and pattern work requires one bounded analysis call.
+- Enforce model-call budgets by purpose and route. Normal detailed delegation is
+  one Investment decision plus at most one Portfolio analysis call. No implicit
+  retry is permitted.
+
+Actual implementation:
+
+- Added deterministic task/output-goal mappings, asset resolution, request and
+  plan validation, freshness/current-value policy, persistence, and detectors.
+- Removed `LLMPortfolioEvidencePlanner` construction from the normal Portfolio
+  runtime while retaining its fail-closed compatibility/test surface.
+- Built deterministic evidence before optional interpretation and added
+  expected/actual call counts plus provider-neutral call records to Portfolio
+  results and Investment state.
+- Rejected unplanned purpose-level calls or totals above two with sanitized
+  route/budget errors. Evaluator failure occurs before current-observation
+  persistence, so prior dashboard/history state remains authoritative.
+
+Tradeoffs accepted:
+
+- `analysis_requirement` defaults conservatively to interpretation for older
+  serialized requests. New Investment prompts and fixtures make the decision
+  explicit so deterministic-only savings do not silently weaken detailed work.
+- Full provider usage telemetry and LangSmith spans remain V1.5.4; V1.5.3
+  records safe provider/model/timing/status data available at this boundary.
+
+Verification:
+
+- Exact final commands and counts are recorded in the V1.5.3 task file and
+  `TESTING.md`.
+- Live OpenD and hosted model tests were not required for this deterministic
+  compiler and fake-provider budget gate.
+
+## V1.5.4 Closeout: LangSmith And MooMail Trace Instrumentation
+
+Date: 2026-08-05
+
+Decision:
+
+- Keep MooMail lifecycle trace independent from LangSmith and instrument every
+  model request at one provider-neutral generation boundary.
+- Create LangSmith root, named-node, and custom LLM spans manually from safe
+  metadata instead of enabling automatic graph-state export.
+- Treat Portfolio status/tool activity as a live nested child run and use final
+  result adaptation only as a compatibility fallback.
+- Keep diagnostic checkpointing off by default; retain only redacted summaries
+  after each run and purge transient raw in-memory checkpoints.
+
+Actual implementation:
+
+- Added Gemini/OpenAI usage extraction plus started/completed/failed MooMail
+  lifecycle events for Investment, Portfolio, and compatibility model calls.
+- Added explicit LangSmith config/project/sampling, stable graph run/thread
+  config, an allowlisted external processor, a no-network sink, and exporter
+  failure isolation.
+- Forwarded Portfolio compiler, tool, evaluator, warning, and error statuses
+  live with `child_run_id`, including duplicate suppression.
+- Added opt-in LangGraph checkpoint summaries with retained-thread bounds and
+  cleanup, and exposed `thread_id` in Investment state/chat responses.
+
+Tradeoffs accepted:
+
+- Manual spans duplicate a small amount of graph naming code, but prevent raw
+  financial state and prompts from reaching generic automatic callbacks.
+- Current diagnostic checkpoints are process-local and inspection-oriented,
+  not resumable durable conversation memory. Durable production persistence
+  requires a separately reviewed encrypted store and retention policy.
+- Hosted LangSmith validation remains an opt-in environment check; deterministic
+  closeout uses the same sink contract with no network.
+
+Verification:
+
+- Required observability gates passed with `15`, `61`, and `15` tests.
+- The full non-live suite passed with `369 passed, 1 warning`.
+- Runtime compilation and `git diff --check` passed. Hosted LangSmith/model and
+  live OpenD tests were intentionally not run.
+
+## V1.5.5 Closeout: Frontend Trace, Evaluation, And Release Gate
+
+Date: 2026-08-05
+
+Decision:
+
+- Keep internal trace detail separate from user progress. Chat uses a fixed
+  ordered presentation vocabulary; the expandable audit view retains every
+  sanitized source event.
+- Group repeated planned/actual/skipped tools by outcome without treating the
+  grouped view as the canonical audit record.
+- Preserve the deterministic dashboard unless a final analytical report has no
+  terminal failure and passes guardrails with a non-blocked output.
+- Treat LangSmith export and checkpoint-finalization failures as developer
+  observability degradation, not analytical failure. The answer remains visible
+  in chat/audit detail, but that run does not replace the deterministic
+  dashboard.
+
+Designed versus actual:
+
+- Designed ordinary baseline-covered questions use one Investment model call;
+  the golden matrix confirms one total call and no Portfolio subagent call.
+- Designed detailed interpretation uses at most two total model calls; runtime
+  purpose budgets and tests confirm one Investment planning call plus at most
+  one Portfolio analysis call. Deterministic-only escalation remains one total
+  call.
+- The local browser evaluation used a change query that required bounded
+  deterministic Portfolio history evidence. It displayed seven ordered progress
+  stages, one recorded model call, 15 planned/15 actual/0 skipped grouped tools,
+  and no raw internal status prefix.
+
+Actual implementation:
+
+- Added canonical `progress_events` and `trace_summary` response fields plus a
+  per-stream-event optional `progress` projection.
+- Replaced raw status bubbles and raw JSON trace presentation with merged
+  progress and accessible expandable route, graph, LLM, tool, warning/error,
+  guardrail, provenance, and source-event sections.
+- Added terminal-status and guarded-success checks in the frontend. Errors add
+  chat/audit detail while leaving title, holdings, allocation, and evaluation
+  untouched.
+- Added safe nonfatal observability warnings and checkpoint-finalization
+  isolation.
+
+Verification:
+
+- All required targeted commands passed with counts recorded in the task file
+  and `TESTING.md`.
+- The full non-live suite passed with `375 passed, 1 warning`.
+- JavaScript syntax, interactive browser behavior/accessibility, and
+  `git diff --check` passed.
+- Hosted LangSmith/model and live OpenD tests were intentionally not run.
+
+Remaining limitations:
+
+- The trace panel is a local product audit surface, not durable multi-user audit
+  storage. Diagnostic checkpoints remain process-local and opt-in.
+- Sentiment Agent and durable memory remain future work. V1.5 adds no trading or
+  order-preparation capability.
 
 ## Future Update Template
 

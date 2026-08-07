@@ -15,6 +15,7 @@
     "time_range": "90d",
     "freshness_requirement": "history_only",
     "output_goals": ["snapshot", "position_changes", "portfolio_patterns"],
+    "analysis_requirement": "interpretation_required",
     "source_query": "What price did I buy my recent AMZN shares at?",
     "warnings": []
   },

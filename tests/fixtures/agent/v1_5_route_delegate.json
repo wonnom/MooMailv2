@@ -1,0 +1,21 @@
+{
+  "route": "delegate_portfolio",
+  "route_reasons": ["cost_basis_required"],
+  "required_evidence": ["top_position_changes_7d"],
+  "cited_evidence_refs": [],
+  "missing_evidence": ["top_position_changes_7d"],
+  "direct_answer": null,
+  "portfolio_request": {
+    "task_intent": "what_changed",
+    "asset_hints": [{"raw_input": "AMZN"}],
+    "time_range": "90d",
+    "freshness_requirement": "history_only",
+    "output_goals": ["position_changes"],
+    "analysis_requirement": "deterministic_only",
+    "source_query": "What price did I buy my recent AMZN shares at?",
+    "warnings": []
+  },
+  "fallback_portfolio_request": null,
+  "sentiment_task": null,
+  "warnings": []
+}

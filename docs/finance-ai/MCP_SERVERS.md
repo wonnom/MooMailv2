@@ -37,6 +37,9 @@ Current implementation reality:
 - `PortfolioDataService` uses the gateway with consumer
   `dashboard_refresh` for deterministic status, dashboard, refresh, metrics,
   and SQL update flows.
+- `PortfolioBaselineService` uses consumer `portfolio_baseline` for bounded SQL
+  latest/history reads and deterministic cash-weight calculation before the
+  live Investment planning turn. It still cannot call OpenD or SQL writes.
 - `PortfolioAgent` uses the gateway with consumer `portfolio_agent`.
 - `InvestmentAgent` receives a gateway-backed Portfolio Agent through its
   default builder.
@@ -95,6 +98,7 @@ Gateway permissions include these consumer identities:
 | Consumer | Allowed MCP servers | Notes |
 | --- | --- | --- |
 | `dashboard_refresh` | OpenD, finance metrics, portfolio SQL | Deterministic backend service for status/refresh/dashboard state. |
+| `portfolio_baseline` | Finance cash-weight metric and portfolio SQL read tools | No OpenD and no SQL writes; deterministic context loaded before live Investment planning. |
 | `portfolio_agent` | OpenD, finance metrics, portfolio SQL | Agentic portfolio analysis. |
 | `investment_agent` | Portfolio SQL, finance metrics by default | No direct OpenD by default; live portfolio access goes through Portfolio Agent. |
 | `sentiment_agent` | Finance metrics for now | Future research MCP will be added separately. |
@@ -299,27 +303,31 @@ The MCP-backed Portfolio Agent calls:
   position-state upserts, allocation weight history, data-quality events, and
   history status.
 - A provider-neutral LLM evaluator for portfolio-only evaluation after
-  deterministic tools finish. Gemini and OpenAI adapters are supported; Gemini is
-  the current default.
+  deterministic tools finish, only when the bounded request requires
+  interpretation. Gemini and OpenAI adapters are supported; Gemini is the
+  current default.
 
 The LLM evaluator receives the collected portfolio packet but does not decide
 which MCP tools to call.
 
-The Portfolio Agent uses a bounded-planning deterministic path:
+The Portfolio Agent uses a bounded deterministic compilation path:
 
-1. Accept a bounded `PortfolioRequest` when supplied, or use the explicit
-   keyword fallback planner for legacy `PortfolioTask` callers.
+1. Accept a bounded, validated `PortfolioRequest`; direct free-text Portfolio
+   planning remains unavailable.
 2. Resolve logical asset hints against supplied portfolio candidates.
-3. Produce a `PortfolioEvidencePlan` with allowlisted history queries, metric
-   groups, freshness/current-value dependency, persistence mode, and pattern
-   detectors.
+3. Compile a `PortfolioEvidencePlan` through exhaustive deterministic mappings
+   for allowlisted history queries, metric groups, freshness/current-value
+   dependency, persistence mode, and pattern detectors.
 4. Execute the evidence plan through deterministic freshness/tool policy:
    `latest_required` calls OpenD, `cached_ok` can use fresh SQL latest state,
    and `history_only` avoids OpenD.
 5. Execute the selected MCP tools deterministically through the permissioned
    gateway.
-6. Return a separated `PortfolioEvidencePacket` plus compatibility portfolio
-   packet fields and candidate sentiment scope.
+6. Assemble a separated `PortfolioEvidencePacket` before interpretation.
+7. Skip the evaluator for `deterministic_only`, or make at most one Portfolio
+   analysis call for `interpretation_required`.
+8. Return compatibility portfolio packet fields, call counts, and candidate
+   sentiment scope.
 
 Portfolio Agent must not call Sentiment Agent. It may suggest sentiment
 candidates; Investment Agent decides whether to invoke the Sentiment Agent.
@@ -342,6 +350,8 @@ Current planner behavior:
   explicit limitations.
 - `PortfolioAgentResult.tool_calls` records planned, actual, and skipped tool
   entries so traces show why a tool did or did not run.
+- `PortfolioAgentResult.llm_calls`, expected/actual purpose counts, and total
+  count expose the conditional analysis call without storing prompts.
 
 Portfolio Agent persistence sequence:
 
@@ -359,7 +369,8 @@ Portfolio Agent persistence sequence:
 7. Store unsupported quote, missing data, and cash-sweep assumptions as
    `data_quality_events`.
 8. Read history status/growth/allocation context from SQL MCP.
-9. Pass current snapshot plus lean historical context to the LLM evaluator.
+9. Pass current snapshot plus lean historical context to the LLM evaluator only
+   for an interpretation-required handoff and within the one-call budget.
 
 Run it against live OpenD and Gemini:
 
@@ -411,3 +422,11 @@ Run the full project suite:
 ```
 
 For the full test responsibility map, see [TESTING.md](TESTING.md).
+
+## V1.5 Frontend Trace Boundary
+
+V1.5.5 does not add or broaden MCP permissions. The user-facing progress mapper
+consumes sanitized agent trace events, while the expandable detail view groups
+the already-bounded planned/actual/skipped tool records. The full sanitized
+source records remain available for audit. Dashboard status/latest/refresh
+continues to use the deterministic data lane and never invokes an agent or LLM.

@@ -20,6 +20,7 @@
       "performance_context",
       "portfolio_patterns"
     ],
+    "analysis_requirement": "interpretation_required",
     "source_query": "What price did I buy my recent AMZN shares at?",
     "warnings": []
   },

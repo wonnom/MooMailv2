@@ -58,8 +58,14 @@ def load_opend_config(
     env_file: str | Path | None = None,
 ) -> OpenDConfig:
     merged = dict(os.environ if env is None else env)
-    if env_file is not None and Path(env_file).expanduser().exists():
-        merged.update(load_env_file(env_file))
+    if env_file is not None:
+        env_path = Path(env_file).expanduser()
+        if not env_path.exists():
+            raise FileNotFoundError(
+                "Explicit OpenD environment file not found: "
+                f"{env_path}. Omit env_file to use documented defaults."
+            )
+        merged.update(load_env_file(env_path))
 
     return OpenDConfig(
         host=merged.get("MOOMAIL_OPEND_HOST", "127.0.0.1"),

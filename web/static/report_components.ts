@@ -78,62 +78,125 @@ export function renderState(state: ChatState): void {
   renderTrace(state, report);
 }
 
-function renderTrace(state: ChatState, report: FinalReport): void {
+export function renderTrace(state: ChatState, report: FinalReport): void {
   const analysis = report.portfolio_analysis ?? {};
-  ui.traceOutput.textContent = JSON.stringify(
-    {
-      run_id: state.run_id,
-      agent_type: state.agent_type,
-      mode: state.mode,
-      status_events: state.status_events,
-      investment_plan: state.investment_plan ?? null,
-      query_plan: state.query_plan ?? null,
-      portfolio_packet: state.portfolio_packet ?? null,
-      sentiment_packet: state.sentiment_packet ?? report.sentiment_analysis ?? null,
-      synthesis: state.synthesis ?? null,
-      guardrail_result: state.guardrail_result,
-      final_report: {
-        title: report.title,
-        mode: report.mode,
-        summary: report.summary,
-        assumptions: report.assumptions ?? [],
-        missing_data: report.missing_data ?? [],
-        recommendations: report.recommendations ?? [],
-      },
-      effective_cash: analysis.effective_cash ?? null,
-      portfolio_storage: analysis.storage_result ?? null,
-      history_context: analysis.history_context ?? null,
-      tool_calls: analysis.tool_calls ?? [],
+  const trace = state.trace_summary ?? {
+    run_id: state.run_id,
+    route: {
+      decision: state.validated_turn_decision?.route ?? state.turn_decision?.route ?? null,
+      reasons:
+        state.validated_turn_decision?.route_reasons ?? state.turn_decision?.route_reasons ?? [],
+      coverage: state.evidence_coverage ?? {},
     },
-    null,
-    2,
-  );
+    graph: { nodes: [], subagents: [] },
+    llm: {
+      total_calls: state.total_llm_calls ?? state.llm_calls?.length ?? 0,
+      calls: state.llm_calls ?? [],
+    },
+    tools: {},
+    warnings: [],
+    errors: [],
+    source_events: state.status_events,
+  };
+  ui.traceOutput.replaceChildren();
+  appendTraceOverview(trace);
+  appendTraceSection("Route and coverage", trace.route ?? {});
+  appendTraceSection("Data context", trace.data_context ?? {});
+  appendTraceSection("Graph nodes and subagents", trace.graph ?? {});
+  appendTraceSection("Model calls", trace.llm ?? {});
+  appendToolGroups(trace.tools ?? {});
+  appendTraceSection("Warnings and errors", {
+    warnings: trace.warnings ?? [],
+    errors: trace.errors ?? [],
+  });
+  appendTraceSection("Guardrails", trace.guardrails ?? state.guardrail_result ?? {});
+  appendTraceSection("Full sanitized source events", trace.source_events ?? state.status_events);
+  appendTraceSection("Report provenance", {
+    effective_cash: analysis.effective_cash ?? null,
+    portfolio_storage: analysis.storage_result ?? null,
+    history_context: analysis.history_context ?? null,
+    assumptions: report.assumptions ?? [],
+    missing_data: report.missing_data ?? [],
+  });
+}
+
+function appendTraceOverview(trace: NonNullable<ChatState["trace_summary"]>): void {
+  const overview = document.createElement("dl");
+  overview.className = "trace-overview";
+  const route = String(trace.route?.decision ?? "not available").replaceAll("_", " ");
+  const totalCalls = String(trace.llm?.total_calls ?? 0);
+  appendDefinition(overview, "Run", trace.run_id);
+  appendDefinition(overview, "Route", route);
+  appendDefinition(overview, "Model calls", totalCalls);
+  ui.traceOutput.appendChild(overview);
+}
+
+function appendDefinition(list: HTMLDListElement, label: string, value: string): void {
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  detail.textContent = value;
+  list.append(term, detail);
+}
+
+function appendTraceSection(label: string, value: unknown): void {
+  const details = document.createElement("details");
+  details.className = "trace-section";
+  const summary = document.createElement("summary");
+  summary.textContent = label;
+  const body = document.createElement("pre");
+  body.textContent = JSON.stringify(value, null, 2);
+  details.append(summary, body);
+  ui.traceOutput.appendChild(details);
+}
+
+function appendToolGroups(
+  tools: NonNullable<NonNullable<ChatState["trace_summary"]>["tools"]>,
+): void {
+  const section = document.createElement("section");
+  section.className = "trace-tool-groups";
+  const heading = document.createElement("h3");
+  heading.textContent = "Portfolio tool activity";
+  section.appendChild(heading);
+  for (const [label, group] of Object.entries(tools)) {
+    const details = document.createElement("details");
+    details.className = "trace-section";
+    const summary = document.createElement("summary");
+    summary.textContent = `${group.count} ${label}`;
+    const body = document.createElement("pre");
+    body.textContent = JSON.stringify(group.items, null, 2);
+    details.append(summary, body);
+    section.appendChild(details);
+  }
+  ui.traceOutput.appendChild(section);
 }
 
 function addReasoningSummary(state: ChatState, report: FinalReport): void {
+  if (state.agent_type === "deterministic_portfolio_data_lane") return;
   const analysis = report.portfolio_analysis ?? {};
   const plan = state.query_plan;
   const parts: string[] = [];
-  if (plan?.route_reason) {
-    parts.push(plan.route_reason);
+  const route = state.validated_turn_decision?.route ?? state.turn_decision?.route;
+  if (route === "direct_context") {
+    parts.push("Answered from saved portfolio data; no Portfolio Agent lookup was needed.");
+  } else if (route?.startsWith("delegate_")) {
+    const reasons = state.validated_turn_decision?.route_reasons ?? [];
+    const reasonText = reasons.map((reason) => reason.replaceAll("_", " ")).join(" and ");
+    parts.push(
+      `Requested bounded supporting detail${reasonText ? ` for ${reasonText}` : ""}.`,
+    );
+  } else if (plan?.route_reason) {
+    parts.push(plan.route_reason.replaceAll("_", " "));
   } else {
     parts.push(`Completed ${state.agent_type} run in ${state.mode || report.mode} mode.`);
   }
 
-  if (plan) {
-    parts.push(`Portfolio Agent ${plan.needs_portfolio_agent ? "called" : "not needed"}.`);
+  if (plan?.needs_sentiment_agent) {
     const sentimentStatus = state.sentiment_packet?.retrieval_status;
-    parts.push(
-      plan.needs_sentiment_agent
-        ? `Sentiment Agent requested${sentimentStatus ? ` (${sentimentStatus})` : ""}.`
-        : "Sentiment Agent not needed.",
-    );
+    parts.push(`Sentiment evidence requested${sentimentStatus ? ` (${sentimentStatus.replaceAll("_", " ")})` : ""}.`);
   }
 
-  const evaluation = analysis.evaluation as { summary?: string } | undefined;
-  if (evaluation?.summary) {
-    parts.push(`Portfolio evaluator: ${evaluation.summary}`);
-  }
+  parts.push(`${state.total_llm_calls ?? state.llm_calls?.length ?? 0} model call(s) recorded.`);
 
   const history = analysis.history_context as
     | { history_status?: { snapshot_count?: number } }
@@ -143,21 +206,11 @@ function addReasoningSummary(state: ChatState, report: FinalReport): void {
     parts.push(`SQL history snapshots reviewed: ${snapshotCount}.`);
   }
 
-  const guardrailChecks = state.guardrail_result?.checks ?? [];
-  if (guardrailChecks.length > 0) {
-    const guardrailSummary = guardrailChecks
-      .map((check) => `${check.check} ${check.passed ? "passed" : "failed"}`)
-      .join(", ");
-    parts.push(`Guardrails: ${guardrailSummary}.`);
-  } else if (state.guardrail_result) {
+  if (state.guardrail_result) {
     parts.push(`Guardrails ${state.guardrail_result.passed ? "passed" : "blocked"}.`);
   }
 
-  if (report.assumptions?.length) {
-    parts.push(`Assumptions: ${report.assumptions.slice(0, 2).join(" ")}`);
-  }
-
-  addAgentMessage(`Reasoning summary: ${parts.join(" ")}`, "reasoning");
+  addAgentMessage(`Run summary: ${parts.join(" ")}`, "reasoning");
 }
 
 export function isPortfolioSnapshot(value: unknown): value is PortfolioSnapshot {

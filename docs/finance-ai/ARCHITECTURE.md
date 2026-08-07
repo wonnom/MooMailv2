@@ -13,10 +13,11 @@ Current portfolio-analysis flow:
 ```text
 User query
   -> Portfolio Agent workflow
+      -> deterministic PortfolioEvidencePlan compilation
       -> OpenD/MooMoo read-only current portfolio data
       -> canonical local SQL portfolio history
       -> deterministic finance metrics
-      -> portfolio-only LLM evaluator
+      -> optional one-call portfolio-only LLM evaluator when interpretation is required
   -> terminal or local frontend output
 ```
 
@@ -24,11 +25,13 @@ Current investment-analysis flow:
 
 ```text
 User query
-  -> Thin LangGraph Investment Agent supervisor
-      -> classify/query plan
-      -> call Portfolio Agent bounded-planning path when needed
+  -> deterministic saved portfolio baseline
+  -> LangGraph Investment Agent supervisor
+      -> one structured Investment LLM decision/direct-answer turn
+      -> deterministic safety, source-integrity, and evidence-coverage validation
+      -> answer directly from cited baseline evidence when covered
+      -> otherwise call Portfolio Agent through a bounded request when needed
       -> call Sentiment Agent stub when needed
-      -> synthesize answer
       -> run guardrails
   -> terminal or local frontend output
 ```
@@ -46,6 +49,8 @@ than ahead of them.
   `finance-ai` console script.
 - Deterministic portfolio data service:
   `src/moomail_finance_ai/portfolio_data_service.py`.
+- Deterministic Investment baseline service:
+  `src/moomail_finance_ai/portfolio_baseline.py`.
 - Investment Agent: `src/moomail_finance_ai/investment_agent.py`.
 - Portfolio Agent: `src/moomail_finance_ai/portfolio_agent.py`.
 - Sentiment stub: `src/moomail_finance_ai/sentiment_agent_stub.py`.
@@ -84,22 +89,26 @@ Implemented graph:
 InvestmentAgentGraph
   -> receive_user_query
   -> load_investment_policy
-  -> plan_investment with typed InvestmentPlan
-  -> validate_investment_plan
-  -> portfolio_agent_bounded_path when portfolio context is needed
-  -> sentiment_agent_stub when research context is needed
+  -> load deterministic PortfolioBaselinePacket
+  -> plan one typed InvestmentTurnDecision/direct answer
+  -> validate original-query safety, source integrity, and evidence coverage
+      ├── direct_context -> guarded baseline-cited final report
+      ├── delegate_portfolio/delegate_both -> bounded Portfolio Agent path
+      ├── delegate_sentiment -> Sentiment Agent stub
+      └── unsupported -> explicit limitation
   -> synthesize_answer
   -> guardrail_review
   -> emit_final_output
 ```
 
-The Portfolio Agent now has a bounded-planning Python path. It can accept a
-bounded V1.4 `PortfolioRequest`, resolve logical asset hints, produce a
-`PortfolioEvidencePlan`, enforce deterministic freshness/tool policy, then
-execute selected MCP tools and assemble a separated `PortfolioEvidencePacket`.
-Existing query/`PortfolioTask` behavior is preserved as an explicit fallback
-planner with compatibility result fields. Full review and deep-dive
-tasks keep broad review context; cash/allocation fact tasks can skip broad SQL
+The Portfolio Agent now has a bounded deterministic compilation path. It accepts
+a validated `PortfolioRequest`, resolves logical asset hints, compiles a
+`PortfolioEvidencePlan`, enforces deterministic freshness/tool policy, then
+executes selected MCP tools and assembles a separated `PortfolioEvidencePacket`
+before optional interpretation. `analysis_requirement=deterministic_only`
+skips the evaluator; `interpretation_required` permits one Portfolio analysis
+call. The former V1.4 LLM evidence planner is compatibility/test-only. Full
+review and deep-dive tasks keep broad review context; cash/allocation fact tasks can skip broad SQL
 history and persistence; and what-changed tasks request portfolio growth plus
 allocation/position-state history. This is not yet a separate compiled LangGraph
 subgraph. It should not call the Sentiment Agent. It can return candidate
@@ -115,12 +124,16 @@ The Investment Agent passes its V1.4 `PortfolioRequest` into the Portfolio
 Agent at runtime and still exposes the older `query_plan`/`PortfolioTask`
 compatibility fields for reports and tests.
 
+Investment and Portfolio call records are combined in terminal state. A normal
+detailed delegation is limited to one Investment decision plus one Portfolio
+analysis call; an unplanned purpose-level call or retry is rejected and traced.
+
 Current non-goals:
 
 - no real GraphRAG retrieval
 - no Pinecone memory retrieval or writes
 - no real research/memory MCP tools inside the agent loop yet
-- no LLM planner for query classification or tool selection
+- no LLM selection of exact SQL/OpenD/metric tool sequences
 - no rich LLM synthesis at the Investment Agent layer
 - no trade execution or executable order-preparation path
 
@@ -207,6 +220,13 @@ This split is important: dashboard freshness is an application responsibility,
 while analytical reasoning is an agent responsibility. The dashboard should not
 wait for an LLM or agent planner to decide that OpenD data is needed.
 
+V1.5.1 adds a read-only baseline path beside the dashboard service. It reads
+the same stored SQL snapshot reconstruction plus bounded value, allocation, and
+position history, and calls only deterministic cash-weight metrics. It never
+refreshes OpenD or mutates dashboard/history state. `ChatService` exposes the
+packet. V1.5.2 now loads that packet before the first Investment LLM turn and
+uses deterministic coverage validation before any subagent branch.
+
 Implementation note: both lanes call MCP through
 `MCPToolGateway`. The deterministic lane uses consumer `dashboard_refresh`; the
 Portfolio Agent uses consumer `portfolio_agent`; the Investment Agent still
@@ -290,6 +310,7 @@ The MCP gateway must enforce consumer-specific permissions:
 | Consumer | Allowed MCP access | Notes |
 | --- | --- | --- |
 | `dashboard_refresh` | OpenD status/context, finance metrics, portfolio SQL history update/read needed for dashboard state | Deterministic, no LLM, no agent planner. |
+| `portfolio_baseline` | Portfolio SQL latest/history reads and deterministic cash-weight metric only | Read-only bounded context; no OpenD, SQL writes, agents, or LLM. |
 | `portfolio_agent` | OpenD, finance metrics, and portfolio SQL tools needed for portfolio analysis | Agentic lane; still read-only/analysis-only. |
 | `investment_agent` | Portfolio SQL and finance metrics by default; no direct OpenD by default | Should call Portfolio Agent for live portfolio retrieval unless this is deliberately changed later. |
 | `sentiment_agent` | Finance metrics only until research MCP exists | Future GraphRAG/research MCP will have its own permission profile. |
@@ -809,6 +830,19 @@ summaries, sentiment stub status, guardrail outcome, and sanitized errors. It
 does not expose hidden chain-of-thought, raw prompts, secrets, API keys, raw
 broker account IDs, or scratchpad fields.
 
+V1.5.4 adds a separate `observability.py` boundary. The Investment LangGraph is
+invoked with stable run/thread correlation and creates manually sanitized root
+and named-node spans; custom `urllib` model requests create `run_type="llm"`
+children. This deliberate manual boundary prevents automatic graph callbacks
+from exporting raw Pydantic state, user prompts, IPS content, or portfolio
+values. LangSmith is explicitly enabled/sampled and failure-isolated, while
+MooMail trace remains the always-on product audit surface.
+
+Optional diagnostic checkpointing uses LangGraph's in-memory saver only during
+an active run. Raw transient checkpoints are purged at completion; bounded
+state summaries remain available by `thread_id`, subject to a configured
+retained-thread cap and explicit cleanup.
+
 ## Frontend Direction
 
 The frontend started as a delayed concern, but a dependency-light local chat UI
@@ -831,11 +865,18 @@ Current local UI:
 
 - Uses `scripts/serve_chat.py`.
 - Sends chat requests to `/api/chat/stream`.
-- Streams status events into the chat rail.
+- Exposes Investment Agent as the only public chat entrypoint; no agent selector
+  or agent field is sent by the browser.
+- Maps detailed status events into a fixed ordered set of plain-language
+  progress stages; repeated internal success noise is merged by stage.
 - Renders portfolio evaluation, allocation, missing data, sentiment, citations,
   and trace panels.
-- Displays guardrail result and sanitized Agent trace events from the final
-  response payload.
+- Displays guardrail result and an expandable sanitized audit projection with
+  route/coverage, graph/subagents, model calls, grouped tools, warnings/errors,
+  guardrails, and full sanitized source events.
+- Preserves the last deterministic dashboard for planner, Portfolio, stream,
+  tracing, and checkpoint failures. Only a guarded successful analytical report
+  may replace it.
 
 Structured panels planned for later:
 
